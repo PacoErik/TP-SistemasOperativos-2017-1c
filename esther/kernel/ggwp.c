@@ -5,4 +5,12 @@
  *      Author: utnso
  */
 
+int main() {
 
+	while(1) {
+		printf("\n", "les molesta si me juego un counter?");
+	};
+
+	return 1;
+
+}
