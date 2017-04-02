@@ -79,41 +79,38 @@ int main(void) {
 
 	int cliente = socket(AF_INET, SOCK_STREAM, 0);
 
-	int servidor = connect(cliente, (void*) &direccionServidor, sizeof(direccionServidor));
+	int servidor = connect(cliente, (struct sockaddr *) &direccionServidor, sizeof(direccionServidor));
 
 	if (servidor != 0) {
-		perror("No se pudo conectar");
+		printf("No se pudo conectar al servidor\n");
 		return 1;
 
 	}
+	int buffersize = 256;
+	char buffer[buffersize];
+	int i;
+	for (i=0;i<buffersize;i++){
+		buffer[i]='\0';
+	}
+	while(1){
+		printf("Escribir mensaje: ");
+		scanf("%s",&buffer);
 
-	handshake(servidor, CONSOLA);
+		if(send(servidor,&buffer,strlen(buffer),0) < 0){
+			printf("\nNo se pudo enviar el mensaje\n");
+			return 1;
+		}
 
+		if(recv(servidor,buffer,buffersize,0) < 0)
+		{
+			printf("Se terminó la conexión\n");
+			return 1;
+		}
 
+		buffer[buffersize]='\0';
+		printf("Mensaje del servidor: %s\n",buffer);
+	}
 
-
-/*	struct headerDeLosRipeados handy;
-	handy.bytesDePayload = 17;
-	handy.codigoDeOperacion = 20;
-
-	char *buffer;
-	buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
-	serializarHeader(handy, &buffer);
-	printf("IMPRESION DE HANDY SERIALIZADO: %s\n",buffer);
-
-	struct headerDeLosRipeados estenoeshandy;
-	deserializarHeader(&estenoeshandy, buffer);
-
-	printf("IMPRESION DE HANDY DESERIALIZADO: %i %i\n",estenoeshandy.codigoDeOperacion,estenoeshandy.bytesDePayload);
-
-
-	while (1) {
-		char mensaje[1000];
-		//char *mensaje;
-		//mensaje=malloc(1000);
-		scanf("%s", mensaje);
-
-		send(cliente, mensaje, strlen(mensaje), 0);
-	}*/
+	close(servidor);
 	return 0;
 }
