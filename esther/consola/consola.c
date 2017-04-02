@@ -15,26 +15,36 @@
 enum {MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU};
 
 struct headerDeLosRipeados {
-	unsigned short bytesDePayload;
+	/*unsigned */short bytesDePayload;
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
 };
 
+void serializarHeader(struct headerDeLosRipeados header, char **buffer) {
+	//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
+	sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
+	printf("IMPRESION DE HANDY SERIALIZADO: %s\n", *buffer);
+}
+
 void handshake(int servidor, char operacion) {
 	printf("Conectando a servidor 0 porciento\n");
-	printf("Conectando a servidor 23 porciento\n");
+/*	printf("Conectando a servidor 23 porciento\n");
 	sleep(1);
 	printf("Conectando a servidor 55 porciento\n");
 	printf("Conectando a servidor 84 porciento\n");
-	sleep(2);
+	sleep(2);*/
 	struct headerDeLosRipeados handy;
 	handy.bytesDePayload = 0;
 	handy.codigoDeOperacion = operacion;
 
 	char *buffer;
-	buffer = malloc(sizeof(struct headerDeLosRipeados));
-	sprintf(buffer,"%c%i",handy.codigoDeOperacion,handy.bytesDePayload);
+	int buffersize = sizeof(struct headerDeLosRipeados)+1;
+	printf("%i\n",buffersize);
+	buffer = malloc(buffersize);
 
-	send(servidor, (void*)buffer, sizeof(buffer), 0);
+	serializarHeader(handy,&buffer);
+	buffer[buffersize]='\0';
+	printf("%s\n",buffer);
+	send(servidor, (void*)"asdf", buffersize, 0);
 
 	/*int mensaje = recv(servidor, (void *) respuesta, sizeof(respuesta), 0);
 
@@ -50,11 +60,7 @@ void handshake(int servidor, char operacion) {
 	free(buffer);
 }
 
-void serializarHeader(struct headerDeLosRipeados header, char **buffer) {
-	//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
-	sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
-	printf("IMPRESION DE HANDY SERIALIZADO: %s\n", *buffer);
-}
+
 
 void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 	int codigoDeOperacion;
@@ -65,20 +71,28 @@ void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 }
 
 int main(void) {
-/*
+
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
 	direccionServidor.sin_addr.s_addr = inet_addr("127.0.0.1");
-	direccionServidor.sin_port = htons(8080);
+	direccionServidor.sin_port = htons(8081);
+
 	int cliente = socket(AF_INET, SOCK_STREAM, 0);
+
 	int servidor = connect(cliente, (void*) &direccionServidor, sizeof(direccionServidor));
 
 	if (servidor != 0) {
 		perror("No se pudo conectar");
 		return 1;
+
 	}
-	handshake(servidor, CONSOLA);*/
-	struct headerDeLosRipeados handy;
+
+	handshake(servidor, CONSOLA);
+
+
+
+
+/*	struct headerDeLosRipeados handy;
 	handy.bytesDePayload = 17;
 	handy.codigoDeOperacion = 20;
 
@@ -92,7 +106,7 @@ int main(void) {
 
 	printf("IMPRESION DE HANDY DESERIALIZADO: %i %i\n",estenoeshandy.codigoDeOperacion,estenoeshandy.bytesDePayload);
 
-	/*
+
 	while (1) {
 		char mensaje[1000];
 		//char *mensaje;
