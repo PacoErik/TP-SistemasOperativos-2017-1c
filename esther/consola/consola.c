@@ -57,7 +57,7 @@ void handshake(int socket, char operacion) {
 	send(socket, (void*) buffer, buffersize, 0);
 
 	// Recibe lo que responde el servidor
-	char respuesta[6000];
+	char respuesta[1024];
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
@@ -79,24 +79,22 @@ void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 }
 
 int main(void) {
-	int socket_fd;
+	int servidor;
 
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
 	direccionServidor.sin_addr.s_addr = inet_addr("127.0.0.1");
 	direccionServidor.sin_port = htons(8081);
 
-	socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	servidor = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (connect(socket_fd, (struct sockaddr *) &direccionServidor,
-			sizeof(direccionServidor))) {
+	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor))) {
 		printf("No se pudo conectar al servidor\n");
 		return 1;
 	}
 
-	handshake(socket_fd, 1);
+	handshake(servidor, 1);
 
-	/* todo esto funciona, lo comento para testear handshake()
 	int buffersize = 256;
 	char buffer[buffersize];
 	int i;
@@ -105,24 +103,23 @@ int main(void) {
 	}
 
 	while (1) {
-		printf("Escribir mensaje: ");
+		printf("\nEscribir mensaje: ");
 		scanf("%s", buffer);
-		printf("\n %s", buffer);
 
-		if (send(socket_fd, buffer, strlen(buffer), 0) < 0) {
+		if (send(servidor, buffer, strlen(buffer), 0) < 0) {
 			printf("\nNo se pudo enviar el mensaje\n");
 			return 1;
 		}
 
-		if (recv(socket_fd, buffer, buffersize, 0) < 0) {
-			printf("Se terminó la conexión\n");
+		if (recv(servidor, buffer, buffersize, 0) < 0) {
+			printf("\nSe terminó la conexión\n");
 			return 1;
 		}
 
 		buffer[buffersize] = '\0';
-		printf("Mensaje del servidor: %s\n", buffer);
-	}*/
+		printf("\nMensaje del servidor: %s", buffer);
+	}
 
-	close(socket_fd);
+	close(servidor);
 	return 0;
 }
