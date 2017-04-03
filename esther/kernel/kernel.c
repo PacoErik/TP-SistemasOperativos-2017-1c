@@ -10,6 +10,10 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+enum {
+	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+};
+
 struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
@@ -54,6 +58,7 @@ int main(void) {
 		printf("Falló la escucha\n");
 		return 1;
 	}
+
 	printf("Estoy escuchando\n");
 	len = sizeof direccionCliente;
 	int cliente = accept(servidor,(struct sockaddr *)&direccionCliente,&len);
@@ -61,6 +66,7 @@ int main(void) {
 		printf("Falló la conexión a cliente\n");
 		return 1;
 	}
+
 	printf("Cliente conectado\n");
 
 	// Recibir un handshake del cliente conectado
