@@ -21,6 +21,8 @@ struct headerDeLosRipeados {
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
 };
 
+int servidor;
+
 void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 	/*//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
 	 sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
@@ -33,7 +35,7 @@ void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 }
 
 void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0\%\n");
+	printf("Conectando a servidor 0 porciento\n");
 	/*	printf("Conectando a servidor 0 porciento\n");
 	 printf("Conectando a servidor 23 porciento\n");
 	 sleep(1);
@@ -61,7 +63,7 @@ void handshake(int socket, char operacion) {
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		printf("Conectado a servidor 100\%\n");
+		printf("Conectado a servidor 100 porciento\n");
 		printf("Mensaje del servidor: \"%s\"\n", respuesta);
 	}
 	else {
@@ -78,8 +80,103 @@ void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 	header->codigoDeOperacion = *cache;
 }
 
+/*
+ * ↓ PARTE GRAFICA Y SUS FUNCIONES ↓
+ */
+
+void imprimirOpcionesDeConsola() {
+	printf("--------------------\n");
+	printf("\n");
+	printf("BIEVENIDO A LA CONSOLA\n");
+	printf("SUS OPCIONES:\n");
+	printf("\n");
+	printf("1. Iniciar programa AnSISOP\n");
+	printf("2. Finalizar programa AnSISOP\n");
+	printf("3. Desconectar consola\n");
+	printf("4. Enviar mensaje\n");
+	printf("5. Limpiar mensajes\n");
+	printf("6. Mostrar opciones nuevamente\n");
+	printf("\n");
+	printf("--------------------\n");
+}
+
+void iniciarPrograma() {
+	printf("TODO\n");
+} // TODO
+
+void desconectarPrograma() {
+	printf("TODO\n");
+} // TODO
+
+void desconectarConsola() {
+	printf("TODO\n");
+} // TODO
+
+void enviarMensaje() {
+	char mensaje[512];
+	scanf("%s", mensaje);
+	struct headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = sizeof(mensaje);
+	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
+
+	char *headerComprimido;
+	headerComprimido = malloc(sizeof(headerDeMiMensaje));
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+	send(servidor, headerComprimido, strlen(headerComprimido), 0); // Mando el header primero
+	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
+
+	printf("\nMensaje enviado, coloque otra opción. Opcion 6 para más información\n");
+}
+
+void limpiarPantalla() {
+	printf("\033[H\033[J");
+}
+
+void interaccionConsola() {
+	int opcion;
+	imprimirOpcionesDeConsola();
+	while(1) {
+		scanf("%i", &opcion);
+
+		switch(opcion) {
+		case 1 : {
+			iniciarPrograma(); // TODO
+			break;
+		}
+		case 2 : {
+			desconectarPrograma(); // TODO
+			break;
+		}
+		case 3 : {
+			desconectarConsola(); // TODO
+			break;
+		}
+		case 4 : {
+			enviarMensaje();
+			break;
+		}
+		case 5 : {
+			limpiarPantalla();
+			break;
+		}
+		case 6 : {
+			imprimirOpcionesDeConsola();
+			break;
+		}
+		default : {
+			printf("Coloque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+			break;
+		}
+		}
+	}
+}
+
+/*
+ * ↑ PARTE GRAFICA Y SUS FUNCIONES ↑
+ */
+
 int main(void) {
-	int servidor;
 
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
@@ -94,6 +191,8 @@ int main(void) {
 	}
 
 	handshake(servidor, 1);
+
+/*
 
 	int buffersize = 256;
 	char buffer[buffersize];
@@ -119,6 +218,10 @@ int main(void) {
 		buffer[buffersize] = '\0';
 		printf("\nMensaje del servidor: %s", buffer);
 	}
+
+*/
+
+	interaccionConsola();
 
 	close(servidor);
 	return 0;
