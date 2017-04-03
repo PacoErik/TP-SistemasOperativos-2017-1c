@@ -65,10 +65,12 @@ int main(void) {
 
 	// Recibir un handshake del cliente conectado
 
-	int bufferSize = sizeof(direccionServidor);
+	int bufferSize = sizeof(struct headerDeLosRipeados);
+	//printf("%i\n",bufferSize);
 	char *buffer = malloc(bufferSize);
 	int bytesRecibidos;
 	bytesRecibidos = recv(cliente, buffer, bufferSize, 0);
+
 	struct headerDeLosRipeados handyRecibido;
 	deserializarHeader(&handyRecibido, buffer);
 	free(buffer);
@@ -77,21 +79,14 @@ int main(void) {
 
 	// responde al cliente luego de recibir un handshake
 	char *respuesta = "todo piola wachin";
-	if (send(cliente, respuesta, strlen(respuesta), 0) < 0) {
+	if (send(cliente, respuesta, strlen(respuesta)+1, 0) < 0) {
 		printf("No se pudo retransmitir el mensaje\n");
 		return 1;
 	}
+	printf("Saludo enviado\n");
 
-	/* todo esto funciona, lo comento para testear handshake()
-	int buffersize = 256;
-	char buffer[buffersize];
-	int bytesRecibidos;
-	int i;
-	for (i=0; i < buffersize; i++) {
-		buffer[i]='\0';
-	}
 	while(1) {
-		bytesRecibidos = recv(cliente,buffer,buffersize, 0);
+		bytesRecibidos = recv(cliente,buffer,bufferSize, 0);
 		buffer[bytesRecibidos]='\0';
 	    if(bytesRecibidos <= 0){
 	    	printf("Cliente desconectado\n");
@@ -103,7 +98,7 @@ int main(void) {
 			return 1;
 		}
 		printf("Mensaje retransmitido\n");
-	}*/
+	}
 }
 
 
