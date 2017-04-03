@@ -26,12 +26,12 @@ void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 int main(void) {
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
-	direccionServidor.sin_addr.s_addr = INADDR_ANY;
+	direccionServidor.sin_addr.s_addr = htonl(INADDR_ANY);
 	direccionServidor.sin_port = htons(8081);
 
 	struct sockaddr_in direccionCliente;
 
-	int len;
+	socklen_t len;
 
 
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);
@@ -45,20 +45,42 @@ int main(void) {
 		return 1;
 	}
 
+
+	if (listen(servidor, 100) != 0) {
+		printf("Falló la escucha\n");
+		return 1;
+	}
 	printf("Estoy escuchando\n");
-	listen(servidor, 100);
-	/*char *buffer;
-	buffer=malloc(4);*/
-	char buffer[3];
-	int cliente = accept(servidor, &direccionCliente, &len);
+	len = sizeof direccionCliente;
+	int cliente = accept(servidor,(struct sockaddr *)&direccionCliente,&len);
+	if (cliente < 0) {
+		printf("Falló la conexión a cliente\n");
+		return 1;
+	}
+	printf("Cliente conectado\n");
 
-	/*int bytesRecibidos = */recv(cliente, buffer, sizeof(buffer), 0);
-	struct headerDeLosRipeados estenoeshandy;
-	deserializarHeader(&estenoeshandy, buffer);
-
-	printf("el valor del buffer es %s\n", buffer);
-	printf("el valor de estenoeshandy %i, %i", estenoeshandy.bytesDePayload, estenoeshandy.codigoDeOperacion);
-
+	int buffersize = 256;
+	char buffer[buffersize];
+	int bytesRecibidos;
+	int i;
+		for (i=0;i<buffersize;i++){
+			buffer[i]='\0';
+		}
+	while(1) {
+		bytesRecibidos = recv(cliente,&buffer,buffersize-1, 0);
+		buffer[bytesRecibidos]='\0';
+	    if(bytesRecibidos <= 0){
+	    	printf("Cliente desconectado\n");
+	        return 1;
+	    } else {
+	        printf("Mensaje recibido: %s\n", buffer);
+	        if (send(cliente,buffer,strlen(buffer),0) < 0){
+	        	printf("No se pudo retransmitir el mensaje\n");
+	        	return 1;
+	        }
+	        printf("Mensaje retransmitido\n");
+	    }
+	}
 }
 
 
