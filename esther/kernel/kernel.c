@@ -9,27 +9,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
-
-enum {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
-};
-
-struct headerDeLosRipeados {
-	unsigned short bytesDePayload;
-	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-};
-
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	/*int codigoDeOperacion;
-	int bytesDePayload;
-	sscanf(buffer, "%i %i",&codigoDeOperacion, &bytesDePayload);
-	header -> codigoDeOperacion = codigoDeOperacion;
-	header -> bytesDePayload = bytesDePayload;*/
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
-}
+#include "operadores_header_serializador_handshake.h"
 
 int main(void) {
 	struct sockaddr_in direccionServidor;
