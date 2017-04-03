@@ -16,11 +16,15 @@ struct headerDeLosRipeados {
 };
 
 void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	int codigoDeOperacion;
+	/*int codigoDeOperacion;
 	int bytesDePayload;
 	sscanf(buffer, "%i %i",&codigoDeOperacion, &bytesDePayload);
 	header -> codigoDeOperacion = codigoDeOperacion;
-	header -> bytesDePayload = bytesDePayload;
+	header -> bytesDePayload = bytesDePayload;*/
+	short *cache = (short*) buffer;
+	header->bytesDePayload = *cache;
+	cache++;
+	header->codigoDeOperacion = *cache;
 }
 
 int main(void) {
@@ -59,28 +63,47 @@ int main(void) {
 	}
 	printf("Cliente conectado\n");
 
+	// Recibir un handshake del cliente conectado
+
+	int bufferSize = sizeof(direccionServidor);
+	char *buffer = malloc(bufferSize);
+	int bytesRecibidos;
+	bytesRecibidos = recv(cliente, buffer, bufferSize, 0);
+	struct headerDeLosRipeados handyRecibido;
+	deserializarHeader(&handyRecibido, buffer);
+	free(buffer);
+	printf("La cantidad de bytes de Payload es: %u\n", handyRecibido.bytesDePayload);
+	printf("El codigo de operacion es: %d\n", handyRecibido.codigoDeOperacion);
+
+	// responde al cliente luego de recibir un handshake
+	char *respuesta = "todo piola wachin";
+	if (send(cliente, respuesta, strlen(respuesta), 0) < 0) {
+		printf("No se pudo retransmitir el mensaje\n");
+		return 1;
+	}
+
+	/* todo esto funciona, lo comento para testear handshake()
 	int buffersize = 256;
 	char buffer[buffersize];
 	int bytesRecibidos;
 	int i;
-		for (i=0;i<buffersize;i++){
-			buffer[i]='\0';
-		}
+	for (i=0; i < buffersize; i++) {
+		buffer[i]='\0';
+	}
 	while(1) {
-		bytesRecibidos = recv(cliente,&buffer,buffersize-1, 0);
+		bytesRecibidos = recv(cliente,buffer,buffersize, 0);
 		buffer[bytesRecibidos]='\0';
 	    if(bytesRecibidos <= 0){
 	    	printf("Cliente desconectado\n");
 	        return 1;
-	    } else {
-	        printf("Mensaje recibido: %s\n", buffer);
-	        if (send(cliente,buffer,strlen(buffer),0) < 0){
-	        	printf("No se pudo retransmitir el mensaje\n");
-	        	return 1;
-	        }
-	        printf("Mensaje retransmitido\n");
 	    }
-	}
+		printf("Mensaje recibido: %s\n", buffer);
+		if (send(cliente,buffer,strlen(buffer),0) < 0){
+			printf("No se pudo retransmitir el mensaje\n");
+			return 1;
+		}
+		printf("Mensaje retransmitido\n");
+	}*/
 }
 
 
