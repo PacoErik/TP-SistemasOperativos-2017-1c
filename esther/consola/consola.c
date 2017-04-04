@@ -46,7 +46,7 @@ void desconectarConsola() {
 void enviarMensaje() {
 	printf("\nEscribir mensaje: ");
 	char mensaje[512];
-	scanf("%s", mensaje);
+	scanf("%s", &mensaje);
 	struct headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = sizeof(mensaje);
 	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
@@ -79,35 +79,48 @@ void limpiarPantalla() {
 }
 
 void interaccionConsola() {
-	char *opcion;
 	imprimirOpcionesDeConsola();
-	int opcionElecta;
+	char input[3];
 	while(1) {
-		scanf("%s", opcion);
-		opcionElecta = atoi(opcion);
-		switch(opcionElecta) {
-		case 1 : {
+		scanf("%2s", &input);
+
+		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
+		if ( (strlen(input) != 1)
+				|| !isdigit(input[0]) ) {
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+
+			// limpiar buffer de entrada
+			int c;
+			while ( (c = getchar()) != '\n' && c != EOF );
+
+			continue;
+		}
+
+		char opcion = input[0];
+
+		switch(opcion) {
+		case '1' : {
 			iniciarPrograma(); // TODO
 			break;
 		}
-		case 2 : {
+		case '2' : {
 			desconectarPrograma(); // TODO
 			break;
 		}
-		case 3 : {
+		case '3' : {
 			desconectarConsola();
 			break;
 		}
-		case 4 : {
+		case '4' : {
 			enviarMensaje();
 			leerMensaje();
 			break;
 		}
-		case 5 : {
+		case '5' : {
 			limpiarPantalla();
 			break;
 		}
-		case 6 : {
+		case '6' : {
 			imprimirOpcionesDeConsola();
 			break;
 		}
