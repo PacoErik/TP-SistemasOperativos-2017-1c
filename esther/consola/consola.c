@@ -71,7 +71,7 @@ void leerMensaje() {
 		printf("Servidor desconectado\n");
 		exit(0);
 	}
-	printf("\nMensaje recibido: %s",mensaje);
+	printf("\nMensaje recibido: %s\n",mensaje);
 }
 
 void limpiarPantalla() {
