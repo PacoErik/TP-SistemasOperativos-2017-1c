@@ -79,12 +79,13 @@ void limpiarPantalla() {
 }
 
 void interaccionConsola() {
-	int opcion;
+	char *opcion;
 	imprimirOpcionesDeConsola();
+	int opcionElecta;
 	while(1) {
-		scanf("%i", &opcion);
-
-		switch(opcion) {
+		scanf("%s", opcion);
+		opcionElecta = atoi(opcion);
+		switch(opcionElecta) {
 		case 1 : {
 			iniciarPrograma(); // TODO
 			break;
@@ -100,7 +101,6 @@ void interaccionConsola() {
 		case 4 : {
 			enviarMensaje();
 			leerMensaje();
-			interaccionConsola();
 			break;
 		}
 		case 5 : {
@@ -136,7 +136,7 @@ int main(void) {
 		return 1;
 	}
 
-	handshake(servidor, 1);
+	handshake(servidor, CONSOLA);
 
 /*
 
