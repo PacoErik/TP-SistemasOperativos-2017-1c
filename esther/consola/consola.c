@@ -14,7 +14,7 @@ int servidor;
  */
 
 void imprimirOpcionesDeConsola() {
-	printf("--------------------\n");
+	printf("\n--------------------\n");
 	printf("\n");
 	printf("BIEVENIDO A LA CONSOLA\n");
 	printf("SUS OPCIONES:\n");
@@ -44,6 +44,7 @@ void desconectarConsola() {
 }
 
 void enviarMensaje() {
+	printf("\nEscribir mensaje: ");
 	char mensaje[512];
 	scanf("%s", mensaje);
 	struct headerDeLosRipeados headerDeMiMensaje;
@@ -58,6 +59,19 @@ void enviarMensaje() {
 	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
 
 	printf("\nMensaje enviado, coloque otra opción. Opcion 6 para más información\n");
+}
+
+void leerMensaje() {
+	int bytesRecibidos;
+	char mensaje[512];
+	bytesRecibidos = recv(servidor,mensaje,sizeof(mensaje), 0);
+	mensaje[bytesRecibidos]='\0';
+	if(bytesRecibidos <= 0){
+		close(servidor);
+		printf("Servidor desconectado\n");
+		exit(0);
+	}
+	printf("\nMensaje recibido: %s",mensaje);
 }
 
 void limpiarPantalla() {
@@ -80,11 +94,13 @@ void interaccionConsola() {
 			break;
 		}
 		case 3 : {
-			desconectarConsola(); // TODO
+			desconectarConsola();
 			break;
 		}
 		case 4 : {
 			enviarMensaje();
+			leerMensaje();
+			interaccionConsola();
 			break;
 		}
 		case 5 : {
@@ -96,8 +112,7 @@ void interaccionConsola() {
 			break;
 		}
 		default : {
-			printf("Coloque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
-			break;
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 		}
 		}
 	}
