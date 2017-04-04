@@ -5,39 +5,7 @@
  *      Author: utnso
  */
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-
-enum {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
-};
-
-struct headerDeLosRipeados {
-	unsigned short bytesDePayload;
-	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-};
-
-void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	/*//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
-	 sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
-	 printf("IMPRESION DE HANDY SERIALIZADO: %s\n", *buffer);
-	 */
-	short *cache = (short*) buffer;
-	*cache = header->bytesDePayload;
-	cache++;
-	*cache = header->codigoDeOperacion;
-}
-
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
-}
+#include "operadores_header_serializador_handshake.h"
 
 void handshake(int socket, char operacion) {
 	printf("Conectando a servidor 0 porciento\n");
