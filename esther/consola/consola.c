@@ -8,15 +8,16 @@
 #include "operadores_header_serializador_handshake.h"
 #include "commons/log.h"
 #include "commons/config.h"
-#include "commons/string.h"
 
-#define RUTA_CONFIG "./config.cfg"
-#define RUTA_LOG "./consola.log"
+#define MOSTRAR_LOGS_EN_PANTALLA true
+
+#define RUTA_CONFIG "config.cfg"
+#define RUTA_LOG "consola.log"
 
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
-t_log* log;
+t_log* logger;
 t_config* config;
 
 void imprimirOpcionesDeConsola();
@@ -27,49 +28,14 @@ void enviarMensaje();
 void leerMensaje();
 void limpiarPantalla();
 void interaccionConsola();
-
-void establecerConfiguracion() {
-	if(config_has_property(config, "PUERTO_KERNEL")){
-		int port = config_get_int_value(config, "PUERTO_KERNEL");
-		PUERTO_KERNEL = port;
-		printf("\nPuerto Kernel: %d \n",PUERTO_KERNEL);
-	}else{
-		log_error(log, "Error al leer el puerto del Kernel");
-	}
-	if(config_has_property(config, "IP_KERNEL")){
-		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		printf("IP Kernel: %s \n",IP_KERNEL);
-	}else{
-		log_error(log, "Error al leer la IP del Kernel");
-	}
-}
-
-void configurar(char *path_File, char *path_log) {
-	log = log_create(RUTA_LOG, "consola",true, LOG_LEVEL_INFO);
-	if(config_keys_amount(config = config_create(path_File)) > 0) {
-		establecerConfiguracion();
-	} else {
-		log_error(log, "Error al leer archivo de configuración");
-	}
-	config_destroy(config);
-
-	struct sockaddr_in direccionServidor;
-	direccionServidor.sin_family = AF_INET;
-	direccionServidor.sin_addr.s_addr = inet_addr("127.0.0.1");
-	direccionServidor.sin_port = htons(8081);
-	servidor = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
-		close(servidor);
-		log_info(log,"No se pudo conectar al Kernel");
-		exit(0);
-	}
-	log_info(log,"Conectado al Kernel");
-}
-
-
+void establecerConfiguracion();
+void configurar();
+void conectarAKernel();
 
 int main(void) {
-	configurar(RUTA_CONFIG, RUTA_LOG);
+
+	configurar();
+	conectarAKernel();
 	handshake(servidor, CONSOLA);
 	interaccionConsola();
 
@@ -109,8 +75,8 @@ void enviarMensaje() {
 	printf("\nEscribir mensaje: ");
 	char mensaje[512];
 	scanf("%s", &mensaje);
-	struct headerDeLosRipeados headerDeMiMensaje;
-	headerDeMiMensaje.bytesDePayload = sizeof(mensaje);
+	/*struct headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = strlen(mensaje)+1;
 	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
 
 	char *headerComprimido;
@@ -118,9 +84,8 @@ void enviarMensaje() {
 	serializarHeader(&headerDeMiMensaje, headerComprimido);
 
 	send(servidor, headerComprimido, strlen(headerComprimido), 0); // Mando el header primero
-	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
-
-	printf("\nMensaje enviado, coloque otra opción. Opcion 6 para más información\n");
+	free(headerComprimido);*/
+	send(servidor, mensaje, strlen(mensaje)+1, 0); // Mando el mensaje después
 }
 
 void leerMensaje() {
@@ -130,7 +95,7 @@ void leerMensaje() {
 	mensaje[bytesRecibidos]='\0';
 	if(bytesRecibidos <= 0){
 		close(servidor);
-		log_info(log,"Servidor desconectado luego de intentar leer mensaje");
+		log_error(logger,"Servidor desconectado luego de intentar leer mensaje");
 		exit(0);
 	}
 	printf("\nMensaje recibido: %s\n",mensaje);
@@ -163,23 +128,25 @@ void interaccionConsola() {
 		switch(opcion) {
 			case '1' : {
 				iniciarPrograma(); // TODO
-				log_info(log,"Comando de inicio de programa ejecutado");
+				log_info(logger,"Comando de inicio de programa ejecutado");
 				break;
 			}
 			case '2' : {
 				desconectarPrograma(); // TODO
-				log_info(log,"Comando de desconexión de programa ejecutado");
+				log_info(logger,"Comando de desconexión de programa ejecutado");
 				break;
 			}
 			case '3' : {
-				log_info(log,"Comando de apagado de consola ejecutado");
+				log_info(logger,"Comando de apagado de consola ejecutado\n");
+				log_destroy(logger);
 				desconectarConsola();
 				break;
 			}
 			case '4' : {
 				enviarMensaje();
+				log_info(logger,"Comando de envío de mensaje ejecutado");
 				leerMensaje();
-				log_info(log,"Comando de envío de mensaje ejecutado");
+				printf("\nMensaje completado, coloque otra opción. Opcion 6 para más información\n");
 				break;
 			}
 			case '5' : {
@@ -195,4 +162,72 @@ void interaccionConsola() {
 			}
 		}
 	}
+}
+
+void establecerConfiguracion() {
+	if(config_has_property(config, "PUERTO_KERNEL")){
+		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");;
+		printf("Puerto Kernel: %d \n",PUERTO_KERNEL);
+	}else{
+		log_error(logger, "Error al leer el puerto del Kernel");
+	}
+	if(config_has_property(config, "IP_KERNEL")){
+		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
+		printf("IP Kernel: %s \n",IP_KERNEL);
+	}else{
+		log_error(logger, "Error al leer la IP del Kernel");
+	}
+}
+
+int existeArchivo(const char *ruta)
+{
+    FILE *archivo;
+    if ((archivo = fopen(ruta, "r")))
+    {
+        fclose(archivo);
+        return true;
+    }
+    return false;
+}
+
+void configurar() {
+
+	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
+	//como si estuviese en la carpeta esther/consola/
+	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
+	//pero en ese caso no existiria el archivo config ni el log
+	//y es por eso que tenemos que leerlo desde el directorio anterior
+
+	if (existeArchivo(RUTA_CONFIG)) {
+		config = config_create(RUTA_CONFIG);
+		logger = log_create(RUTA_LOG,"consola",MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+	}else{
+		config = config_create(string_from_format("../%s",RUTA_CONFIG));
+		logger = log_create(string_from_format("../%s",RUTA_LOG),"consola",MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+	}
+
+	//Si la cantidad de valores establecidos en la configuración
+	//es mayor a 0, entonces configurar la ip y el puerto,
+	//sino, estaría mal hecho el config.cfg
+
+	if(config_keys_amount(config) > 0) {
+		establecerConfiguracion();
+	} else {
+		log_error(logger, "Error al leer archivo de configuración");
+	}
+	config_destroy(config);
+}
+
+void conectarAKernel() {
+	struct sockaddr_in direccionServidor;
+	direccionServidor.sin_family = AF_INET;
+	direccionServidor.sin_addr.s_addr = inet_addr( (char*) IP_KERNEL);
+	direccionServidor.sin_port = htons(PUERTO_KERNEL);
+	servidor = socket(AF_INET, SOCK_STREAM, 0);
+	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
+		close(servidor);
+		log_error(logger,"No se pudo conectar al Kernel");
+		exit(0);
+	}
+	log_info(logger,"Conectado al Kernel");
 }
