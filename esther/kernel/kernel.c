@@ -1,10 +1,3 @@
-/*
- * kernel.c
- *
- *  Created on: 2/4/2017
- *      Author: utnso
- */
-
 #include "operadores_header_serializador_handshake.h"
 
 int main(void) {
