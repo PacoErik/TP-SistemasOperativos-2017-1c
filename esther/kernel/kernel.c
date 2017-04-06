@@ -1,3 +1,10 @@
+/*
+ * kernel.c
+ *
+ *  Created on: 2/4/2017
+ *      Author: utnso
+ */
+
 #include "operadores_header_serializador_handshake.h"
 
 int main(void) {
@@ -59,16 +66,16 @@ int main(void) {
 		return 1;
 	}
 	printf("Saludo enviado\n");
-
+	char mensaje[512];
 	while(1) {
-		bytesRecibidos = recv(cliente,buffer,bufferSize, 0);
-		buffer[bytesRecibidos]='\0';
+		bytesRecibidos = recv(cliente,mensaje,sizeof(mensaje), 0);
+		mensaje[bytesRecibidos]='\0';
 	    if(bytesRecibidos <= 0){
 	    	printf("Cliente desconectado\n");
 	        return 1;
 	    }
-		printf("Mensaje recibido: %s\n", buffer);
-		if (send(cliente,buffer,strlen(buffer),0) < 0){
+		printf("Mensaje recibido: %s\n", mensaje);
+		if (send(cliente,mensaje,strlen(mensaje)+1,0) < 0){
 			printf("No se pudo retransmitir el mensaje\n");
 			return 1;
 		}
