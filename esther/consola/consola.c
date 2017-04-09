@@ -5,7 +5,12 @@
  *      Author: utnso
  */
 
-#include "operadores_header_serializador_handshake.h"
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 #include "commons/log.h"
 #include "commons/config.h"
 
@@ -14,11 +19,23 @@
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "consola.log"
 
+t_log* logger;
+t_config* config;
+
+enum CodigoDeOperacion {
+	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+};
+
+struct headerDeLosRipeados {
+	unsigned short bytesDePayload;
+	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
+};
+
+
+
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
-t_log* logger;
-t_config* config;
 
 void imprimirOpcionesDeConsola();
 void iniciarPrograma();
@@ -29,12 +46,13 @@ void leerMensaje();
 void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
-void configurar();
+void configurar(char* quienSoy);
 void conectarAKernel();
+void handshake(int servidor, char codOp);
 
 int main(void) {
 
-	configurar();
+	configurar("consola");
 	conectarAKernel();
 	handshake(servidor, CONSOLA);
 	interaccionConsola();
@@ -73,8 +91,8 @@ void desconectarConsola() {
 
 void enviarMensaje() {
 	printf("\nEscribir mensaje: ");
-	char mensaje[512];
-	scanf("%s", &mensaje);
+	char mensaje[512] = "";
+	scanf("%511[^\n]", mensaje);
 	/*struct headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = strlen(mensaje)+1;
 	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
@@ -116,12 +134,12 @@ void interaccionConsola() {
 				|| !isdigit(input[0]) ) {
 			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 
-			// limpiar buffer de entrada
-			int c;
-			while ( (c = getchar()) != '\n' && c != EOF );
-
 			continue;
 		}
+
+		// limpiar buffer de entrada
+		int c;
+		while ( (c = getchar()) != '\n' && c != EOF );
 
 		char opcion = input[0];
 
@@ -190,34 +208,6 @@ int existeArchivo(const char *ruta)
     return false;
 }
 
-void configurar() {
-
-	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
-	//como si estuviese en la carpeta esther/consola/
-	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
-	//pero en ese caso no existiria el archivo config ni el log
-	//y es por eso que tenemos que leerlo desde el directorio anterior
-
-	if (existeArchivo(RUTA_CONFIG)) {
-		config = config_create(RUTA_CONFIG);
-		logger = log_create(RUTA_LOG,"consola",MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
-	}else{
-		config = config_create(string_from_format("../%s",RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s",RUTA_LOG),"consola",MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
-	}
-
-	//Si la cantidad de valores establecidos en la configuración
-	//es mayor a 0, entonces configurar la ip y el puerto,
-	//sino, estaría mal hecho el config.cfg
-
-	if(config_keys_amount(config) > 0) {
-		establecerConfiguracion();
-	} else {
-		log_error(logger, "Error al leer archivo de configuración");
-	}
-	config_destroy(config);
-}
-
 void conectarAKernel() {
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
@@ -230,4 +220,89 @@ void conectarAKernel() {
 		exit(0);
 	}
 	log_info(logger,"Conectado al Kernel");
+}
+
+void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	/*//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
+	 sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
+	 printf("IMPRESION DE HANDY SERIALIZADO: %s\n", *buffer);
+	 */
+	short *cache = (short*) buffer;
+	*cache = header->bytesDePayload;
+	cache++;
+	*cache = header->codigoDeOperacion;
+}
+
+void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	short *cache = (short*) buffer;
+	header->bytesDePayload = *cache;
+	cache++;
+	header->codigoDeOperacion = *cache;
+}
+
+void handshake(int socket, char operacion) {
+	printf("Conectando a servidor 0 porciento\n");
+	/*	printf("Conectando a servidor 0 porciento\n");
+	 printf("Conectando a servidor 23 porciento\n");
+	 sleep(1);
+	 printf("Conectando a servidor 55 porciento\n");
+	 printf("Conectando a servidor 84 porciento\n");
+	 sleep(2);*/
+	struct headerDeLosRipeados handy;
+	handy.bytesDePayload = 0;
+	handy.codigoDeOperacion = operacion;
+
+	int buffersize = sizeof(struct headerDeLosRipeados);
+	// int buffersize = sizeof(struct headerDeLosRipeados) + 1;
+	char *buffer = malloc(buffersize);
+	//printf("%i\n", buffersize);
+	//buffer = malloc(buffersize);
+
+	//serializarHeader(handy,&buffer);
+	//buffer[buffersize] = '\0';
+	serializarHeader(&handy, buffer);
+	//printf("%s\n", buffer);
+	send(socket, (void*) buffer, buffersize, 0);
+
+	// Recibe lo que responde el servidor
+	char respuesta[1024];
+	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+
+	if (bytesRecibidos > 0) {
+		printf("Conectado a servidor 100 porciento\n");
+		printf("Mensaje del servidor: \"%s\"\n", respuesta);
+	}
+	else {
+		printf("Ripeaste\n");
+		exit(0);
+	}
+	free(buffer);
+}
+
+void configurar(char* quienSoy) {
+
+	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
+	//como si estuviese en la carpeta esther/consola/
+	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
+	//pero en ese caso no existiria el archivo config ni el log
+	//y es por eso que tenemos que leerlo desde el directorio anterior
+
+	if (existeArchivo(RUTA_CONFIG)) {
+		config = config_create(RUTA_CONFIG);
+		logger = log_create(RUTA_LOG, quienSoy, MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+	}else{
+		config = config_create(string_from_format("../%s",RUTA_CONFIG));
+		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+	}
+
+	//Si la cantidad de valores establecidos en la configuración
+	//es mayor a 0, entonces configurar la ip y el puerto,
+	//sino, estaría mal hecho el config.cfg
+
+	if(config_keys_amount(config) > 0) {
+		establecerConfiguracion();
+	} else {
+		log_error(logger, "Error al leer archivo de configuración");
+	}
+	config_destroy(config);
 }
