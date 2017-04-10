@@ -1,10 +1,3 @@
-/*
- * consola.c
- *
- *  Created on: 1/4/2017
- *      Author: utnso
- */
-
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -29,7 +22,7 @@ enum CodigoDeOperacion {
 struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-};
+}__attribute__((packed, aligned(1)));
 
 
 
@@ -46,9 +39,11 @@ void leerMensaje();
 void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
-void configurar(char* quienSoy);
+void configurar(char*);
 void conectarAKernel();
-void handshake(int servidor, char codOp);
+void handshake(int,char);
+void serializarHeader(struct headerDeLosRipeados *, char *);
+void deserializarHeader(struct headerDeLosRipeados *, char *);
 
 int main(void) {
 
@@ -93,23 +88,27 @@ void enviarMensaje() {
 	printf("\nEscribir mensaje: ");
 	char mensaje[512] = "";
 	scanf("%511[^\n]", mensaje);
-	/*struct headerDeLosRipeados headerDeMiMensaje;
-	headerDeMiMensaje.bytesDePayload = strlen(mensaje)+1;
+
+	struct headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = strlen(mensaje);
 	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
 
 	char *headerComprimido;
-	headerComprimido = malloc(sizeof(headerDeMiMensaje));
+	int headerSize = sizeof(headerDeMiMensaje);
+	headerComprimido = malloc(headerSize);
 	serializarHeader(&headerDeMiMensaje, headerComprimido);
 
-	send(servidor, headerComprimido, strlen(headerComprimido), 0); // Mando el header primero
-	free(headerComprimido);*/
-	send(servidor, mensaje, strlen(mensaje)+1, 0); // Mando el mensaje después
+	send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
+	free(headerComprimido);
+
+	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
 }
 
 void leerMensaje() {
+
 	int bytesRecibidos;
 	char mensaje[512];
-	bytesRecibidos = recv(servidor,mensaje,sizeof(mensaje), 0);
+	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
 	mensaje[bytesRecibidos]='\0';
 	if(bytesRecibidos <= 0){
 		close(servidor);
@@ -222,63 +221,6 @@ void conectarAKernel() {
 	log_info(logger,"Conectado al Kernel");
 }
 
-void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	/*//buffer = malloc(sizeof(struct headerDeLosRipeados)+1);
-	 sprintf(*buffer,"%u %i", header.codigoDeOperacion, header.bytesDePayload);
-	 printf("IMPRESION DE HANDY SERIALIZADO: %s\n", *buffer);
-	 */
-	short *cache = (short*) buffer;
-	*cache = header->bytesDePayload;
-	cache++;
-	*cache = header->codigoDeOperacion;
-}
-
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
-}
-
-void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0 porciento\n");
-	/*	printf("Conectando a servidor 0 porciento\n");
-	 printf("Conectando a servidor 23 porciento\n");
-	 sleep(1);
-	 printf("Conectando a servidor 55 porciento\n");
-	 printf("Conectando a servidor 84 porciento\n");
-	 sleep(2);*/
-	struct headerDeLosRipeados handy;
-	handy.bytesDePayload = 0;
-	handy.codigoDeOperacion = operacion;
-
-	int buffersize = sizeof(struct headerDeLosRipeados);
-	// int buffersize = sizeof(struct headerDeLosRipeados) + 1;
-	char *buffer = malloc(buffersize);
-	//printf("%i\n", buffersize);
-	//buffer = malloc(buffersize);
-
-	//serializarHeader(handy,&buffer);
-	//buffer[buffersize] = '\0';
-	serializarHeader(&handy, buffer);
-	//printf("%s\n", buffer);
-	send(socket, (void*) buffer, buffersize, 0);
-
-	// Recibe lo que responde el servidor
-	char respuesta[1024];
-	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
-
-	if (bytesRecibidos > 0) {
-		printf("Conectado a servidor 100 porciento\n");
-		printf("Mensaje del servidor: \"%s\"\n", respuesta);
-	}
-	else {
-		printf("Ripeaste\n");
-		exit(0);
-	}
-	free(buffer);
-}
-
 void configurar(char* quienSoy) {
 
 	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
@@ -305,4 +247,43 @@ void configurar(char* quienSoy) {
 		log_error(logger, "Error al leer archivo de configuración");
 	}
 	config_destroy(config);
+}
+
+void handshake(int socket, char operacion) {
+	printf("Conectando a servidor 0 porciento\n");
+	struct headerDeLosRipeados handy;
+	handy.bytesDePayload = 0;
+	handy.codigoDeOperacion = operacion;
+
+	int buffersize = sizeof(struct headerDeLosRipeados);
+	char *buffer = malloc(buffersize);
+	serializarHeader(&handy, buffer);
+	send(socket, (void*) buffer, buffersize, 0);
+
+	char respuesta[1024];
+	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+
+	if (bytesRecibidos > 0) {
+		printf("Conectado a servidor 100 porciento\n");
+		printf("Mensaje del servidor: \"%s\"\n", respuesta);
+	}
+	else {
+		printf("Ripeaste\n");
+		exit(0);
+	}
+	free(buffer);
+}
+
+void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	short *cache = (short*) buffer;
+	*cache = header->bytesDePayload;
+	cache++;
+	*cache = header->codigoDeOperacion;
+}
+
+void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	short *cache = (short*) buffer;
+	header->bytesDePayload = *cache;
+	cache++;
+	header->codigoDeOperacion = *cache;
 }
