@@ -1,121 +1,3 @@
-/*
-#include "operadores_header_serializador_handshake.h"
-
-int main(void) {
-
-	struct sockaddr_in direccionServidor;
-	direccionServidor.sin_family = AF_INET;
-	direccionServidor.sin_addr.s_addr = htonl(INADDR_ANY);
-	direccionServidor.sin_port = htons(8081);
-
-	char buf[256]; // Declarado temporalmente, luego se maneja con el protocolo
-
-	int bytesRecibidos;
-
-	int j;
-	j = 0;
-
-	int i;
-	i = 0; //contador del main loop
-
-	fd_set master;    // set maestro de fyle descriptors
-	fd_set read_fds;  // temp file descriptor list for select()
-	int fdmax;  // numero maximo hasta el que voy a buscar
-
-	socklen_t addrlen;
-
-	int newfd;  // direccion de ultimo cliente accepteado
-
-	struct sockaddr_storage remoteaddr; // estructura de la direccion del cliente
-
-	int servidor = socket(AF_INET, SOCK_STREAM, 0);
-
-	int activado = 1;
-	setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
-
-	if (bind(servidor, (void*) &direccionServidor, sizeof(direccionServidor))
-			!= 0) {
-		perror("Falló el bind");
-		return 1;
-	}
-
-	if (listen(servidor, 100) == -1) {
-		perror("listen");
-		exit(3);
-	}
-
-	printf("Estoy escuchando\n");
-
-	FD_SET(servidor, &master);
-
-	fdmax = servidor;  //este es el maximo por ser el primero (el servidor)
-
-	// main loop
-	for (;;) {
-		read_fds = master; // copy it
-		if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
-			perror("select");
-			exit(4);
-		}
-
-		// Empiezo a recorrer los sockets para encontrar data read
-		for (i = 0; i <= fdmax; i++) {
-			if (FD_ISSET(i, &read_fds)) { // Si encontre alguno que este en read...
-				if (i == servidor) { //Si encontre el listener tengo una nueva conexion
-					addrlen = sizeof remoteaddr;
-					newfd = accept(servidor, (struct sockaddr *) &remoteaddr,
-							&addrlen);
-
-					if (newfd == -1) {
-						perror("error en el accept");
-					} else {
-						FD_SET(newfd, &master); // Agrego el nuevo socket
-						if (newfd > fdmax) {    // Chequeo el maximo
-							fdmax = newfd;
-
-							printf("Nueva conexion en el socket %d\n", newfd);
-
-						}
-					}
-				}
-				else { // Si no es una nueva conexion leo datos del cliente
-
-					if ((bytesRecibidos = recv(i, buf, sizeof buf, 0))
-							<= 0) {
-
-						if (bytesRecibidos == 0) { // error o se desconecta el conector
-
-							printf("socket %d hung up\n", i);
-						} else {
-							perror("error en el recv");
-						}
-
-						close(i); // cierro la conexion
-
-						FD_CLR(i, &master); // lo saco del set master
-					} else {   // El cliente no se desconecto, hay datos
-
-						for (j = 0; j <= fdmax; j++) {
-							// Le voy a mandar esto a todos
-							if (FD_ISSET(j, &master)) {
-
-								if (j != servidor && j != i) { // no quiero mandarmelo a mi ni al servidor
-									if (send(j, buf, bytesRecibidos, 0)
-											== -1) {
-										perror("send");
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return 0;
-}
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -147,22 +29,25 @@ enum CodigoDeOperacion {
 struct headerDeLosRipeados {
     unsigned short bytesDePayload;
     char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-};
+}__attribute__((packed, aligned(1)));
 
-struct miCliente {
+typedef struct {
     short socketCliente;
     char identificador;
-};
+}miCliente;
 
-void limpiarClientes(struct miCliente *clientes);
-void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, struct miCliente *clientes);
-void analizarHeader(int socketCliente, char* buffer, struct miCliente *clientes);
-void leerMensaje(int socketCliente, short bytesDePayload);
-void corroborarFuturoCliente(int newfd);
-void cerrarConexion(int socketCliente, char* motivo);
-int posicionSocket(int socketCliente, struct miCliente *clientes);
+void limpiarClientes(miCliente *);
+void analizarCodigosDeOperacion(int , char , miCliente *);
+int analizarHeader(int , char* , miCliente *);
+void leerMensaje(int , short , miCliente *);
+void cerrarConexion(int , char* );
+int posicionSocket(int , miCliente *);
+void agregarCliente(char , int , miCliente *);
+void borrarCliente(int , miCliente *);
+void serializarHeader(struct headerDeLosRipeados *, char *);
+void deserializarHeader(struct headerDeLosRipeados *, char *);
+void handshake(int , char );
 
-// get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
@@ -173,32 +58,32 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 int main(void) {
-    struct miCliente misClientes[MAX_NUM_CLIENTES];
+   // miCliente misClientes[MAX_NUM_CLIENTES];
+	miCliente* misClientes = malloc(sizeof(miCliente)*MAX_NUM_CLIENTES);
+    limpiarClientes(misClientes);
 
-    limpiarClientes(&misClientes);
+    fd_set master;
+    fd_set read_fds;
+    int fdmax;
 
-    fd_set master;    // master file descriptor list
-    fd_set read_fds;  // temp file descriptor list for select()
-    int fdmax;        // maximum file descriptor number
-
-    int listener;     // listening socket descriptor
-    int newfd;        // newly accept()ed socket descriptor
-    struct sockaddr_storage remoteaddr; // client address
+    int listener;
+    int newfd;
+    struct sockaddr_storage remoteaddr;
     socklen_t addrlen;
 
-    char buf[256];    // buffer for client data
+    int buffersize = sizeof(struct headerDeLosRipeados);
+    char* buffer = malloc(buffersize);
     int nbytes;
 
     char remoteIP[INET6_ADDRSTRLEN];
 
-    int i, j, rv;
+    int i, rv;
 
     struct addrinfo hints, *ai, *p;
 
-    FD_ZERO(&master);    // clear the master and temp sets
+    FD_ZERO(&master);
     FD_ZERO(&read_fds);
 
-    // get us a socket and bind it
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -214,7 +99,6 @@ int main(void) {
             continue;
         }
 
-        // lose the pesky "address already in use" error message
         int activado = 1;
         setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
 
@@ -226,39 +110,32 @@ int main(void) {
         break;
     }
 
-    // if we got here, it means we didn't get bound
     if (p == NULL) {
         fprintf(stderr, "selectserver: failed to bind\n");
         exit(2);
     }
 
-    freeaddrinfo(ai); // all done with this
+    freeaddrinfo(ai);
 
-    // listen
     if (listen(listener, 10) == -1) {
         perror("listen");
         exit(3);
     }
     printf("Estoy escuchando\n");
-    // add the listener to the master set
     FD_SET(listener, &master);
 
-    // keep track of the biggest file descriptor
-    fdmax = listener; // so far, it's this one
+    fdmax = listener;
 
-    // main loop
     for(;;) {
-        read_fds = master; // copy it
+        read_fds = master;
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
             perror("select");
             exit(4);
         }
 
-        // run through the existing connections looking for data to read
         for(i = 0; i <= fdmax; i++) {
-            if (FD_ISSET(i, &read_fds)) { // we got one!!
+            if (FD_ISSET(i, &read_fds)) {
                 if (i == listener) {
-                    // handle new connections
                     addrlen = sizeof remoteaddr;
                     newfd = accept(listener,
                         (struct sockaddr *)&remoteaddr,
@@ -267,95 +144,123 @@ int main(void) {
                     if (newfd == -1) {
                         perror("accept");
                     } else {
-                        FD_SET(newfd, &master); // add to master set
-                        if (newfd > fdmax) {    // keep track of the max
+                        FD_SET(newfd, &master);
+                        if (newfd > fdmax) {
                             fdmax = newfd;
                         }
-                        printf("selectserver: new connection from %s on "
+                        printf("Nueva conexión desde %s en el "
                             "socket %d\n",
                             inet_ntop(remoteaddr.ss_family,
                                 get_in_addr((struct sockaddr*)&remoteaddr),
                                 remoteIP, INET6_ADDRSTRLEN),
                             newfd);
-//                        corroborarFuturoCliente(newfd); // TODO
                     }
                 } else {
-                    // handle data from a client
-                    if ((nbytes = recv(i, buf, sizeof buf, 0)) <= 0) {
-                        // got error or connection closed by client
+                    if ((nbytes = recv(i, buffer,buffersize+1, 0)) <= 0) {
                         if (nbytes == 0) {
-                            // connection closed
                             printf("selectserver: socket %d hung up\n", i);
                         } else {
                             perror("recv");
                         }
+                        borrarCliente(i,misClientes);
                         cerrarConexion(i, "time-out");
-                        FD_CLR(i, &master); // remove from master set
+                        FD_CLR(i, &master);
                     } else {
-                    	char *respuesta = "Header recibido";
-                    	send(i, respuesta, strlen(respuesta) + 1, 0);
-                        // we got some data from a client
-                        analizarHeader(i, &buf, &misClientes);
-                        /*
-                        buf[nbytes]='\0';
-                        printf("%s", buf);
-                        for(j = 0; j <= fdmax; j++) {
-                            // send to everyone!
-                            if (FD_ISSET(j, &master)) {
-                                // except the listener and ourselves
-                                if (j != listener && j != i) {
-                                    if (send(j, buf, nbytes, 0) == -1) {
-                                        perror("send");
-                                    }
-                                }
-                            }
-                        }*/
-                    }
-                } // END handle data from client
-            } // END got new incoming connection
-        } // END looping through file descriptors
-    } // END for(;;)--and you thought it would never end!
+                        // llegó info, vamos a ver el header
+                        int estado = analizarHeader(i, buffer, misClientes);
 
+                        if (estado < 0) { //ocurrió algún problema con ese socket (puede ser un cliente o no)
+                        	send(i,"Error, desconectado",20,0);
+							borrarCliente(i,misClientes);
+                        	cerrarConexion(i,"operación incorrecta");
+                        	FD_CLR(i,&master);
+                        	continue; //salteamos esta iteración
+                        }
+                        char *respuesta = "Header recibido";
+                        send(i, respuesta, strlen(respuesta) + 1, 0);
+                    }
+                }
+            }
+        }
+    }
+    free(buffer);
+    free(misClientes);
     return 0;
 }
 
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-    short *cache = (short*) buffer;
-    header->bytesDePayload = *cache;
-    cache++;
-    header->codigoDeOperacion = *cache;
+void agregarCliente(char identificador, int socketCliente, miCliente *clientes) {
+	int i;
+	for (i=0;i<MAX_NUM_CLIENTES;i++) {
+		if (clientes[i].socketCliente == -1) { //woohoo, encontramos un espacio libre
+			clientes[i].socketCliente = socketCliente;
+			clientes[i].identificador = identificador;
+			break;
+		}
+	}
+}
+
+void borrarCliente(int socketCliente, miCliente *clientes) {
+	int posicion = posicionSocket(socketCliente,clientes);
+	if (posicion >= 0) {
+		clientes[posicion].socketCliente = -1;
+		clientes[posicion].identificador = 255;
+	}
 }
 
 /**
  * Analiza el contenido del header, y respecto a ello realiza distintas acciones
+ * devuelve -1 si el socket causa problemas
  */
-void analizarHeader(int socketCliente, char* buffer, struct miCliente *clientes) {
+int analizarHeader(int socketCliente, char* buffer, miCliente *clientes) {
     struct headerDeLosRipeados header;
     deserializarHeader(&header, buffer);
-    if(header.codigoDeOperacion == MENSAJE) {
+    int indice = posicionSocket(socketCliente,clientes);
+    if (header.codigoDeOperacion >= CONSOLA && header.codigoDeOperacion <= CPU) {
+    	if (indice < 0) { //no estaba antes en el array de clientes
+    		agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
+    	} else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
+    		return -1; // Otro cacho de código se va a encargar de borrarlo
+    	}
+    } else if (header.codigoDeOperacion == MENSAJE) {
         if(header.bytesDePayload <= 0) {
-            printf("El cliente %i intento mandar un mensaje sin contenido", socketCliente);
+            printf("El cliente %i intento mandar un mensaje sin contenido\n", socketCliente);
+            return -1;
         } else {
-            leerMensaje(socketCliente, header.bytesDePayload);
+            leerMensaje(socketCliente, header.bytesDePayload, clientes);
         }
     } else {
-        analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, &clientes); // TODO
+    	if (indice >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
+    		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes); // TODO
+    	} else { //Header no reconocido, chau cliente intruso
+    		return -1;
+    	}
     }
-
+    return 0;
 }
 
-void leerMensaje(int socketCliente, short bytesDePayload) {
-    char mensaje[512];
-    if(bytesDePayload <= 0){
-        close(socketCliente);
-        log_error(logger,"Cliente desconectado luego de intentar leer mensaje");
-        exit(0);
-    }
+int enviarMensajeATodos(int socketCliente, char* mensaje, miCliente *clientes) {
+	int cantidad = 0;
+	int i;
+	for (i=0;i<MAX_NUM_CLIENTES;i++) { //enviamos mensaje a los clientes registrados
+		if (clientes[i].identificador >= MEMORIA && clientes[i].identificador <= CPU) { //solo le mandamos a MEMORIA,FILESYSTEM y CPU
+			send(clientes[i].socketCliente,mensaje,strlen(mensaje),0);
+			cantidad++;
+		}
+	}
+	return cantidad;
+}
+
+void leerMensaje(int socketCliente, short bytesDePayload, miCliente *clientes) {
+    char* mensaje = malloc(bytesDePayload+1);
+    recv(socketCliente,mensaje,bytesDePayload,0);
     mensaje[bytesDePayload]='\0';
-    printf("\nMensaje recibido: %s\n",mensaje);
+    printf("Mensaje recibido: %s\n",mensaje);
+    int cantidad = enviarMensajeATodos(socketCliente,mensaje, clientes);
+    printf("Mensaje retransmitido a %i clientes\n",cantidad);
+    free(mensaje);
 }
 
-void limpiarClientes(struct miCliente *clientes) {
+void limpiarClientes(miCliente *clientes) {
     int i;
     for(i = 0; i < MAX_NUM_CLIENTES; i++) {
         clientes[i].socketCliente = -1;
@@ -363,19 +268,17 @@ void limpiarClientes(struct miCliente *clientes) {
     }
 }
 
-int posicionSocket(int socketCliente, struct miCliente *clientes) {
+int posicionSocket(int socketCliente, miCliente *clientes) {
     int i;
     for(i = 0; i < MAX_NUM_CLIENTES; i++) {
-        if(clientes[i].identificador == socketCliente) {
+        if(clientes[i].socketCliente == socketCliente) {
             return i;
         }
     }
-
-    printf("Error de no existencia de socket que creiamos que existia\n");
-    exit(EXIT_FAILURE);
+    return -1;
 }
 
-void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, struct miCliente *clientes) {
+void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, miCliente *clientes) {
     char codigoDelCliente = clientes[posicionSocket(socketCliente, clientes)].identificador;
     switch(codigoDelCliente) {
         case CONSOLA:
@@ -391,22 +294,51 @@ void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, struc
             // TODO
             break;
         default:
-            printf("TODO\n");
+            printf("TODO, cod. de operación recibido: %d\n",codigoDeOperacion);
             // TODO
     }
 }
 
-
-/*
-void corroborarFuturoCliente(int socketCliente){
-
-	recv(i, buf, sizeof buf, 0)
-
-}
-*/
 void cerrarConexion(int socketCliente, char* motivo){
 	close(socketCliente);
-	printf("El socket %i ha sido desconectado por %s", socketCliente, motivo);
+	printf("El socket %i ha sido desconectado por %s\n", socketCliente, motivo);
 }
 
+void handshake(int socket, char operacion) {
+	printf("Conectando a servidor 0 porciento\n");
+	struct headerDeLosRipeados handy;
+	handy.bytesDePayload = 0;
+	handy.codigoDeOperacion = operacion;
 
+	int buffersize = sizeof(struct headerDeLosRipeados);
+	char *buffer = malloc(buffersize);
+	serializarHeader(&handy, buffer);
+	send(socket, (void*) buffer, buffersize, 0);
+
+	char respuesta[1024];
+	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+
+	if (bytesRecibidos > 0) {
+		printf("Conectado a servidor 100 porciento\n");
+		printf("Mensaje del servidor: \"%s\"\n", respuesta);
+	}
+	else {
+		printf("Ripeaste\n");
+		exit(0);
+	}
+	free(buffer);
+}
+
+void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	short *cache = (short*) buffer;
+	*cache = header->bytesDePayload;
+	cache++;
+	*cache = header->codigoDeOperacion;
+}
+
+void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
+	short *cache = (short*) buffer;
+	header->bytesDePayload = *cache;
+	cache++;
+	header->codigoDeOperacion = *cache;
+}
