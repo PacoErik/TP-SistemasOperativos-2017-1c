@@ -64,19 +64,8 @@ void *get_in_addr(struct sockaddr *sa) {
 }
 
 int main(void) {
-	miCliente _misClientes[MAX_NUM_CLIENTES];
-	miCliente *misClientes = _misClientes;
-	//miCliente* misClientes = malloc(sizeof(miCliente)*MAX_NUM_CLIENTES);
+	miCliente misClientes[MAX_NUM_CLIENTES];
     limpiarClientes(misClientes);
-
-    fd_set master;
-    fd_set read_fds;
-    int fdmax;
-
-    int listener;
-    int newfd;
-    struct sockaddr_storage remoteaddr;
-    socklen_t addrlen;
 
     int buffersize = sizeof(headerDeLosRipeados);
     char* buffer = malloc(buffersize);
@@ -85,38 +74,43 @@ int main(void) {
 
     int i;
 
-    FD_ZERO(&master);
-    FD_ZERO(&read_fds);
-
     struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // IPv4
     hints.ai_socktype = SOCK_STREAM; // TCP
     hints.ai_flags = AI_PASSIVE;
 
-    int rv;
-	struct addrinfo *ai;
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &ai)) != 0) {
+
+    /* getaddrinfo() retorna una lista de posibles direcciones para el bind */
+
+	struct addrinfo *direcciones; // lista de posibles direcciones para el bind
+    int rv = getaddrinfo(NULL, PORT, &hints, &direcciones); // si devuelve 0 hay un error
+    if (rv != 0) {
+    	// gai_strerror() devuelve el mensaje de error segun el codigo de error
         fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
-    struct addrinfo *p; // Puntero para recorrer la lista
-    for (p = ai; p != NULL; p = p->ai_next) {
-        listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (listener < 0) {
+    int servidor; // socket de escucha
+
+    struct addrinfo *p; // Puntero para recorrer la lista de direcciones
+
+    // Recorrer la lista hasta encontrar una direccion disponible para el bind
+    for (p = direcciones; p != NULL; p = p->ai_next) {
+
+    	servidor = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (servidor == -1) {	// Devuelve 0 si hubo error
             continue;
         }
 
         int activado = 1;
-        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
+        setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
 
-        if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
-            close(listener);
-            continue;
+        if (bind(servidor, p->ai_addr, p->ai_addrlen) == 0) {
+            break; // Se encontro una direccion disponible
         }
 
-        break;
+        close(servidor);
     }
 
     if (p == NULL) {
@@ -124,44 +118,57 @@ int main(void) {
         exit(2);
     }
 
-    freeaddrinfo(ai);
+    freeaddrinfo(direcciones); // No necesito mas la lista de direcciones
 
-    if (listen(listener, 10) == -1) {
+    if (listen(servidor, 10) == -1) {
         perror("listen");
         exit(3);
     }
     printf("Estoy escuchando\n");
-    FD_SET(listener, &master);
 
-    fdmax = listener;
+    fd_set conectados; // Set de FDs conectados
+    fd_set read_fds; // sockets de lectura
+
+    FD_ZERO(&conectados);
+    FD_ZERO(&read_fds);
+
+    FD_SET(servidor, &conectados);
+
+    int fdmax;	// valor maximo de los FDs
+    fdmax = servidor; // Por ahora hay un solo socket, por eso es el maximo
+
 
     for(;;) {
-        read_fds = master;
+        read_fds = conectados;
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
             perror("select");
             exit(4);
         }
 
+        // Se detecta algun cambio en alguno de los sockets
+
+        int nuevoCliente; // Socket del nuevo cliente conectado
+        struct sockaddr_in direccionCliente;
+
         for(i = 0; i <= fdmax; i++) {
         	if (FD_ISSET(i, &read_fds) == 0) {
         		continue;
         	}
-			if (i == listener) {
-				addrlen = sizeof remoteaddr;
-				newfd = accept(listener, (struct sockaddr *) &remoteaddr,
-						&addrlen);
+			if (i == servidor) {
+		        socklen_t addrlen = sizeof direccionCliente;
+				nuevoCliente = accept(servidor, (struct sockaddr *)&direccionCliente, &addrlen);
 
-				if (newfd == -1) {
+				if (nuevoCliente == -1) {
 					perror("accept");
 				}
 				else {
-					FD_SET(newfd, &master);
-					if (newfd > fdmax) {
-						fdmax = newfd;
+					FD_SET(nuevoCliente, &conectados); // Agregarlo al set
+					if (nuevoCliente > fdmax) {
+						fdmax = nuevoCliente; // Cambia el maximo
 					}
-				    char remoteIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
-					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &remoteaddr), remoteIP, INET_ADDRSTRLEN);
-					printf("Nueva conexión desde %s en el socket %d\n", remoteIP, newfd);
+				    char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
+					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &direccionCliente), direccionIP, INET_ADDRSTRLEN);
+					printf("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
 				}
 			}
 			else {
@@ -175,7 +182,7 @@ int main(void) {
 					}
 					borrarCliente(i, misClientes);
 					cerrarConexion(i, "time-out");
-					FD_CLR(i, &master);
+					FD_CLR(i, &conectados);
 				}
 				else {
 					// llegó info, vamos a ver el header
@@ -185,7 +192,7 @@ int main(void) {
 						send(i, "Error, desconectado", 20, 0);
 						borrarCliente(i, misClientes);
 						cerrarConexion(i, "operación incorrecta");
-						FD_CLR(i, &master);
+						FD_CLR(i, &conectados);
 						continue; //salteamos esta iteración
 					}
 					char *respuesta = "Header recibido";
