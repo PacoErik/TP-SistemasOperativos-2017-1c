@@ -294,7 +294,7 @@ void logearInfo(char* formato, ...) {
 	va_start(args, formato);
 	mensaje = string_from_vformat(formato,args);
 	log_info(logger,mensaje);
-	printf(mensaje);
+	printf("%s", mensaje);
 	va_end(args);
 }
 
@@ -304,7 +304,7 @@ void logearError(char* formato, int terminar , ...) {
 	va_start(args, terminar);
 	mensaje = string_from_vformat(formato,args);
 	log_error(logger,mensaje);
-	printf(mensaje);
+	printf("%s",mensaje);
 	va_end(args);
 	if (terminar==true) exit(0);
 }
