@@ -6,8 +6,7 @@
 #include <sys/socket.h>
 #include "commons/log.h"
 #include "commons/config.h"
-
-#define MOSTRAR_LOGS_EN_PANTALLA true
+#include <stdarg.h>
 
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "cpu.log"
@@ -19,10 +18,10 @@ enum CodigoDeOperacion {
 	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
 };
 
-struct headerDeLosRipeados {
+typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-}__attribute__((packed, aligned(1)));
+}__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
@@ -35,9 +34,11 @@ void leerMensaje();
 void establecerConfiguracion();
 void configurar(char*);
 void conectarAKernel();
-void handshake(int,char);
-void serializarHeader(struct headerDeLosRipeados *, char *);
-void deserializarHeader(struct headerDeLosRipeados *, char *);
+void handshake(int, char);
+void serializarHeader(headerDeLosRipeados *, char *);
+void deserializarHeader(headerDeLosRipeados *, char *);
+void logearInfo(char *, ...);
+void logearError(char *, int, ...);
 
 int main(void) {
 
@@ -58,42 +59,42 @@ void desconectarConsola() {
 }
 
 void leerMensaje() {
+
 	int bytesRecibidos;
 	char mensaje[512];
 	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
 	mensaje[bytesRecibidos]='\0';
 	if(bytesRecibidos <= 0){
 		close(servidor);
-		log_error(logger,"Servidor desconectado luego de intentar leer mensaje");
-		exit(0);
+		logearError("Servidor desconectado luego de intentar leer mensaje",true);
 	}
-	printf("\nMensaje recibido: %s\n",mensaje);
+	logearInfo("Mensaje recibido: %s\n",mensaje);
 }
 
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")){
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		printf("Puerto Kernel: %d \n",PUERTO_KERNEL);
+		logearInfo("Puerto Kernel: %d \n",PUERTO_KERNEL);
 	}else{
-		log_error(logger, "Error al leer el puerto del Kernel");
+		logearError("Error al leer el puerto del Kernel",true);
 	}
 	if(config_has_property(config, "IP_KERNEL")){
 		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		printf("IP Kernel: %s \n",IP_KERNEL);
+		logearInfo("IP Kernel: %s \n",IP_KERNEL);
 	}else{
-		log_error(logger, "Error al leer la IP del Kernel");
+		logearError("Error al leer la IP del Kernel",true);
 	}
 	if(config_has_property(config, "PUERTO_MEMORIA")){
 		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		printf("Puerto Memoria: %d \n",PUERTO_MEMORIA);
+		logearInfo("Puerto Memoria: %d \n",PUERTO_MEMORIA);
 	}else{
-		log_error(logger, "Error al leer el puerto de la Memoria");
+		logearError("Error al leer el puerto de la Memoria",true);
 	}
 	if(config_has_property(config, "IP_MEMORIA")){
 		strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-		printf("IP Memoria: %s \n",IP_MEMORIA);
+		logearInfo("IP Memoria: %s \n",IP_MEMORIA);
 	}else{
-		log_error(logger, "Error al leer la IP de la Memoria");
+		logearError("Error al leer la IP de la Memoria",true);
 	}
 }
 
@@ -116,10 +117,9 @@ void conectarAKernel() {
 	servidor = socket(AF_INET, SOCK_STREAM, 0);
 	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
 		close(servidor);
-		log_error(logger,"No se pudo conectar al Kernel");
-		exit(0);
+		logearError("No se pudo conectar al Kernel",true);
 	}
-	log_info(logger,"Conectado al Kernel");
+	logearInfo("Conectado al Kernel\n");
 }
 
 void configurar(char* quienSoy) {
@@ -132,10 +132,10 @@ void configurar(char* quienSoy) {
 
 	if (existeArchivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
-		logger = log_create(RUTA_LOG, quienSoy, MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
 	}else{
 		config = config_create(string_from_format("../%s",RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,false, LOG_LEVEL_INFO);
 	}
 
 	//Si la cantidad de valores establecidos en la configuración
@@ -145,18 +145,18 @@ void configurar(char* quienSoy) {
 	if(config_keys_amount(config) > 0) {
 		establecerConfiguracion();
 	} else {
-		log_error(logger, "Error al leer archivo de configuración");
+		logearError("Error al leer archivo de configuración",true);
 	}
 	config_destroy(config);
 }
 
 void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0 porciento\n");
-	struct headerDeLosRipeados handy;
+	logearInfo("Conectando a servidor 0%%\n");
+	headerDeLosRipeados handy;
 	handy.bytesDePayload = 0;
 	handy.codigoDeOperacion = operacion;
 
-	int buffersize = sizeof(struct headerDeLosRipeados);
+	int buffersize = sizeof(headerDeLosRipeados);
 	char *buffer = malloc(buffersize);
 	serializarHeader(&handy, buffer);
 	send(socket, (void*) buffer, buffersize, 0);
@@ -165,26 +165,46 @@ void handshake(int socket, char operacion) {
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		printf("Conectado a servidor 100 porciento\n");
-		printf("Mensaje del servidor: \"%s\"\n", respuesta);
+		logearInfo("Conectado a servidor 100 porciento\n");
+		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
 	}
 	else {
-		printf("Ripeaste\n");
-		exit(0);
+		logearError("Ripeaste\n",true);
 	}
 	free(buffer);
 }
 
-void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	*cache = header->bytesDePayload;
-	cache++;
-	*cache = header->codigoDeOperacion;
+void serializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	*pBytesDePayload = header->bytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
+void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	header->bytesDePayload = *pBytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	header->codigoDeOperacion = *pCodigoDeOperacion;
+}
+
+void logearInfo(char* formato, ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_info(logger,mensaje);
+	printf(mensaje);
+	va_end(args);
+}
+
+void logearError(char* formato, int terminar , ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, terminar);
+	mensaje = string_from_vformat(formato,args);
+	log_error(logger,mensaje);
+	printf(mensaje);
+	va_end(args);
+	if (terminar==true) exit(0);
 }
