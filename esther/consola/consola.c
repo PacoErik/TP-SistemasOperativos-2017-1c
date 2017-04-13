@@ -6,8 +6,7 @@
 #include <sys/socket.h>
 #include "commons/log.h"
 #include "commons/config.h"
-
-#define MOSTRAR_LOGS_EN_PANTALLA true
+#include <stdarg.h>
 
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "consola.log"
@@ -44,6 +43,8 @@ void conectarAKernel();
 void handshake(int,char);
 void serializarHeader(struct headerDeLosRipeados *, char *);
 void deserializarHeader(struct headerDeLosRipeados *, char *);
+void logearInfo(char *, ...);
+void logearError(char *, int, ...);
 
 int main(void) {
 
@@ -112,10 +113,9 @@ void leerMensaje() {
 	mensaje[bytesRecibidos]='\0';
 	if(bytesRecibidos <= 0){
 		close(servidor);
-		log_error(logger,"Servidor desconectado luego de intentar leer mensaje");
-		exit(0);
+		logearError("Servidor desconectado luego de intentar leer mensaje",true);
 	}
-	printf("\nMensaje recibido: %s\n",mensaje);
+	logearInfo("Mensaje recibido: %s\n",mensaje);
 }
 
 void limpiarPantalla() {
@@ -145,25 +145,25 @@ void interaccionConsola() {
 		switch(opcion) {
 			case '1' : {
 				iniciarPrograma(); // TODO
-				log_info(logger,"Comando de inicio de programa ejecutado");
+				logearInfo("Comando de inicio de programa ejecutado");
 				break;
 			}
 			case '2' : {
 				desconectarPrograma(); // TODO
-				log_info(logger,"Comando de desconexión de programa ejecutado");
+				logearInfo("Comando de desconexión de programa ejecutado");
 				break;
 			}
 			case '3' : {
-				log_info(logger,"Comando de apagado de consola ejecutado\n");
+				logearInfo("Comando de apagado de consola ejecutado\n");
 				log_destroy(logger);
 				desconectarConsola();
 				break;
 			}
 			case '4' : {
 				enviarMensaje();
-				log_info(logger,"Comando de envío de mensaje ejecutado");
+				logearInfo("Comando de envío de mensaje ejecutado\n");
 				leerMensaje();
-				printf("\nMensaje completado, coloque otra opción. Opcion 6 para más información\n");
+				logearInfo("Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
 				break;
 			}
 			case '5' : {
@@ -184,15 +184,15 @@ void interaccionConsola() {
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")){
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");;
-		printf("Puerto Kernel: %d \n",PUERTO_KERNEL);
+		logearInfo("Puerto Kernel: %d \n",PUERTO_KERNEL);
 	}else{
-		log_error(logger, "Error al leer el puerto del Kernel");
+		logearError("Error al leer el puerto del Kernel",true);
 	}
 	if(config_has_property(config, "IP_KERNEL")){
 		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		printf("IP Kernel: %s \n",IP_KERNEL);
+		logearInfo("IP Kernel: %s \n",IP_KERNEL);
 	}else{
-		log_error(logger, "Error al leer la IP del Kernel");
+		logearError("Error al leer la IP del Kernel",true);
 	}
 }
 
@@ -215,10 +215,9 @@ void conectarAKernel() {
 	servidor = socket(AF_INET, SOCK_STREAM, 0);
 	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
 		close(servidor);
-		log_error(logger,"No se pudo conectar al Kernel");
-		exit(0);
+		logearError("No se pudo conectar al Kernel",true);
 	}
-	log_info(logger,"Conectado al Kernel");
+	logearInfo("Conectado al Kernel");
 }
 
 void configurar(char* quienSoy) {
@@ -231,10 +230,10 @@ void configurar(char* quienSoy) {
 
 	if (existeArchivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
-		logger = log_create(RUTA_LOG, quienSoy, MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
 	}else{
 		config = config_create(string_from_format("../%s",RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,MOSTRAR_LOGS_EN_PANTALLA, LOG_LEVEL_INFO);
+		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy, false, LOG_LEVEL_INFO);
 	}
 
 	//Si la cantidad de valores establecidos en la configuración
@@ -244,13 +243,13 @@ void configurar(char* quienSoy) {
 	if(config_keys_amount(config) > 0) {
 		establecerConfiguracion();
 	} else {
-		log_error(logger, "Error al leer archivo de configuración");
+		logearError("Error al leer archivo de configuración",true);
 	}
 	config_destroy(config);
 }
 
 void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0 porciento\n");
+	logearInfo("Conectando a servidor 0 porciento\n");
 	struct headerDeLosRipeados handy;
 	handy.bytesDePayload = 0;
 	handy.codigoDeOperacion = operacion;
@@ -264,12 +263,11 @@ void handshake(int socket, char operacion) {
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		printf("Conectado a servidor 100 porciento\n");
-		printf("Mensaje del servidor: \"%s\"\n", respuesta);
+		logearInfo("Conectado a servidor 100 porciento\n");
+		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
 	}
 	else {
-		printf("Ripeaste\n");
-		exit(0);
+		logearError("Ripeaste\n",true);
 	}
 	free(buffer);
 }
@@ -286,4 +284,25 @@ void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
 	header->bytesDePayload = *cache;
 	cache++;
 	header->codigoDeOperacion = *cache;
+}
+
+void logearInfo(char* formato, ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_info(logger,mensaje,args);
+	printf(mensaje,args);
+	va_end(args);
+}
+
+void logearError(char* formato, int terminar , ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_error(logger,mensaje,args);
+	printf(mensaje,args);
+	va_end(args);
+	if (terminar==true) exit(0);
 }
