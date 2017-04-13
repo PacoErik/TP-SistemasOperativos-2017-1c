@@ -19,12 +19,11 @@ enum CodigoDeOperacion {
 	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
 };
 
-struct headerDeLosRipeados {
+// Para definirlo se puede usar tanto "headerDeLosRipeados" como "struct headerDeLosRipeados"
+typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-}__attribute__((packed, aligned(1)));
-
-
+}__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
@@ -42,8 +41,8 @@ void establecerConfiguracion();
 void configurar(char*);
 void conectarAKernel();
 void handshake(int,char);
-void serializarHeader(struct headerDeLosRipeados *, char *);
-void deserializarHeader(struct headerDeLosRipeados *, char *);
+void serializarHeader(headerDeLosRipeados *, char *);
+void deserializarHeader(headerDeLosRipeados *, char *);
 
 int main(void) {
 
@@ -89,7 +88,7 @@ void enviarMensaje() {
 	char mensaje[512] = "";
 	scanf("%511[^\n]", mensaje);
 
-	struct headerDeLosRipeados headerDeMiMensaje;
+	headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = strlen(mensaje);
 	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
 
@@ -126,19 +125,19 @@ void interaccionConsola() {
 	imprimirOpcionesDeConsola();
 	char input[3];
 	while(1) {
-		scanf("%2s", &input);
-
-		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-		if ( (strlen(input) != 1)
-				|| !isdigit(input[0]) ) {
-			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
-
-			continue;
-		}
+		scanf("%2s", input);
 
 		// limpiar buffer de entrada
 		int c;
 		while ( (c = getchar()) != '\n' && c != EOF );
+
+		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
+		if ( (strlen(input) != 1)
+				|| '1' > input[0] || input[0] > '6' ) {
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+
+			continue;
+		}
 
 		char opcion = input[0];
 
@@ -173,9 +172,6 @@ void interaccionConsola() {
 			case '6' : {
 				imprimirOpcionesDeConsola();
 				break;
-			}
-			default : {
-				printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 			}
 		}
 	}
@@ -251,11 +247,11 @@ void configurar(char* quienSoy) {
 
 void handshake(int socket, char operacion) {
 	printf("Conectando a servidor 0 porciento\n");
-	struct headerDeLosRipeados handy;
+	headerDeLosRipeados handy;
 	handy.bytesDePayload = 0;
 	handy.codigoDeOperacion = operacion;
 
-	int buffersize = sizeof(struct headerDeLosRipeados);
+	int buffersize = sizeof(headerDeLosRipeados);
 	char *buffer = malloc(buffersize);
 	serializarHeader(&handy, buffer);
 	send(socket, (void*) buffer, buffersize, 0);
@@ -274,16 +270,16 @@ void handshake(int socket, char operacion) {
 	free(buffer);
 }
 
-void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	*cache = header->bytesDePayload;
-	cache++;
-	*cache = header->codigoDeOperacion;
+void serializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	*pBytesDePayload = header->bytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
+void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	header->bytesDePayload = *pBytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	header->codigoDeOperacion = *pCodigoDeOperacion;
 }

@@ -26,15 +26,22 @@ enum CodigoDeOperacion {
     MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
 };
 
-struct headerDeLosRipeados {
+#define ID_CLIENTE(x) ID_CLIENTES[x-1]
+static const char *ID_CLIENTES[] = {
+	"Consola", "Memoria", "File System", "CPU"
+};
+
+// Para definirlo se puede usar tanto "headerDeLosRipeados" como "struct headerDeLosRipeados"
+typedef struct headerDeLosRipeados {
     unsigned short bytesDePayload;
     char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-}__attribute__((packed, aligned(1)));
+}__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
-typedef struct {
+// Para definirlo se puede usar tanto "miCliente" como "struct miCliente"
+typedef struct miCliente {
     short socketCliente;
     char identificador;
-}miCliente;
+} miCliente;
 
 void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int , char , miCliente *);
@@ -44,12 +51,11 @@ void cerrarConexion(int , char* );
 int posicionSocket(int , miCliente *);
 void agregarCliente(char , int , miCliente *);
 void borrarCliente(int , miCliente *);
-void serializarHeader(struct headerDeLosRipeados *, char *);
-void deserializarHeader(struct headerDeLosRipeados *, char *);
-void handshake(int , char );
+void serializarHeader(headerDeLosRipeados *, char *);
+void deserializarHeader(headerDeLosRipeados *, char *);
+// void handshake(int , char );
 
-void *get_in_addr(struct sockaddr *sa)
-{
+void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
@@ -58,8 +64,9 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 int main(void) {
-   // miCliente misClientes[MAX_NUM_CLIENTES];
-	miCliente* misClientes = malloc(sizeof(miCliente)*MAX_NUM_CLIENTES);
+	miCliente _misClientes[MAX_NUM_CLIENTES];
+	miCliente *misClientes = _misClientes;
+	//miCliente* misClientes = malloc(sizeof(miCliente)*MAX_NUM_CLIENTES);
     limpiarClientes(misClientes);
 
     fd_set master;
@@ -71,29 +78,31 @@ int main(void) {
     struct sockaddr_storage remoteaddr;
     socklen_t addrlen;
 
-    int buffersize = sizeof(struct headerDeLosRipeados);
+    int buffersize = sizeof(headerDeLosRipeados);
     char* buffer = malloc(buffersize);
-    int nbytes;
 
-    char remoteIP[INET6_ADDRSTRLEN];
+    int bytesRecibidos;
 
-    int i, rv;
-
-    struct addrinfo hints, *ai, *p;
+    int i;
 
     FD_ZERO(&master);
     FD_ZERO(&read_fds);
 
+    struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET; // IPv4
+    hints.ai_socktype = SOCK_STREAM; // TCP
     hints.ai_flags = AI_PASSIVE;
+
+    int rv;
+	struct addrinfo *ai;
     if ((rv = getaddrinfo(NULL, PORT, &hints, &ai)) != 0) {
         fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
         exit(1);
     }
 
-    for(p = ai; p != NULL; p = p->ai_next) {
+    struct addrinfo *p; // Puntero para recorrer la lista
+    for (p = ai; p != NULL; p = p->ai_next) {
         listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (listener < 0) {
             continue;
@@ -111,7 +120,7 @@ int main(void) {
     }
 
     if (p == NULL) {
-        fprintf(stderr, "selectserver: failed to bind\n");
+        fprintf(stderr, "Fallo el bind\n");
         exit(2);
     }
 
@@ -134,63 +143,65 @@ int main(void) {
         }
 
         for(i = 0; i <= fdmax; i++) {
-            if (FD_ISSET(i, &read_fds)) {
-                if (i == listener) {
-                    addrlen = sizeof remoteaddr;
-                    newfd = accept(listener,
-                        (struct sockaddr *)&remoteaddr,
-                        &addrlen);
+        	if (FD_ISSET(i, &read_fds) == 0) {
+        		continue;
+        	}
+			if (i == listener) {
+				addrlen = sizeof remoteaddr;
+				newfd = accept(listener, (struct sockaddr *) &remoteaddr,
+						&addrlen);
 
-                    if (newfd == -1) {
-                        perror("accept");
-                    } else {
-                        FD_SET(newfd, &master);
-                        if (newfd > fdmax) {
-                            fdmax = newfd;
-                        }
-                        printf("Nueva conexión desde %s en el "
-                            "socket %d\n",
-                            inet_ntop(remoteaddr.ss_family,
-                                get_in_addr((struct sockaddr*)&remoteaddr),
-                                remoteIP, INET6_ADDRSTRLEN),
-                            newfd);
-                    }
-                } else {
-                    if ((nbytes = recv(i, buffer,buffersize+1, 0)) <= 0) {
-                        if (nbytes == 0) {
-                            printf("selectserver: socket %d hung up\n", i);
-                        } else {
-                            perror("recv");
-                        }
-                        borrarCliente(i,misClientes);
-                        cerrarConexion(i, "time-out");
-                        FD_CLR(i, &master);
-                    } else {
-                        // llegó info, vamos a ver el header
-                        int estado = analizarHeader(i, buffer, misClientes);
+				if (newfd == -1) {
+					perror("accept");
+				}
+				else {
+					FD_SET(newfd, &master);
+					if (newfd > fdmax) {
+						fdmax = newfd;
+					}
+				    char remoteIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
+					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &remoteaddr), remoteIP, INET_ADDRSTRLEN);
+					printf("Nueva conexión desde %s en el socket %d\n", remoteIP, newfd);
+				}
+			}
+			else {
+				if ((bytesRecibidos = recv(i, buffer, buffersize + 1, 0))
+						<= 0) {
+					if (bytesRecibidos == 0) {
+						printf("selectserver: socket %d hung up\n", i);
+					}
+					else {
+						perror("recv");
+					}
+					borrarCliente(i, misClientes);
+					cerrarConexion(i, "time-out");
+					FD_CLR(i, &master);
+				}
+				else {
+					// llegó info, vamos a ver el header
+					int estado = analizarHeader(i, buffer, misClientes);
 
-                        if (estado < 0) { //ocurrió algún problema con ese socket (puede ser un cliente o no)
-                        	send(i,"Error, desconectado",20,0);
-							borrarCliente(i,misClientes);
-                        	cerrarConexion(i,"operación incorrecta");
-                        	FD_CLR(i,&master);
-                        	continue; //salteamos esta iteración
-                        }
-                        char *respuesta = "Header recibido";
-                        send(i, respuesta, strlen(respuesta) + 1, 0);
-                    }
-                }
-            }
+					if (estado < 0) { //ocurrió algún problema con ese socket (puede ser un cliente o no)
+						send(i, "Error, desconectado", 20, 0);
+						borrarCliente(i, misClientes);
+						cerrarConexion(i, "operación incorrecta");
+						FD_CLR(i, &master);
+						continue; //salteamos esta iteración
+					}
+					char *respuesta = "Header recibido";
+					send(i, respuesta, strlen(respuesta) + 1, 0);
+				}
+			}
         }
     }
     free(buffer);
-    free(misClientes);
+    //free(misClientes);
     return 0;
 }
 
 void agregarCliente(char identificador, int socketCliente, miCliente *clientes) {
 	int i;
-	for (i=0;i<MAX_NUM_CLIENTES;i++) {
+	for (i=0; i<MAX_NUM_CLIENTES; i++) {
 		if (clientes[i].socketCliente == -1) { //woohoo, encontramos un espacio libre
 			clientes[i].socketCliente = socketCliente;
 			clientes[i].identificador = identificador;
@@ -212,26 +223,36 @@ void borrarCliente(int socketCliente, miCliente *clientes) {
  * devuelve -1 si el socket causa problemas
  */
 int analizarHeader(int socketCliente, char* buffer, miCliente *clientes) {
-    struct headerDeLosRipeados header;
+    headerDeLosRipeados header;
     deserializarHeader(&header, buffer);
     int indice = posicionSocket(socketCliente,clientes);
+
     if (header.codigoDeOperacion >= CONSOLA && header.codigoDeOperacion <= CPU) {
-    	if (indice < 0) { //no estaba antes en el array de clientes
+    	// No estaba antes en el array de clientes
+    	if (indice < 0) {
+    		printf("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(header.codigoDeOperacion));
     		agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
-    	} else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
+    	}
+    	else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
     		return -1; // Otro cacho de código se va a encargar de borrarlo
     	}
-    } else if (header.codigoDeOperacion == MENSAJE) {
-        if(header.bytesDePayload <= 0) {
+    }
+
+    else if (header.codigoDeOperacion == MENSAJE) {
+        if (header.bytesDePayload <= 0) {
             printf("El cliente %i intento mandar un mensaje sin contenido\n", socketCliente);
             return -1;
-        } else {
+        }
+        else {
             leerMensaje(socketCliente, header.bytesDePayload, clientes);
         }
-    } else {
+    }
+
+    else {
     	if (indice >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
     		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes); // TODO
-    	} else { //Header no reconocido, chau cliente intruso
+    	}
+    	else { //Header no reconocido, chau cliente intruso
     		return -1;
     	}
     }
@@ -304,13 +325,15 @@ void cerrarConexion(int socketCliente, char* motivo){
 	printf("El socket %i ha sido desconectado por %s\n", socketCliente, motivo);
 }
 
+/*
+// Por ahora no lo usamos
 void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0 porciento\n");
-	struct headerDeLosRipeados handy;
+	printf("Conectando a servidor 0%%\n");
+	headerDeLosRipeados handy;
 	handy.bytesDePayload = 0;
 	handy.codigoDeOperacion = operacion;
 
-	int buffersize = sizeof(struct headerDeLosRipeados);
+	int buffersize = sizeof(headerDeLosRipeados);
 	char *buffer = malloc(buffersize);
 	serializarHeader(&handy, buffer);
 	send(socket, (void*) buffer, buffersize, 0);
@@ -328,17 +351,18 @@ void handshake(int socket, char operacion) {
 	}
 	free(buffer);
 }
+*/
 
-void serializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	*cache = header->bytesDePayload;
-	cache++;
-	*cache = header->codigoDeOperacion;
+void serializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	*pBytesDePayload = header->bytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
-void deserializarHeader(struct headerDeLosRipeados *header, char *buffer) {
-	short *cache = (short*) buffer;
-	header->bytesDePayload = *cache;
-	cache++;
-	header->codigoDeOperacion = *cache;
+void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	header->bytesDePayload = *pBytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	header->codigoDeOperacion = *pCodigoDeOperacion;
 }
