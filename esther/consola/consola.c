@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include "commons/log.h"
 #include "commons/config.h"
+#include "commons/string.h"
 #include <stdarg.h>
 
 #define RUTA_CONFIG "config.cfg"
@@ -102,6 +103,9 @@ void enviarMensaje() {
 	free(headerComprimido);
 
 	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
+
+	// El server retransmite el mensaje
+	leerMensaje();
 }
 
 void leerMensaje() {
@@ -295,7 +299,7 @@ void logearInfo(char* formato, ...) {
 void logearError(char* formato, int terminar , ...) {
 	char* mensaje;
 	va_list args;
-	va_start(args, formato);
+	va_start(args, terminar);
 	mensaje = string_from_vformat(formato,args);
 	log_error(logger,mensaje,args);
 	printf(mensaje,args);
