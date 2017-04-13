@@ -105,7 +105,9 @@ void enviarMensaje() {
 	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
 
 	// El server retransmite el mensaje
-	leerMensaje();
+	//leerMensaje();
+	//Pero el kernel no se lo retransmite a la Consola (los otros procesos
+	//esperan mensajes, este proceso espera que el usuario haga algo)
 }
 
 void leerMensaje() {
@@ -217,7 +219,7 @@ void conectarAKernel() {
 		close(servidor);
 		logearError("No se pudo conectar al Kernel",true);
 	}
-	logearInfo("Conectado al Kernel");
+	logearInfo("Conectado al Kernel\n");
 }
 
 void configurar(char* quienSoy) {
@@ -291,8 +293,8 @@ void logearInfo(char* formato, ...) {
 	va_list args;
 	va_start(args, formato);
 	mensaje = string_from_vformat(formato,args);
-	log_info(logger,mensaje,args);
-	printf(mensaje,args);
+	log_info(logger,mensaje);
+	printf(mensaje);
 	va_end(args);
 }
 
@@ -301,8 +303,8 @@ void logearError(char* formato, int terminar , ...) {
 	va_list args;
 	va_start(args, terminar);
 	mensaje = string_from_vformat(formato,args);
-	log_error(logger,mensaje,args);
-	printf(mensaje,args);
+	log_error(logger,mensaje);
+	printf(mensaje);
 	va_end(args);
 	if (terminar==true) exit(0);
 }
