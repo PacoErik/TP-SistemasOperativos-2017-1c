@@ -33,8 +33,6 @@ typedef struct headerDeLosRipeados {
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
-char IP_MEMORIA[16];
-int PUERTO_MEMORIA;
 
 void desconectarConsola();
 void leerMensaje();
