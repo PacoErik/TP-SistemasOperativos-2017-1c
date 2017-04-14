@@ -1,3 +1,10 @@
+/*
+ * filesystem.c
+ *
+ *  Created on: 13/4/2017
+ *      Author: utnso
+ */
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,7 +16,7 @@
 #include <stdarg.h>
 
 #define RUTA_CONFIG "config.cfg"
-#define RUTA_LOG "cpu.log"
+#define RUTA_LOG "filesystem.log"
 
 t_log* logger;
 t_config* config;
@@ -23,8 +30,7 @@ typedef struct headerDeLosRipeados {
 	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
 }__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
-int servidorKernel; //kernel
-int servidorMemoria;
+int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
 char IP_MEMORIA[16];
@@ -40,18 +46,14 @@ void serializarHeader(headerDeLosRipeados *, char *);
 void deserializarHeader(headerDeLosRipeados *, char *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
-void conectarAMemoria(void);
 
 int main(void) {
 
-	configurar("cpu");
+	configurar("filesystem");
 	conectarAKernel();
-	conectarAMemoria();
-	handshake(servidorKernel, CPU);
-	handshake(servidorMemoria, CPU);
+	handshake(servidor, FILESYSTEM);
 	while (1){
-		leerMensaje(servidorKernel);
-		leerMensaje(servidorMemoria);
+		leerMensaje();
 	}
 
 	return 0;
@@ -59,20 +61,19 @@ int main(void) {
 
 
 void desconectarConsola() {
-	close(servidorKernel);
-	close(servidorMemoria);
+	close(servidor);
 	exit(EXIT_SUCCESS);
 }
 
-void leerMensaje(servidor) {
+void leerMensaje() {
 
 	int bytesRecibidos;
 	char mensaje[512];
-	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
+	bytesRecibidos = recv(servidor, &mensaje, sizeof(mensaje), 0);
 	mensaje[bytesRecibidos]='\0';
 	if(bytesRecibidos <= 0){
 		close(servidor);
-		logearError("Uno de los servidores fue desconectado luego de intentar leer mensaje", true);
+		logearError("Servidor desconectado luego de intentar leer mensaje",true);
 	}
 	logearInfo("Mensaje recibido: %s\n",mensaje);
 }
@@ -82,25 +83,19 @@ void establecerConfiguracion() {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
 		logearInfo("Puerto Kernel: %d \n",PUERTO_KERNEL);
 	} else {
-		logearError("Error al leer el puerto del Kernel", true);
+		logearError("Error al leer el puerto del Kernel",true);
 	}
 	if(config_has_property(config, "IP_KERNEL")) {
 		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		logearInfo("IP Kernel: %s \n", IP_KERNEL);
+		logearInfo("IP Kernel: %s \n",IP_KERNEL);
 	} else {
-		logearError("Error al leer la IP del Kernel", true);
+		logearError("Error al leer la IP del Kernel",true);
 	}
 	if(config_has_property(config, "PUERTO_MEMORIA")) {
 		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logearInfo("Puerto Memoria: %d \n", PUERTO_MEMORIA);
+		logearInfo("Puerto Memoria: %d \n",PUERTO_MEMORIA);
 	} else {
-		logearError("Error al leer el puerto de la Memoria", true);
-	}
-	if(config_has_property(config, "IP_MEMORIA")){
-		strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-		logearInfo("IP Memoria: %s \n", IP_MEMORIA);
-	} else {
-		logearError("Error al leer la IP de la Memoria", true);
+		logearError("Error al leer el puerto de la Memoria",true);
 	}
 }
 
@@ -120,25 +115,12 @@ void conectarAKernel() {
 	direccionServidor.sin_family = AF_INET;
 	direccionServidor.sin_addr.s_addr = inet_addr( (char*) IP_KERNEL);
 	direccionServidor.sin_port = htons(PUERTO_KERNEL);
-	servidorKernel = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidorKernel, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
-		close(servidorKernel);
+	servidor = socket(AF_INET, SOCK_STREAM, 0);
+	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
+		close(servidor);
 		logearError("No se pudo conectar al Kernel",true);
 	}
 	logearInfo("Conectado al Kernel\n");
-}
-
-void conectarAMemoria() {
-	struct sockaddr_in direccionMemoria;
-	direccionMemoria.sin_family = AF_INET;
-	direccionMemoria.sin_addr.s_addr = inet_addr( (char*) IP_MEMORIA);
-	direccionMemoria.sin_port = htons(PUERTO_MEMORIA);
-	servidorMemoria = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidorMemoria, (struct sockaddr *) &direccionMemoria,sizeof(direccionMemoria)) < 0) {
-		close(servidorMemoria);
-		logearError("No se pudo conectar a la Memoria",true);
-	}
-	logearInfo("Conectado a la Memoria\n");
 }
 
 void configurar(char* quienSoy) {
@@ -152,7 +134,7 @@ void configurar(char* quienSoy) {
 	if (existeArchivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
 		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
-	}else{
+	} else {
 		config = config_create(string_from_format("../%s",RUTA_CONFIG));
 		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,false, LOG_LEVEL_INFO);
 	}

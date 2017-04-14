@@ -4,3 +4,27 @@
 [INFO] 21:34:46:501 consola/(11347:11347): Conectado al Kernel
 [INFO] 21:34:51:836 consola/(11347:11347): Comando de envío de mensaje ejecutado
 [INFO] 21:35:10:148 consola/(11347:11347): Comando de envío de mensaje ejecutado
+[INFO] 22:21:45:601 consola/(3441:3441): Puerto Kernel: 8081 
+
+[INFO] 22:21:45:602 consola/(3441:3441): IP Kernel: 127.0.0.1 
+
+[INFO] 22:21:45:604 consola/(3441:3441): Conectado al Kernel
+
+[INFO] 22:21:45:604 consola/(3441:3441): Conectando a servidor 0%
+
+[INFO] 22:21:45:605 consola/(3441:3441): Conectado a servidor 100 porciento
+
+[INFO] 22:21:45:605 consola/(3441:3441): Mensaje del servidor: "Header recibido"
+
+[INFO] 22:21:54:464 consola/(3441:3441): Comando de envío de mensaje ejecutado
+
+[INFO] 22:21:54:504 consola/(3441:3441): Mensaje recibido: Header recibido
+
+[INFO] 22:21:54:505 consola/(3441:3441): Mensaje completado, coloque otra opción. Opcion 6 para más información
+
+[INFO] 22:22:03:542 consola/(3441:3441): Comando de envío de mensaje ejecutado
+
+[INFO] 22:22:03:543 consola/(3441:3441): Mensaje recibido: Error, desconectado
+
+[INFO] 22:22:03:543 consola/(3441:3441): Mensaje completado, coloque otra opción. Opcion 6 para más información
+
