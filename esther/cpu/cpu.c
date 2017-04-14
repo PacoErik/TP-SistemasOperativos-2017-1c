@@ -46,12 +46,13 @@ int main(void) {
 
 	configurar("cpu");
 	conectarAKernel();
-	conectarAMemoria();
+	//conectarAMemoria();
 	handshake(servidorKernel, CPU);
-	handshake(servidorMemoria, CPU);
+	//handshake(servidorMemoria, CPU);
 	while (1){
 		leerMensaje(servidorKernel);
-		leerMensaje(servidorMemoria);
+		//leerMensaje(servidorMemoria);
+		//watafaq? XD
 	}
 
 	return 0;
@@ -60,7 +61,7 @@ int main(void) {
 
 void desconectarConsola() {
 	close(servidorKernel);
-	close(servidorMemoria);
+	//close(servidorMemoria);
 	exit(EXIT_SUCCESS);
 }
 
