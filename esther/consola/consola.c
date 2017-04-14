@@ -116,7 +116,7 @@ void leerMensaje() {
 	char mensaje[512];
 	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
 	mensaje[bytesRecibidos]='\0';
-	if(bytesRecibidos <= 0){
+	if(bytesRecibidos <= 0 || !strncmp(mensaje,"Error, desconectado",18)){
 		close(servidor);
 		logearError("Servidor desconectado luego de intentar leer mensaje",true);
 	}
