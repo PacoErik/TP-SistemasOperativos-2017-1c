@@ -2,13 +2,13 @@
 
 - [x] Crear los proyectos para los diversos procesos del trabajo práctico y sincronizarlos al repositorio de Git.
 
-- [ ] Desarrollar un servidor multicliente en el Kernel y clientes simples en el resto de los procesos. 
+- [X] Desarrollar un servidor multicliente en el Kernel y clientes simples en el resto de los procesos. 
 
-- [ ] Cada proceso deberá leer su configuración inicial desde su archivo de configuración, en la que contará con los parámetros de conexión.
+- [X] Cada proceso deberá leer su configuración inicial desde su archivo de configuración, en la que contará con los parámetros de conexión.
 
-- [ ] Al iniciar, cada proceso informará por pantalla su configuración, hará un Handshake con los procesos con quienes deba conectarse y luego quedarán a la espera de recibir datos.
+- [X] Al iniciar, cada proceso informará por pantalla su configuración, hará un Handshake con los procesos con quienes deba conectarse y luego quedarán a la espera de recibir datos.
 
-- [ ] Desde la consola podrá enviarse un mensaje con tamaño máximo fijo al Kernel, el cual deberá imprimir por pantalla el texto ingresado en la misma, y replicarlo a la Memoria, CPU y FileSystem. Estos últimos también deberán mostrar el contenido del mensaje por pantalla.
+- [X] Desde la consola podrá enviarse un mensaje con tamaño máximo fijo al Kernel, el cual deberá imprimir por pantalla el texto ingresado en la misma, y replicarlo a la Memoria, CPU y FileSystem. Estos últimos también deberán mostrar el contenido del mensaje por pantalla.
 
 # SEGUNDO CHECKPOINT
 
