@@ -86,9 +86,20 @@ void desconectarConsola() {
 }
 
 void enviarMensaje() {
-	printf("\nEscribir mensaje: ");
 	char mensaje[512] = "";
+
+EscribirMensaje:
+
+	printf("\nEscribir mensaje: ");
 	scanf("%511[^\n]", mensaje);
+
+	if (strlen(mensaje) == 0) {
+		printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
+		// Limpiar buffer de entrada
+		int c;
+		while ( (c = getchar()) != '\n' && c != EOF );
+		goto EscribirMensaje;
+	}
 
 	headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = strlen(mensaje);
