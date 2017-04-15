@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include "commons/log.h"
 #include "commons/config.h"
+#include "commons/string.h"
 #include <stdarg.h>
 
 #define MOSTRAR_LOGS_EN_PANTALLA true
@@ -32,13 +33,11 @@ static const char *ID_CLIENTES[] = {
 	"Consola", "Memoria", "File System", "CPU"
 };
 
-// Para definirlo se puede usar tanto "headerDeLosRipeados" como "struct headerDeLosRipeados"
 typedef struct headerDeLosRipeados {
     unsigned short bytesDePayload;
     char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
 }__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
-// Para definirlo se puede usar tanto "miCliente" como "struct miCliente"
 typedef struct miCliente {
     short socketCliente;
     char identificador;
@@ -58,7 +57,7 @@ void serializarHeader(headerDeLosRipeados *, char *);
 void deserializarHeader(headerDeLosRipeados *, char *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
-// void handshake(int , char );
+void handshake(int , char );
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -354,19 +353,21 @@ void logearInfo(char* formato, ...) {
 	va_start(args, formato);
 	mensaje = string_from_vformat(formato,args);
 	log_info(logger,mensaje);
-	printf(mensaje);
+	printf("%s", mensaje);
 	va_end(args);
 }
 
 void logearError(char* formato, int terminar , ...) {
 	char* mensaje;
 	va_list args;
-	va_start(args, formato);
+	va_start(args, terminar);
 	mensaje = string_from_vformat(formato,args);
 	log_error(logger,mensaje);
-	printf(mensaje);
+	printf("%s", mensaje);
 	va_end(args);
-	if (terminar==true) exit(0);
+	if (terminar==true) {
+		exit(EXIT_FAILURE);
+	}
 }
 
 void establecerConfiguracion() {
@@ -378,8 +379,7 @@ void establecerConfiguracion() {
 	}
 }
 
-int existeArchivo(const char *ruta)
-{
+int existeArchivo(const char *ruta) {
     FILE *archivo;
     if ((archivo = fopen(ruta, "r")))
     {
@@ -415,4 +415,28 @@ void configurar(char* quienSoy) {
 		logearError("Error al leer archivo de configuración",true);
 	}
 	config_destroy(config);
+}
+
+void handshake(int socket, char operacion) {
+	logearInfo("Conectando a servidor 0%%\n");
+	headerDeLosRipeados handy;
+	handy.bytesDePayload = 0;
+	handy.codigoDeOperacion = operacion;
+
+	int buffersize = sizeof(headerDeLosRipeados);
+	char *buffer = malloc(buffersize);
+	serializarHeader(&handy, buffer);
+	send(socket, (void*) buffer, buffersize, 0);
+
+	char respuesta[1024];
+	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+
+	if (bytesRecibidos > 0) {
+		logearInfo("Conectado a servidor 100 porciento\n");
+		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
+	}
+	else {
+		logearError("Ripeaste\n",true);
+	}
+	free(buffer);
 }
