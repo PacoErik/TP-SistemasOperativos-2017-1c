@@ -9,16 +9,17 @@
 #include <netdb.h>
 #include "commons/log.h"
 #include "commons/config.h"
+#include <stdarg.h>
 
 #define MOSTRAR_LOGS_EN_PANTALLA true
 
 #define RUTA_CONFIG "config.cfg"
-#define RUTA_LOG "consola.log"
+#define RUTA_LOG "kernel.log"
 
 t_log* logger;
 t_config* config;
 
-#define PORT "8081"   // port we're listening on
+char PUERTO_KERNEL[6];
 
 #define MAX_NUM_CLIENTES 100
 
@@ -47,12 +48,16 @@ void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int , char , miCliente *);
 int analizarHeader(int , char* , miCliente *);
 void leerMensaje(int , short , miCliente *);
+void establecerConfiguracion();
+void configurar(char*);
 void cerrarConexion(int , char* );
 int posicionSocket(int , miCliente *);
 void agregarCliente(char , int , miCliente *);
 void borrarCliente(int , miCliente *);
 void serializarHeader(headerDeLosRipeados *, char *);
 void deserializarHeader(headerDeLosRipeados *, char *);
+void logearInfo(char *, ...);
+void logearError(char *, int, ...);
 // void handshake(int , char );
 
 void *get_in_addr(struct sockaddr *sa) {
@@ -64,6 +69,8 @@ void *get_in_addr(struct sockaddr *sa) {
 }
 
 int main(void) {
+	configurar("kernel");
+
 	miCliente misClientes[MAX_NUM_CLIENTES];
     limpiarClientes(misClientes);
 
@@ -84,11 +91,10 @@ int main(void) {
     /* getaddrinfo() retorna una lista de posibles direcciones para el bind */
 
 	struct addrinfo *direcciones; // lista de posibles direcciones para el bind
-    int rv = getaddrinfo(NULL, PORT, &hints, &direcciones); // si devuelve 0 hay un error
+    int rv = getaddrinfo(NULL, PUERTO_KERNEL, &hints, &direcciones); // si devuelve 0 hay un error
     if (rv != 0) {
     	// gai_strerror() devuelve el mensaje de error segun el codigo de error
-        fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
-        exit(EXIT_FAILURE);
+        logearError("No se pudo abrir el server\n",true);
     }
 
     int servidor; // socket de escucha
@@ -114,17 +120,15 @@ int main(void) {
     }
 
     if (p == NULL) {
-        fprintf(stderr, "Fallo el bind\n");
-        exit(2);
+        logearError("Fallo al bindear el puerto\n",true);
     }
 
     freeaddrinfo(direcciones); // No necesito mas la lista de direcciones
 
     if (listen(servidor, 10) == -1) {
-        perror("listen");
-        exit(3);
+        logearError("Fallo al escuchar\n",true);
     }
-    printf("Estoy escuchando\n");
+    logearInfo("Estoy escuchando\n");
 
     fd_set conectados; // Set de FDs conectados
     fd_set read_fds; // sockets de lectura
@@ -141,8 +145,7 @@ int main(void) {
     for(;;) {
         read_fds = conectados;
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
-            perror("select");
-            exit(4);
+            logearError("Error en el select\n",true);
         }
 
         // Se detecta algun cambio en alguno de los sockets
@@ -159,7 +162,7 @@ int main(void) {
 				nuevoCliente = accept(servidor, (struct sockaddr *)&direccionCliente, &addrlen);
 
 				if (nuevoCliente == -1) {
-					perror("accept");
+					logearError("Fallo en el accept\n",false);
 				}
 				else {
 					FD_SET(nuevoCliente, &conectados); // Agregarlo al set
@@ -168,20 +171,20 @@ int main(void) {
 					}
 				    char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
 					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &direccionCliente), direccionIP, INET_ADDRSTRLEN);
-					printf("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
+					logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
 				}
 			}
 			else {
 				if ((bytesRecibidos = recv(i, buffer, buffersize + 1, 0))
 						<= 0) {
 					if (bytesRecibidos == 0) {
-						printf("selectserver: socket %d hung up\n", i);
+						cerrarConexion(i, "El socket %d se desconectó\n");
 					}
 					else {
-						perror("recv");
+						logearError("Error en el recv\n",false);
+						close(i);
 					}
 					borrarCliente(i, misClientes);
-					cerrarConexion(i, "time-out");
 					FD_CLR(i, &conectados);
 				}
 				else {
@@ -191,7 +194,7 @@ int main(void) {
 					if (estado < 0) { //ocurrió algún problema con ese socket (puede ser un cliente o no)
 						send(i, "Error, desconectado", 20, 0);
 						borrarCliente(i, misClientes);
-						cerrarConexion(i, "operación incorrecta");
+						cerrarConexion(i, "El socket %d hizo una operación inválida\n");
 						FD_CLR(i, &conectados);
 						continue; //salteamos esta iteración
 					}
@@ -202,7 +205,6 @@ int main(void) {
         }
     }
     free(buffer);
-    //free(misClientes);
     return 0;
 }
 
@@ -237,7 +239,7 @@ int analizarHeader(int socketCliente, char* buffer, miCliente *clientes) {
     if (header.codigoDeOperacion >= CONSOLA && header.codigoDeOperacion <= CPU) {
     	// No estaba antes en el array de clientes
     	if (indice < 0) {
-    		printf("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(header.codigoDeOperacion));
+    		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(header.codigoDeOperacion));
     		agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
     	}
     	else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
@@ -247,7 +249,7 @@ int analizarHeader(int socketCliente, char* buffer, miCliente *clientes) {
 
     else if (header.codigoDeOperacion == MENSAJE) {
         if (header.bytesDePayload <= 0) {
-            printf("El cliente %i intento mandar un mensaje sin contenido\n", socketCliente);
+            logearError("El cliente %i intentó mandar un mensaje sin contenido\n",false,socketCliente);
             return -1;
         }
         else {
@@ -282,9 +284,9 @@ void leerMensaje(int socketCliente, short bytesDePayload, miCliente *clientes) {
     char* mensaje = malloc(bytesDePayload+1);
     recv(socketCliente,mensaje,bytesDePayload,0);
     mensaje[bytesDePayload]='\0';
-    printf("Mensaje recibido: %s\n",mensaje);
+    logearInfo("Mensaje recibido: %s\n",mensaje);
     int cantidad = enviarMensajeATodos(socketCliente,mensaje, clientes);
-    printf("Mensaje retransmitido a %i clientes\n",cantidad);
+    logearInfo("Mensaje retransmitido a %i clientes\n",cantidad);
     free(mensaje);
 }
 
@@ -328,37 +330,9 @@ void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, miCli
 }
 
 void cerrarConexion(int socketCliente, char* motivo){
+	logearInfo(motivo, socketCliente);
 	close(socketCliente);
-	printf("El socket %i ha sido desconectado por %s\n", socketCliente, motivo);
 }
-
-/*
-// Por ahora no lo usamos
-void handshake(int socket, char operacion) {
-	printf("Conectando a servidor 0%%\n");
-	headerDeLosRipeados handy;
-	handy.bytesDePayload = 0;
-	handy.codigoDeOperacion = operacion;
-
-	int buffersize = sizeof(headerDeLosRipeados);
-	char *buffer = malloc(buffersize);
-	serializarHeader(&handy, buffer);
-	send(socket, (void*) buffer, buffersize, 0);
-
-	char respuesta[1024];
-	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
-
-	if (bytesRecibidos > 0) {
-		printf("Conectado a servidor 100 porciento\n");
-		printf("Mensaje del servidor: \"%s\"\n", respuesta);
-	}
-	else {
-		printf("Ripeaste\n");
-		exit(0);
-	}
-	free(buffer);
-}
-*/
 
 void serializarHeader(headerDeLosRipeados *header, char *buffer) {
 	short *pBytesDePayload = (short*) buffer;
@@ -372,4 +346,73 @@ void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
 	header->bytesDePayload = *pBytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
 	header->codigoDeOperacion = *pCodigoDeOperacion;
+}
+
+void logearInfo(char* formato, ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_info(logger,mensaje);
+	printf(mensaje);
+	va_end(args);
+}
+
+void logearError(char* formato, int terminar , ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_error(logger,mensaje);
+	printf(mensaje);
+	va_end(args);
+	if (terminar==true) exit(0);
+}
+
+void establecerConfiguracion() {
+	if(config_has_property(config, "PUERTO_KERNEL")) {
+		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
+		logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
+	} else {
+		logearError("Error al leer el puerto del Kernel",true);
+	}
+}
+
+int existeArchivo(const char *ruta)
+{
+    FILE *archivo;
+    if ((archivo = fopen(ruta, "r")))
+    {
+        fclose(archivo);
+        return true;
+    }
+    return false;
+}
+
+void configurar(char* quienSoy) {
+
+	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
+	//como si estuviese en la carpeta esther/consola/
+	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
+	//pero en ese caso no existiria el archivo config ni el log
+	//y es por eso que tenemos que leerlo desde el directorio anterior
+
+	if (existeArchivo(RUTA_CONFIG)) {
+		config = config_create(RUTA_CONFIG);
+		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
+	} else {
+		config = config_create(string_from_format("../%s",RUTA_CONFIG));
+		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,false, LOG_LEVEL_INFO);
+	}
+
+	//Si la cantidad de valores establecidos en la configuración
+	//es mayor a 0, entonces configurar la ip y el puerto,
+	//sino, estaría mal hecho el config.cfg
+
+	if(config_keys_amount(config) > 0) {
+		establecerConfiguracion();
+	} else {
+		logearError("Error al leer archivo de configuración",true);
+	}
+	config_destroy(config);
 }
