@@ -45,7 +45,7 @@ typedef struct miCliente {
 
 void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int , char , miCliente *);
-int analizarHeader(int , char* , miCliente *);
+int analizarHeader(int , void* , miCliente *);
 void leerMensaje(int , short , miCliente *);
 void establecerConfiguracion();
 void configurar(char*);
@@ -53,8 +53,8 @@ void cerrarConexion(int , char* );
 int posicionSocket(int , miCliente *);
 void agregarCliente(char , int , miCliente *);
 void borrarCliente(int , miCliente *);
-void serializarHeader(headerDeLosRipeados *, char *);
-void deserializarHeader(headerDeLosRipeados *, char *);
+void serializarHeader(headerDeLosRipeados *, void *);
+void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void handshake(int , char );
@@ -230,9 +230,9 @@ void borrarCliente(int socketCliente, miCliente *clientes) {
  * Analiza el contenido del header, y respecto a ello realiza distintas acciones
  * devuelve -1 si el socket causa problemas
  */
-int analizarHeader(int socketCliente, char* buffer, miCliente *clientes) {
+int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
     headerDeLosRipeados header;
-    deserializarHeader(&header, buffer);
+    deserializarHeader(&header, bufferHeader);
     int indice = posicionSocket(socketCliente,clientes);
 
     if (header.codigoDeOperacion >= CONSOLA && header.codigoDeOperacion <= CPU) {
@@ -333,14 +333,14 @@ void cerrarConexion(int socketCliente, char* motivo){
 	close(socketCliente);
 }
 
-void serializarHeader(headerDeLosRipeados *header, char *buffer) {
+void serializarHeader(headerDeLosRipeados *header, void *buffer) {
 	short *pBytesDePayload = (short*) buffer;
 	*pBytesDePayload = header->bytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
 	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
-void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
+void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
 	short *pBytesDePayload = (short*) buffer;
 	header->bytesDePayload = *pBytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);

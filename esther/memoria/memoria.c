@@ -41,8 +41,8 @@ void establecerConfiguracion();
 void configurar(char*);
 void conectarAKernel();
 void handshake(int, char);
-void serializarHeader(headerDeLosRipeados *, char *);
-void deserializarHeader(headerDeLosRipeados *, char *);
+void serializarHeader(headerDeLosRipeados *, void *);
+void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 
@@ -151,9 +151,9 @@ void handshake(int socket, char operacion) {
 	handy.codigoDeOperacion = operacion;
 
 	int buffersize = sizeof(headerDeLosRipeados);
-	char *buffer = malloc(buffersize);
+	void *buffer = malloc(buffersize);
 	serializarHeader(&handy, buffer);
-	send(socket, (void*) buffer, buffersize, 0);
+	send(socket, buffer, buffersize, 0);
 
 	char respuesta[1024];
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
@@ -168,14 +168,14 @@ void handshake(int socket, char operacion) {
 	free(buffer);
 }
 
-void serializarHeader(headerDeLosRipeados *header, char *buffer) {
+void serializarHeader(headerDeLosRipeados *header, void *buffer) {
 	short *pBytesDePayload = (short*) buffer;
 	*pBytesDePayload = header->bytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
 	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
-void deserializarHeader(headerDeLosRipeados *header, char *buffer) {
+void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
 	short *pBytesDePayload = (short*) buffer;
 	header->bytesDePayload = *pBytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
