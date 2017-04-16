@@ -44,20 +44,22 @@ typedef struct miCliente {
 } miCliente;
 
 void limpiarClientes(miCliente *);
-void analizarCodigosDeOperacion(int , char , miCliente *);
-int analizarHeader(int , void* , miCliente *);
-void leerMensaje(int , short , miCliente *);
 void establecerConfiguracion();
 void configurar(char*);
-void cerrarConexion(int , char* );
+void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes);
 int posicionSocket(int , miCliente *);
 void agregarCliente(char , int , miCliente *);
 void borrarCliente(int , miCliente *);
+int recibirMensaje(int socketCliente, miCliente *clientes);
+int recibirHandshake(int socketCliente, miCliente *clientes);
+int recibirHeader(int socketCliente, miCliente *clientes);
+int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes);
 void serializarHeader(headerDeLosRipeados *, void *);
 void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void handshake(int , char );
+int existeCliente(int socketCliente, miCliente *clientes);
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -74,7 +76,7 @@ int main(void) {
     limpiarClientes(misClientes);
 
     int buffersize = sizeof(headerDeLosRipeados);
-    char* buffer = malloc(buffersize);
+    void* buffer = malloc(buffersize);
 
     struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
     memset(&hints, 0, sizeof hints);
@@ -173,30 +175,22 @@ int main(void) {
 			}
 			// Un cliente mando un mensaje
 			else {
-			    int bytesRecibidos = recv(i, buffer, buffersize + 1, 0);
-				if (bytesRecibidos <= 0) {
-					if (bytesRecibidos == 0) {
-						cerrarConexion(i, "El socket %d se desconectó\n");
+				if (existeCliente(i, misClientes) == 0) { // Nuevo cliente, debe enviar un handshake
+					if (recibirHandshake(i, misClientes) == 0) {
+						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
 					}
 					else {
-						logearError("Error en el recv\n",false);
-						close(i);
+						char *respuesta = "Handshake recibido";
+						send(i, respuesta, strlen(respuesta) + 1, 0);
 					}
-					borrarCliente(i, misClientes);
-					FD_CLR(i, &conectados);
 				}
 				else {
-					// llegó info, vamos a ver el header
-					int estado = analizarHeader(i, buffer, misClientes);
-
-					if (estado < 0) { //ocurrió algún problema con ese socket (puede ser un cliente o no)
-						send(i, "Error, desconectado", 20, 0);
-						borrarCliente(i, misClientes);
-						cerrarConexion(i, "El socket %d hizo una operación inválida\n");
+					if (recibirMensaje(i, misClientes) == 0) {
+						logearError("No pudo recibir mensaje desde el socket %d\n", false, i);
+						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
 						FD_CLR(i, &conectados);
-						continue; //salteamos esta iteración
 					}
-					char *respuesta = "Header recibido";
+					char *respuesta = "Mensaje recibido";
 					send(i, respuesta, strlen(respuesta) + 1, 0);
 				}
 			}
@@ -225,67 +219,124 @@ void borrarCliente(int socketCliente, miCliente *clientes) {
 	}
 }
 
-/**
- * Analiza el contenido del header, y respecto a ello realiza distintas acciones
- * devuelve -1 si el socket causa problemas
- */
-int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
-    headerDeLosRipeados header;
-    deserializarHeader(&header, bufferHeader);
-    int indice = posicionSocket(socketCliente,clientes);
-
-    if (header.codigoDeOperacion >= CONSOLA && header.codigoDeOperacion <= CPU) {
-    	// No estaba antes en el array de clientes
-    	if (indice < 0) {
-    		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(header.codigoDeOperacion));
-    		agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
-    	}
-    	else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
-    		return -1; // Otro cacho de código se va a encargar de borrarlo
-    	}
-    }
-
-    else if (header.codigoDeOperacion == MENSAJE) {
-        if (header.bytesDePayload <= 0) {
-            logearError("El cliente %i intentó mandar un mensaje sin contenido\n",false,socketCliente);
-            return -1;
-        }
-        else {
-            leerMensaje(socketCliente, header.bytesDePayload, clientes);
-        }
-    }
-
-    else {
-    	if (indice >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
-    		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes); // TODO
-    	}
-    	else { //Header no reconocido, chau cliente intruso
-    		return -1;
-    	}
-    }
-    return 0;
-}
 
 int enviarMensajeATodos(int socketCliente, char* mensaje, miCliente *clientes) {
 	int cantidad = 0;
 	int i;
 	for (i=0;i<MAX_NUM_CLIENTES;i++) { //enviamos mensaje a los clientes registrados
 		if (clientes[i].identificador >= MEMORIA && clientes[i].identificador <= CPU) { //solo le mandamos a MEMORIA,FILESYSTEM y CPU
-			send(clientes[i].socketCliente,mensaje,strlen(mensaje),0);
+			send(clientes[i].socketCliente, mensaje, strlen(mensaje), 0);
 			cantidad++;
 		}
 	}
 	return cantidad;
 }
 
-void leerMensaje(int socketCliente, short bytesDePayload, miCliente *clientes) {
-    char* mensaje = malloc(bytesDePayload+1);
-    recv(socketCliente,mensaje,bytesDePayload,0);
-    mensaje[bytesDePayload]='\0';
-    logearInfo("Mensaje recibido: %s\n",mensaje);
-    int cantidad = enviarMensajeATodos(socketCliente,mensaje, clientes);
-    logearInfo("Mensaje retransmitido a %i clientes\n",cantidad);
+int recibirHandshake(int socketCliente, miCliente *clientes) {
+	int buffersize = sizeof(headerDeLosRipeados);
+	void *buffer = malloc(buffersize);
+    int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
+	if (bytesRecibidos <= 0) {
+		if (bytesRecibidos == -1) {
+			logearError("El socket %d se desconectó\n", false, socketCliente);
+		}
+		else {
+			logearError("Error en el recv\n",false);
+		}
+		return 0;
+	}
+	headerDeLosRipeados handy;
+	deserializarHeader(&handy, buffer);
+	free(buffer);
+
+	int bytesDePayload = handy.bytesDePayload;
+	int codigoDeOperacion = handy.codigoDeOperacion;
+
+	if (bytesDePayload != 0) {
+		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0", false);
+	}
+
+	if (CONSOLA <= codigoDeOperacion || codigoDeOperacion <= CPU) {
+		int indice = posicionSocket(socketCliente,clientes);
+    	if (indice < 0) {
+    		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(codigoDeOperacion));
+    		agregarCliente(codigoDeOperacion, socketCliente, clientes);
+    		return 1;
+    	}
+	}
+	return 0;
+}
+
+/*
+ * Solo sirve para recibir el header de un mensaje, no un handshake.
+ * Retorna la cantidad de bytes de payload.
+ * Retorna -1 cuando hubo error.
+ */
+int recibirHeader(int socketCliente, miCliente *clientes) {
+	int buffersize = sizeof(headerDeLosRipeados);
+	void *buffer = malloc(buffersize);
+    int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
+	if (bytesRecibidos <= 0) {
+		if (bytesRecibidos == 0) {
+			logearInfo("El socket %d se desconectó\n", socketCliente);
+		}
+		else {
+			logearError("Error en el recv\n",false);
+		}
+		return -1;
+	}
+	headerDeLosRipeados header;
+	deserializarHeader(&header, buffer);
+	free(buffer);
+
+	int bytesDePayload = header.bytesDePayload;
+	int codigoDeOperacion = header.codigoDeOperacion;
+
+	if (codigoDeOperacion == MENSAJE) { // Si o si tiene que ser un mensaje
+		return bytesDePayload;
+	}
+	logearInfo("Socket %d: Codigo de operacion invalida\n", socketCliente);
+	return -1;
+}
+
+int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes) {
+    char* mensaje = malloc(bytesDePayload);
+    int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
+    if (bytesRecibidos != -1) {
+        logearInfo("Mensaje recibido: %s\n", mensaje);
+        int cantidad = enviarMensajeATodos(socketCliente, mensaje, clientes);
+        logearInfo("Mensaje retransmitido a %i clientes\n", cantidad);
+    }
+    else if (bytesRecibidos == 0) {
+		logearError("El socket %d se desconectó\n", socketCliente);
+	}
+    else {
+    	logearError("Error en el recv\n", false);
+    }
     free(mensaje);
+	return bytesRecibidos;
+}
+
+
+/*
+ * Retorna la cantidad de bytes recibidos.
+ * Retorna 0 cuando hubo error.
+ */
+int recibirMensaje(int socketCliente, miCliente *clientes) {
+	int bytesDePayload = recibirHeader(socketCliente, clientes);
+	if (bytesDePayload > 0) {
+		int bytesRecibidos = recibirPayload(socketCliente, bytesDePayload + 1, clientes);
+		if (bytesRecibidos == 0) {
+			logearError("El socket %d se desconectó\n", socketCliente);
+			return 0;
+		}
+		return bytesRecibidos;
+	}
+	if (bytesDePayload == 0) {
+        logearError("El cliente %i intentó mandar un mensaje sin contenido\n", false, socketCliente);
+	}
+	// bytesDePayload == -1
+	return 0;
 }
 
 void limpiarClientes(miCliente *clientes) {
@@ -294,6 +345,10 @@ void limpiarClientes(miCliente *clientes) {
         clientes[i].socketCliente = -1;
         clientes[i].identificador = 255;
     }
+}
+
+int existeCliente(int socketCliente, miCliente *clientes) {
+	return (posicionSocket(socketCliente, clientes) != -1);
 }
 
 int posicionSocket(int socketCliente, miCliente *clientes) {
@@ -306,30 +361,9 @@ int posicionSocket(int socketCliente, miCliente *clientes) {
     return -1;
 }
 
-void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, miCliente *clientes) {
-	int posicion = posicionSocket(socketCliente, clientes);
-    char codigoDelCliente = clientes[posicion].identificador;
-    switch(codigoDelCliente) {
-        case CONSOLA:
-            // TODO
-            break;
-        case MEMORIA:
-            // TODO
-            break;
-        case FILESYSTEM:
-            // TODO
-            break;
-        case CPU:
-            // TODO
-            break;
-        default:
-            printf("TODO, cod. de operación recibido: %d\n",codigoDeOperacion);
-            // TODO
-    }
-}
-
-void cerrarConexion(int socketCliente, char* motivo){
+void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes) {
 	logearInfo(motivo, socketCliente);
+	borrarCliente(socketCliente, clientes);
 	close(socketCliente);
 }
 
@@ -424,12 +458,12 @@ void handshake(int socket, char operacion) {
 	handy.codigoDeOperacion = operacion;
 
 	int buffersize = sizeof(headerDeLosRipeados);
-	char *buffer = malloc(buffersize);
+	void *buffer = malloc(buffersize);
 	serializarHeader(&handy, buffer);
 	send(socket, (void*) buffer, buffersize, 0);
 
 	char respuesta[1024];
-	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+	int bytesRecibidos = recv(socket, &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
 		logearInfo("Conectado a servidor 100%%\n");
