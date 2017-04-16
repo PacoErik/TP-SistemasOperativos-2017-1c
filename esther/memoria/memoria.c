@@ -223,6 +223,12 @@ t_log* logger;
 t_config* config;
 
 char PUERTO_MEMORIA[6];
+short MARCOS;
+short MARCO_SIZE;
+short ENTRADAS_CACHE;
+short CACHE_X_PROC;
+char REEMPLAZO_CACHE[8]; // ?
+short RETARDO_MEMORIA;
 
 #define MAX_NUM_CLIENTES 100
 
@@ -449,7 +455,7 @@ int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
     int indice = posicionSocket(socketCliente,clientes);
 
     if (header.codigoDeOperacion == CPU || header.codigoDeOperacion == KERNEL) {
-    	if(hayLugar(miCliente *clientes) != -1) { // Si hay lugar para alguien más
+    	if(hayLugar(clientes) != -1) { // Si hay lugar para alguien más
 			// No estaba antes en el array de clientes
 			if (indice < 0) {
 				if(header.codigoDeOperacion != KERNEL) { // Si es una CPU que se conecte tranqui
@@ -528,7 +534,7 @@ void limpiarCliente(miCliente cliente) {
 void limpiarClientes(miCliente *clientes) {
     int i;
     for(i = 0; i < MAX_NUM_CLIENTES; i++) {
-    	limpiarCliente(clientes);
+    	limpiarCliente(*clientes);
 /*
 		clientes[i].socketCliente = -1;
         clientes[i].identificador = 255;
@@ -605,11 +611,25 @@ void logearError(char* formato, int terminar , ...) {
 }
 
 void establecerConfiguracion() {
-	if(config_has_property(config, "PUERTO_MEMORIA")) {
-		strcpy(PUERTO_MEMORIA,config_get_string_value(config, "PUERTO_MEMORIA"));
-		logearInfo("Puerto Kernel: %s \n",PUERTO_MEMORIA);
+	if(config_has_property(config, "PUERTO")) {
+		strcpy(PUERTO_MEMORIA,config_get_string_value(config, "PUERTO"));
+		logearInfo("PUERTO: %s \n",PUERTO_MEMORIA);
 	} else {
-		logearError("Error al leer el puerto del Kernel",true);
+		logearError("Error al leer el puerto de la memoria",true);
+	}
+
+	if(config_has_property(config, "MARCOS")) {
+		MARCOS = config_get_int_value(config, "MARCOS");
+		logearInfo("MARCOS: %s \n",MARCOS);
+	} else {
+		logearError("Error al leer los marcos de la memoria",true);
+	}
+
+	if(config_has_property(config, "MARCO_SIZE")) {
+		strcpy(MARCO_SIZE,config_get_string_value(config, "MARCO_SIZE"));
+		logearInfo("MARCO_SIZE: %s \n",MARCO_SIZE);
+	} else {
+		logearError("Error al leer los marcos de la memoria",true);
 	}
 }
 
