@@ -22,7 +22,7 @@ void establecerConfiguracion();
 int main(void) {
 
 	configurar("filesystem");
-	conectarAKernel();
+	conectar(&servidor,IP_KERNEL,PUERTO_KERNEL);
 	handshake(servidor, FILESYSTEM);
 	while (1){
 		leerMensaje();
