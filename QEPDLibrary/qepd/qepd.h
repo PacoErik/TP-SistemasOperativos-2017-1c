@@ -18,9 +18,7 @@
 
 #define RUTA_CONFIG "config.cfg"
 
-enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
-};
+
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;

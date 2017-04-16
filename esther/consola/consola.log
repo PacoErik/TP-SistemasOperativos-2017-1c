@@ -28,3 +28,8 @@
 
 [INFO] 22:22:03:543 consola/(3441:3441): Mensaje completado, coloque otra opción. Opcion 6 para más información
 
+[INFO] 23:48:42:44 consola/(3789:3789): Puerto Kernel: 8081 
+
+[INFO] 23:48:42:44 consola/(3789:3789): IP Kernel: 127.0.0.1 
+
+[ERROR] 23:48:42:44 consola/(3789:3789): No se pudo conectar al Kernel

@@ -17,6 +17,10 @@ void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
 
+enum CodigoDeOperacion {
+	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+};
+
 int main(void) {
 
 	configurar("consola");
