@@ -76,10 +76,6 @@ int main(void) {
     int buffersize = sizeof(headerDeLosRipeados);
     char* buffer = malloc(buffersize);
 
-    int bytesRecibidos;
-
-    int i;
-
     struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // IPv4
@@ -149,15 +145,17 @@ int main(void) {
 
         // Se detecta algun cambio en alguno de los sockets
 
-        int nuevoCliente; // Socket del nuevo cliente conectado
         struct sockaddr_in direccionCliente;
 
+        int i;
         for(i = 0; i <= fdmax; i++) {
-        	if (FD_ISSET(i, &read_fds) == 0) {
+        	if (FD_ISSET(i, &read_fds) == 0) { // No hubo cambios en este socket
         		continue;
         	}
+        	// Se detecta un cambio en el socket de escucha => hay un nuevo cliente
 			if (i == servidor) {
 		        socklen_t addrlen = sizeof direccionCliente;
+		        int nuevoCliente; // Socket del nuevo cliente conectado
 				nuevoCliente = accept(servidor, (struct sockaddr *)&direccionCliente, &addrlen);
 
 				if (nuevoCliente == -1) {
@@ -173,9 +171,10 @@ int main(void) {
 					logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
 				}
 			}
+			// Un cliente mando un mensaje
 			else {
-				if ((bytesRecibidos = recv(i, buffer, buffersize + 1, 0))
-						<= 0) {
+			    int bytesRecibidos = recv(i, buffer, buffersize + 1, 0);
+				if (bytesRecibidos <= 0) {
 					if (bytesRecibidos == 0) {
 						cerrarConexion(i, "El socket %d se desconectó\n");
 					}
@@ -308,7 +307,8 @@ int posicionSocket(int socketCliente, miCliente *clientes) {
 }
 
 void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, miCliente *clientes) {
-    char codigoDelCliente = clientes[posicionSocket(socketCliente, clientes)].identificador;
+	int posicion = posicionSocket(socketCliente, clientes);
+    char codigoDelCliente = clientes[posicion].identificador;
     switch(codigoDelCliente) {
         case CONSOLA:
             // TODO
@@ -432,7 +432,7 @@ void handshake(int socket, char operacion) {
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		logearInfo("Conectado a servidor 100 porciento\n");
+		logearInfo("Conectado a servidor 100%%\n");
 		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
 	}
 	else {
