@@ -17,14 +17,10 @@ void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
 
-enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
-};
-
 int main(void) {
 
 	configurar("consola");
-	conectarAKernel();
+	conectar(&servidor,IP_KERNEL,PUERTO_KERNEL);
 	handshake(servidor, CONSOLA);
 	interaccionConsola();
 
