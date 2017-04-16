@@ -1,21 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <qepd/qepd.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <netdb.h>
-#include "commons/log.h"
-#include "commons/config.h"
-#include "commons/string.h"
-#include <stdarg.h>
-
-#define MOSTRAR_LOGS_EN_PANTALLA true
-
-#define RUTA_CONFIG "config.cfg"
-#define RUTA_LOG "kernel.log"
 
 t_log* logger;
 t_config* config;
@@ -24,19 +11,10 @@ char PUERTO_KERNEL[6];
 
 #define MAX_NUM_CLIENTES 100
 
-enum CodigoDeOperacion {
-    MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
-};
-
 #define ID_CLIENTE(x) ID_CLIENTES[x-1]
 static const char *ID_CLIENTES[] = {
 	"Consola", "Memoria", "File System", "CPU"
 };
-
-typedef struct headerDeLosRipeados {
-    unsigned short bytesDePayload;
-    char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
-}__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
 typedef struct miCliente {
     short socketCliente;
@@ -45,7 +23,6 @@ typedef struct miCliente {
 
 void limpiarClientes(miCliente *);
 void establecerConfiguracion();
-void configurar(char*);
 void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes);
 int posicionSocket(int , miCliente *);
 void agregarCliente(char , int , miCliente *);
@@ -54,11 +31,6 @@ int recibirMensaje(int socketCliente, miCliente *clientes);
 int recibirHandshake(int socketCliente, miCliente *clientes);
 int recibirHeader(int socketCliente, miCliente *clientes);
 int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes);
-void serializarHeader(headerDeLosRipeados *, void *);
-void deserializarHeader(headerDeLosRipeados *, void *);
-void logearInfo(char *, ...);
-void logearError(char *, int, ...);
-void handshake(int , char );
 int existeCliente(int socketCliente, miCliente *clientes);
 
 void *get_in_addr(struct sockaddr *sa) {
@@ -178,6 +150,7 @@ int main(void) {
 				if (existeCliente(i, misClientes) == 0) { // Nuevo cliente, debe enviar un handshake
 					if (recibirHandshake(i, misClientes) == 0) {
 						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
+						FD_CLR(i, &conectados);
 					}
 					else {
 						char *respuesta = "Handshake recibido";
@@ -186,9 +159,9 @@ int main(void) {
 				}
 				else {
 					if (recibirMensaje(i, misClientes) == 0) {
-						logearError("No pudo recibir mensaje desde el socket %d\n", false, i);
 						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
 						FD_CLR(i, &conectados);
+						continue;
 					}
 					char *respuesta = "Mensaje recibido";
 					send(i, respuesta, strlen(respuesta) + 1, 0);
@@ -277,12 +250,6 @@ int recibirHeader(int socketCliente, miCliente *clientes) {
 	void *buffer = malloc(buffersize);
     int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
 	if (bytesRecibidos <= 0) {
-		if (bytesRecibidos == 0) {
-			logearInfo("El socket %d se desconectó\n", socketCliente);
-		}
-		else {
-			logearError("Error en el recv\n",false);
-		}
 		return -1;
 	}
 	headerDeLosRipeados header;
@@ -326,10 +293,6 @@ int recibirMensaje(int socketCliente, miCliente *clientes) {
 	int bytesDePayload = recibirHeader(socketCliente, clientes);
 	if (bytesDePayload > 0) {
 		int bytesRecibidos = recibirPayload(socketCliente, bytesDePayload + 1, clientes);
-		if (bytesRecibidos == 0) {
-			logearError("El socket %d se desconectó\n", socketCliente);
-			return 0;
-		}
 		return bytesRecibidos;
 	}
 	if (bytesDePayload == 0) {
@@ -367,43 +330,6 @@ void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes) {
 	close(socketCliente);
 }
 
-void serializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	*pBytesDePayload = header->bytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	*pCodigoDeOperacion = header->codigoDeOperacion;
-}
-
-void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	header->bytesDePayload = *pBytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	header->codigoDeOperacion = *pCodigoDeOperacion;
-}
-
-void logearInfo(char* formato, ...) {
-	char* mensaje;
-	va_list args;
-	va_start(args, formato);
-	mensaje = string_from_vformat(formato,args);
-	log_info(logger,mensaje);
-	printf("%s", mensaje);
-	va_end(args);
-}
-
-void logearError(char* formato, int terminar , ...) {
-	char* mensaje;
-	va_list args;
-	va_start(args, terminar);
-	mensaje = string_from_vformat(formato,args);
-	log_error(logger,mensaje);
-	printf("%s", mensaje);
-	va_end(args);
-	if (terminar==true) {
-		exit(EXIT_FAILURE);
-	}
-}
-
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")) {
 		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
@@ -413,64 +339,3 @@ void establecerConfiguracion() {
 	}
 }
 
-int existeArchivo(const char *ruta) {
-    FILE *archivo;
-    if ((archivo = fopen(ruta, "r")))
-    {
-        fclose(archivo);
-        return true;
-    }
-    return false;
-}
-
-void configurar(char* quienSoy) {
-
-	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
-	//como si estuviese en la carpeta esther/consola/
-	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
-	//pero en ese caso no existiria el archivo config ni el log
-	//y es por eso que tenemos que leerlo desde el directorio anterior
-
-	if (existeArchivo(RUTA_CONFIG)) {
-		config = config_create(RUTA_CONFIG);
-		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
-	} else {
-		config = config_create(string_from_format("../%s",RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,false, LOG_LEVEL_INFO);
-	}
-
-	//Si la cantidad de valores establecidos en la configuración
-	//es mayor a 0, entonces configurar la ip y el puerto,
-	//sino, estaría mal hecho el config.cfg
-
-	if(config_keys_amount(config) > 0) {
-		establecerConfiguracion();
-	} else {
-		logearError("Error al leer archivo de configuración",true);
-	}
-	config_destroy(config);
-}
-
-void handshake(int socket, char operacion) {
-	logearInfo("Conectando a servidor 0%%\n");
-	headerDeLosRipeados handy;
-	handy.bytesDePayload = 0;
-	handy.codigoDeOperacion = operacion;
-
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-	serializarHeader(&handy, buffer);
-	send(socket, (void*) buffer, buffersize, 0);
-
-	char respuesta[1024];
-	int bytesRecibidos = recv(socket, &respuesta, sizeof(respuesta), 0);
-
-	if (bytesRecibidos > 0) {
-		logearInfo("Conectado a servidor 100%%\n");
-		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
-	}
-	else {
-		logearError("Ripeaste\n",true);
-	}
-	free(buffer);
-}
