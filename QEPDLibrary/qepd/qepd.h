@@ -18,7 +18,9 @@
 
 #define RUTA_CONFIG "config.cfg"
 
-
+enum CodigoDeOperacion {
+	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+};
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
@@ -28,12 +30,8 @@ typedef struct headerDeLosRipeados {
 extern t_log* logger;
 extern t_config* config;
 
-extern int servidor; //kernel
-extern char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
-extern int PUERTO_KERNEL;
-
 int existeArchivo(const char *);
-void conectarAKernel();
+void conectar(int *,char *,int);
 void configurar(char*);
 void handshake(int,char);
 void serializarHeader(headerDeLosRipeados *, void *);

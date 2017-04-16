@@ -11,17 +11,17 @@ int existeArchivo(const char *ruta)
     return false;
 }
 
-void conectarAKernel() {
+void conectar(int* servidor,char* IP,int PUERTO) {
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
-	direccionServidor.sin_addr.s_addr = inet_addr( (char*) IP_KERNEL);
-	direccionServidor.sin_port = htons(PUERTO_KERNEL);
-	servidor = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
-		close(servidor);
-		logearError("No se pudo conectar al Kernel",true);
+	direccionServidor.sin_addr.s_addr = inet_addr( (char*) IP);
+	direccionServidor.sin_port = htons(PUERTO);
+	*servidor = socket(AF_INET, SOCK_STREAM, 0);
+	if (connect(*servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
+		close(*servidor);
+		logearError("No se pudo conectar al servidor\n",true);
 	}
-	logearInfo("Conectado al Kernel\n");
+	logearInfo("Conectado al servidor\n");
 }
 
 void configurar(char* quienSoy) {
