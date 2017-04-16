@@ -213,6 +213,7 @@ void logearError(char* formato, int terminar , ...) {
 #include "commons/config.h"
 #include "commons/string.h"
 #include <stdarg.h>
+#include <ctype.h>
 
 #define MOSTRAR_LOGS_EN_PANTALLA true
 
@@ -222,7 +223,7 @@ void logearError(char* formato, int terminar , ...) {
 t_log* logger;
 t_config* config;
 
-char PUERTO_MEMORIA[6];
+char PUERTO[6];
 short MARCOS;
 short MARCO_SIZE;
 short ENTRADAS_CACHE;
@@ -237,6 +238,7 @@ enum CodigoDeOperacion {
 };
 
 #define ID_CLIENTE(x) ID_CLIENTES[x-1]
+
 static const char *ID_CLIENTES[] = {
 	"Consola", "Memoria", "File System", "CPU", "Kernel"
 };
@@ -265,6 +267,7 @@ void serializarHeader(headerDeLosRipeados *, void *);
 void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
+int hayAlguienQueSea(char identificacion, miCliente *clientes);
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -293,7 +296,7 @@ int main(void) {
     /* getaddrinfo() retorna una lista de posibles direcciones para el bind */
 
 	struct addrinfo *direcciones; // lista de posibles direcciones para el bind
-    int rv = getaddrinfo(NULL, PUERTO_MEMORIA, &hints, &direcciones); // si devuelve 0 hay un error
+    int rv = getaddrinfo(NULL, PUERTO, &hints, &direcciones); // si devuelve 0 hay un error
     if (rv != 0) {
     	// gai_strerror() devuelve el mensaje de error segun el codigo de error
         logearError("No se pudo abrir la memoria\n",true);
@@ -343,7 +346,7 @@ int main(void) {
     int fdmax;	// valor maximo de los FDs
     fdmax = servidor; // Por ahora hay un solo socket, por eso es el maximo
 
-
+//	interaccionMemoria();
     for(;;) {
         read_fds = conectados;
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
@@ -434,6 +437,10 @@ void borrarCliente(int socketCliente, miCliente *clientes) {
 	}
 }
 
+/**
+ * Dado el array de clientes, te dice en que posición hay un espacio libre.
+ * Si no la hay, retorna -1.
+ */
 int hayLugar(miCliente *clientes) {
 	int i;
 	for (i=0; i<MAX_NUM_CLIENTES; i++) {
@@ -452,17 +459,17 @@ int hayLugar(miCliente *clientes) {
 int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
     headerDeLosRipeados header;
     deserializarHeader(&header, bufferHeader);
-    int indice = posicionSocket(socketCliente,clientes);
+    int posicionDelSocket = posicionSocket(socketCliente,clientes);
 
     if (header.codigoDeOperacion == CPU || header.codigoDeOperacion == KERNEL) {
     	if(hayLugar(clientes) != -1) { // Si hay lugar para alguien más
 			// No estaba antes en el array de clientes
-			if (indice < 0) {
+			if (posicionDelSocket < 0) {
 				if(header.codigoDeOperacion != KERNEL) { // Si es una CPU que se conecte tranqui
 						agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
 				} else { // Verificar si ya se metió un Kernel
 					if(hayAlguienQueSea(KERNEL, clientes)) {
-						logearError("El cliente %i intentó conectarse como Kernel ya habiendo uno\n",false,socketCliente);
+						logearError("El cliente %i intentó conectarse como Kernel ya habiendo uno\n",false,socketCliente); // Hay que logear acá?
 						return -1;
 					} else {
 						agregarCliente(header.codigoDeOperacion,socketCliente,clientes);
@@ -488,7 +495,7 @@ int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
     }
 
     else {
-    	if (indice >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
+    	if (posicionDelSocket >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
     		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes); // TODO
     	}
     	else { //Header no reconocido, chau cliente intruso
@@ -542,6 +549,9 @@ void limpiarClientes(miCliente *clientes) {
     }
 }
 
+/**
+ * Dado un Socket, te dice en que posición se encuentra en el array de Sockets
+ */
 int posicionSocket(int socketCliente, miCliente *clientes) {
     int i;
     for(i = 0; i < MAX_NUM_CLIENTES; i++) {
@@ -553,8 +563,8 @@ int posicionSocket(int socketCliente, miCliente *clientes) {
 }
 
 void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion, miCliente *clientes) {
-	int posicion = posicionSocket(socketCliente, clientes);
-    char codigoDelCliente = clientes[posicion].identificador;
+	int posicionDelSocket = posicionSocket(socketCliente, clientes);
+    char codigoDelCliente = clientes[posicionDelSocket].identificador;
     switch(codigoDelCliente) {
         case KERNEL:
             // TODO
@@ -612,8 +622,8 @@ void logearError(char* formato, int terminar , ...) {
 
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO")) {
-		strcpy(PUERTO_MEMORIA,config_get_string_value(config, "PUERTO"));
-		logearInfo("PUERTO: %s \n",PUERTO_MEMORIA);
+		strcpy(PUERTO,config_get_string_value(config, "PUERTO"));
+		logearInfo("PUERTO: %s \n",PUERTO);
 	} else {
 		logearError("Error al leer el puerto de la memoria",true);
 	}
@@ -626,10 +636,38 @@ void establecerConfiguracion() {
 	}
 
 	if(config_has_property(config, "MARCO_SIZE")) {
-		strcpy(MARCO_SIZE,config_get_string_value(config, "MARCO_SIZE"));
+		MARCO_SIZE = config_get_int_value(config, "MARCO_SIZE");
 		logearInfo("MARCO_SIZE: %s \n",MARCO_SIZE);
 	} else {
-		logearError("Error al leer los marcos de la memoria",true);
+		logearError("Error al leer los tamaños de los marcos de la memoria",true);
+	}
+
+	if(config_has_property(config, "ENTRADAS_CACHE")) {
+		ENTRADAS_CACHE = config_get_int_value(config, "ENTRADAS_CACHE");
+		logearInfo("ENTRADAS_CACHE: %s \n",ENTRADAS_CACHE);
+	} else {
+		logearError("Error al leer las entradas cache de la memoria",true);
+	}
+
+	if(config_has_property(config, "CACHE_X_PROC")) {
+		ENTRADAS_CACHE = config_get_int_value(config, "CACHE_X_PROC");
+		logearInfo("CACHE_X_PROC: %s \n",ENTRADAS_CACHE);
+	} else {
+		logearError("Error al leer los cache por proceso de la memoria",true);
+	}
+
+	if(config_has_property(config, "REEMPLAZO_CACHE")) {
+		strcpy(REEMPLAZO_CACHE,config_get_string_value(config, "REEMPLAZO_CACHE"));
+		logearInfo("REEMPLAZO_CACHE: %s \n",ENTRADAS_CACHE);
+	} else {
+		logearError("Error al leer los reemplazo cache de la memoria",true);
+	}
+
+	if(config_has_property(config, "RETARDO_MEMORIA")) {
+		RETARDO_MEMORIA = config_get_int_value(config, "RETARDO_MEMORIA");
+		logearInfo("RETARDO_MEMORIA: %s \n",ENTRADAS_CACHE);
+	} else {
+		logearError("Error al leer el retardo de la memoria",true);
 	}
 }
 
@@ -680,4 +718,131 @@ int hayAlguienQueSea(char identificacion, miCliente *clientes) {
 	}
 
 	return 0; // No lo encontró
+}
+
+void configurarRetardo() {
+	printf("El actual retardo es %i ms\n", RETARDO_MEMORIA);
+	printf("Coloque nuevo retardo (0ms - 9999ms):\n");
+
+	int i;
+
+	char input[5];
+
+	for(i = 0; i < 5; i++) { // Lo limpiamos
+		input[i] = '\0';
+	}
+
+	i = 0;
+
+	scanf("%s", input);
+
+	while(i != 5) { // Chequeamos si todos son digitos
+		if(isdigit(input[i])) {
+			i++;
+		} else {
+			if(input[i] == '\0' && i != 0) { // Si estamos posicionados en un fin de string y no es el primer valor (string nulo)
+				short exRETARDO = RETARDO_MEMORIA;
+				RETARDO_MEMORIA = atoi(input);
+				printf("Retardo cambiado a %i ms\n", RETARDO_MEMORIA);
+				logearInfo("Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n", exRETARDO, RETARDO_MEMORIA);
+				break;
+			} else {
+				printf("Coloque digitos validos. Ingrese 6 para obtener nuevamente las opciones\n");
+				break;
+			}
+		}
+	}
+}
+
+void dump() {
+	// TODO
+}
+
+void flush() {
+	// TODO
+}
+
+void size() {
+	// TODO
+}
+
+void limpiarPantalla() {
+	printf("\033[H\033[J");
+}
+
+void imprimirOpcionesDeMemoria(){
+	printf("\n--------------------\n");
+	printf("\n");
+	printf("BIEVENIDO A LA MEMORIA\n");
+	printf("SUS OPCIONES:\n");
+	printf("\n");
+	printf("1. Configurar retardo\n");
+	printf("2. Dump\n");
+	printf("3. Flush\n");
+	printf("4. Size\n");
+	printf("5. Limpiar mensajes\n");
+	printf("6. Mostrar opciones nuevamente\n");
+	printf("\n");
+	printf("--------------------\n");
+}
+
+void interaccionMemoria() {
+	imprimirOpcionesDeMemoria();
+	char input[3];
+
+	/*
+	 * Vamos a tener que usar hilos,
+	 * ya que:
+	 * 1) Tendriamos que interactuar con la memoria
+	 * 2) Tendriamos que manejar los sockets y gilada
+	 *
+	 * Nachito
+	 */
+
+	while(1) {
+		scanf("%2s", input);
+
+		// limpiar buffer de entrada
+
+		int c;
+		while ( (c = getchar()) != '\n' && c != EOF );
+
+		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
+
+		if ( (strlen(input) != 1)
+				|| '1' > input[0] || input[0] > '6' ) {
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+			continue;
+		}
+
+		char opcion = input[0];
+		switch(opcion) {
+			case '1' : {
+				configurarRetardo();
+				break;
+			}
+			case '2' : {
+				logearInfo("Comando de dump ejecutado");
+				dump(); // TODO
+				break;
+			}
+			case '3' : {
+				logearInfo("Comando de flush ejecutado\n");
+				flush(); // TODO
+				break;
+			}
+			case '4' : {
+				size(); // TODO
+				break;
+			}
+			case '5' : {
+				limpiarPantalla();
+				break;
+			}
+			case '6' : {
+				imprimirOpcionesDeMemoria();
+				break;
+			}
+		}
+	}
 }
