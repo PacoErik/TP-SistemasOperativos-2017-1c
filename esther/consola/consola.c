@@ -89,7 +89,6 @@ void enviarMensaje() {
 	char mensaje[512] = "";
 
 EscribirMensaje:
-
 	printf("\nEscribir mensaje: ");
 	scanf("%511[^\n]", mensaje);
 
@@ -112,7 +111,7 @@ EscribirMensaje:
 	send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
 	free(headerComprimido);
 
-	send(servidor, mensaje, strlen(mensaje), 0); // Mando el mensaje después
+	send(servidor, mensaje, strlen(mensaje) + 1, 0); // Mando el mensaje después
 
 	// El server retransmite el mensaje
 	//leerMensaje();
@@ -275,7 +274,7 @@ void handshake(int socket, char operacion) {
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		logearInfo("Conectado a servidor 100 porciento\n");
+		logearInfo("Conectado a servidor 100%%\n");
 		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
 	}
 	else {
