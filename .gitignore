@@ -29,3 +29,6 @@
 # Debug files
 *.dSYM/
 *.su
+
+# Log files
+*.log
