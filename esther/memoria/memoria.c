@@ -223,13 +223,13 @@ void logearError(char* formato, int terminar , ...) {
 t_log* logger;
 t_config* config;
 
-char PUERTO[6];
-short MARCOS;
-short MARCO_SIZE;
-short ENTRADAS_CACHE;
-short CACHE_X_PROC;
+short PUERTO;
+unsigned short MARCOS;
+unsigned short MARCO_SIZE;
+unsigned short ENTRADAS_CACHE;
+unsigned short CACHE_X_PROC;
 char REEMPLAZO_CACHE[8]; // ?
-short RETARDO_MEMORIA;
+unsigned short RETARDO;
 
 #define MAX_NUM_CLIENTES 100
 
@@ -252,6 +252,22 @@ typedef struct miCliente {
     short socketCliente;
     char identificador;
 } miCliente;
+
+typedef struct cache { // TODO
+	/*
+	 * PID;
+	 * #PAGINA;
+	 * CONTENIDO_PAGINA;
+	 */
+} cache;
+
+typedef struct memoria {
+	/*
+	 * PID;
+	 * #PAGINA;
+	 * CONTENIDO_PAGINA
+	 */
+} memoria;
 
 void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int , char , miCliente *);
@@ -278,7 +294,13 @@ void *get_in_addr(struct sockaddr *sa) {
 }
 
 int main(void) {
+
+	cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
+	memoria *miMemoria; // La memoria posta del sistema
+	miMemoria = malloc(MARCOS * MARCO_SIZE); // FRAMES * TAMAÑO DE FRAME
+
 	configurar("memoria");
+	limpiarMemoria(&miMemoria);
 
 	miCliente misClientes[MAX_NUM_CLIENTES];
     limpiarClientes(misClientes);
@@ -496,7 +518,7 @@ int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
 
     else {
     	if (posicionDelSocket >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
-    		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes); // TODO
+    		analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion, clientes);
     	}
     	else { //Header no reconocido, chau cliente intruso
     		return -1;
@@ -538,7 +560,7 @@ void limpiarCliente(miCliente cliente) {
 	cliente.identificador = 255;
 }
 
-void limpiarClientes(miCliente *clientes) {
+void limpiarClientes(miCliente *clientes) { // TODO: no devuelve nada, hay que hacer que devuelva el array modificado
     int i;
     for(i = 0; i < MAX_NUM_CLIENTES; i++) {
     	limpiarCliente(*clientes);
@@ -622,53 +644,54 @@ void logearError(char* formato, int terminar , ...) {
 
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO")) {
-		strcpy(PUERTO,config_get_string_value(config, "PUERTO"));
-		logearInfo("PUERTO: %s \n",PUERTO);
+		PUERTO = config_get_int_value(config, "PUERTO");
+		logearInfo("PUERTO: %i \n",PUERTO);
 	} else {
 		logearError("Error al leer el puerto de la memoria",true);
 	}
 
 	if(config_has_property(config, "MARCOS")) {
 		MARCOS = config_get_int_value(config, "MARCOS");
-		logearInfo("MARCOS: %s \n",MARCOS);
+		logearInfo("MARCOS: %i \n",MARCOS);
 	} else {
 		logearError("Error al leer los marcos de la memoria",true);
 	}
 
 	if(config_has_property(config, "MARCO_SIZE")) {
 		MARCO_SIZE = config_get_int_value(config, "MARCO_SIZE");
-		logearInfo("MARCO_SIZE: %s \n",MARCO_SIZE);
+		logearInfo("MARCO_SIZE: %i \n",MARCO_SIZE);
 	} else {
 		logearError("Error al leer los tamaños de los marcos de la memoria",true);
 	}
 
 	if(config_has_property(config, "ENTRADAS_CACHE")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "ENTRADAS_CACHE");
-		logearInfo("ENTRADAS_CACHE: %s \n",ENTRADAS_CACHE);
+		logearInfo("ENTRADAS_CACHE: %i \n",ENTRADAS_CACHE);
 	} else {
 		logearError("Error al leer las entradas cache de la memoria",true);
 	}
 
 	if(config_has_property(config, "CACHE_X_PROC")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "CACHE_X_PROC");
-		logearInfo("CACHE_X_PROC: %s \n",ENTRADAS_CACHE);
+		logearInfo("CACHE_X_PROC: %i \n",CACHE_X_PROC);
 	} else {
 		logearError("Error al leer los cache por proceso de la memoria",true);
 	}
 
 	if(config_has_property(config, "REEMPLAZO_CACHE")) {
 		strcpy(REEMPLAZO_CACHE,config_get_string_value(config, "REEMPLAZO_CACHE"));
-		logearInfo("REEMPLAZO_CACHE: %s \n",ENTRADAS_CACHE);
+		logearInfo("REEMPLAZO_CACHE: %s \n",REEMPLAZO_CACHE);
 	} else {
 		logearError("Error al leer los reemplazo cache de la memoria",true);
 	}
 
-	if(config_has_property(config, "RETARDO_MEMORIA")) {
-		RETARDO_MEMORIA = config_get_int_value(config, "RETARDO_MEMORIA");
-		logearInfo("RETARDO_MEMORIA: %s \n",ENTRADAS_CACHE);
+	if(config_has_property(config, "RETARDO")) {
+		RETARDO = config_get_int_value(config, "RETARDO");
+		logearInfo("RETARDO: %i \n",RETARDO);
 	} else {
 		logearError("Error al leer el retardo de la memoria",true);
 	}
+
 }
 
 int existeArchivo(const char *ruta) {
@@ -720,8 +743,16 @@ int hayAlguienQueSea(char identificacion, miCliente *clientes) {
 	return 0; // No lo encontró
 }
 
+void /* int */ frameLookup(/* PID, #PAGINA */) { // FUNCION DE HASHING, la hago void para que no tire warning
+	// TODO
+}
+
+/*
+ * ↓ Interfaz de la memoria ↓
+ */
+
 void configurarRetardo() {
-	printf("El actual retardo es %i ms\n", RETARDO_MEMORIA);
+	printf("El actual retardo es %i ms\n", RETARDO);
 	printf("Coloque nuevo retardo (0ms - 9999ms):\n");
 
 	int i;
@@ -741,10 +772,10 @@ void configurarRetardo() {
 			i++;
 		} else {
 			if(input[i] == '\0' && i != 0) { // Si estamos posicionados en un fin de string y no es el primer valor (string nulo)
-				short exRETARDO = RETARDO_MEMORIA;
-				RETARDO_MEMORIA = atoi(input);
-				printf("Retardo cambiado a %i ms\n", RETARDO_MEMORIA);
-				logearInfo("Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n", exRETARDO, RETARDO_MEMORIA);
+				short exRETARDO = RETARDO;
+				RETARDO = atoi(input);
+				printf("Retardo cambiado a %i ms\n", RETARDO);
+				logearInfo("Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n", exRETARDO, RETARDO);
 				break;
 			} else {
 				printf("Coloque digitos validos. Ingrese 6 para obtener nuevamente las opciones\n");
@@ -845,4 +876,59 @@ void interaccionMemoria() {
 			}
 		}
 	}
+}
+
+/*
+ * ↑ Interfaz de la memoria ↑
+ */
+
+/*
+ * ↓ Operaciones de la memoria ↓
+ */
+
+void inicializarPrograma(/* PID, PAGINAS_REQUERIDAS */) {
+	// TODO
+}
+
+void solicitarBytesDeUnaPagina(/* PID, #PAGINA, OFFSET, TAMAÑO */) {
+	// TODO
+}
+
+void almacenarBytesEnUnaPagina(/* PID, #PAGINA, OFFSET, TAMAÑO, BUFFER */) {
+	// TODO
+}
+
+void asignarPaginasAProceso(/* PID, PAGINAS_REQUERIDAD */) {
+	// TODO
+}
+
+void finalizarPrograma(/* PID */) {
+	// TODO
+}
+
+/*
+ * ↑ Operaciones de la memoria ↑
+ */
+
+void limpiarMemoria(memoria **miMemoria) {
+	int i;
+
+	for(i = 0; i < MARCOS * MARCO_SIZE; i++) { // Para mi la memoria es un solo frame. REVISAR FUTUROS CHECKPOINTS!
+		/*
+		miMemoria[i].PID = -1
+		miMemoria[i].numeroDePagina = i;
+		miMemoria[i].contenidoDePagina = -1;
+		*/
+	}
+}
+
+void reservarBloquesDeDato(memoria **miMemoria) { // TODO
+
+	/*
+	 * Algunas cosas de esto solo vale para el Checkpoint 2
+	 * Revisar para futuros checkpoints
+	 *
+	 * Nachito
+	 */
+
 }
