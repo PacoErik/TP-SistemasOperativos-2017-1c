@@ -4,6 +4,7 @@
  *  Created on: 13/4/2017
  *      Author: utnso
  */
+
 /*
 #include <unistd.h>
 #include <stdlib.h>
@@ -237,6 +238,15 @@ enum CodigoDeOperacion {
     MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL
 };
 
+/**
+ * Libre: No lo esta usando nadie, a partir de ahi hay basura
+ * Heap: Lo esta usando el heap
+ * Usado: Lo esta usando un proceso
+ */
+enum estadoDelSectorDeMemoria {
+	LIBRE, HEAP, USADO
+};
+
 #define ID_CLIENTE(x) ID_CLIENTES[x-1]
 
 static const char *ID_CLIENTES[] = {
@@ -253,21 +263,38 @@ typedef struct miCliente {
     char identificador;
 } miCliente;
 
-typedef struct cache { // TODO
+typedef struct informacion {
 	/*
-	 * PID;
-	 * #PAGINA;
-	 * CONTENIDO_PAGINA;
+	 * DATA
+	 * De acá se calcula cuantos bytes ocupa la DATA,
+	 * y se sabe a que posicion de pagina colocar un Heap.
 	 */
-} cache;
+} informacion;
 
-typedef struct memoria {
-	/*
-	 * PID;
-	 * #PAGINA;
-	 * CONTENIDO_PAGINA
-	 */
-} memoria;
+typedef struct contenido {
+	char PID;
+	informacion data;
+} contenido;
+
+typedef struct heapMetaData {
+	uint32_t tamanio;
+	bool estaLibre;
+} heapMetaData;
+
+typedef struct pagina {
+	char quienLaUsa; // LIBRE, HEAP, USADO
+	heapMetaData heap; // quienLoUsa = HEAP
+	contenido contenido; // quienLoUsa = USADO
+} pagina;
+
+typedef struct frame {
+	bool enUso;
+	pagina *posicion; // Hacer malloc(MARCO_SIZE)
+} frame;
+
+typedef struct frameDeCache {
+	pagina *posicion; // Hacer malloc(MARCO_SIZE de Cache)
+} cache;
 
 void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int , char , miCliente *);
@@ -296,11 +323,11 @@ void *get_in_addr(struct sockaddr *sa) {
 int main(void) {
 
 	cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
-	memoria *miMemoria; // La memoria posta del sistema
-	miMemoria = malloc(MARCOS * MARCO_SIZE); // FRAMES * TAMAÑO DE FRAME
+	frame **misFrames; // La memoria posta del sistema
+	alocarFrames(&misFrames);
 
 	configurar("memoria");
-	limpiarMemoria(&miMemoria);
+	limpiarMemoria(&misFrames);
 
 	miCliente misClientes[MAX_NUM_CLIENTES];
     limpiarClientes(misClientes);
@@ -910,19 +937,34 @@ void finalizarPrograma(/* PID */) {
  * ↑ Operaciones de la memoria ↑
  */
 
-void limpiarMemoria(memoria **miMemoria) {
-	int i;
+void alocarFrames(frame **misFrames) {
+	*misFrames = malloc(MARCOS * MARCO_SIZE); // FRAMES * TAMAÑO DE FRAME
 
-	for(i = 0; i < MARCOS * MARCO_SIZE; i++) { // Para mi la memoria es un solo frame. REVISAR FUTUROS CHECKPOINTS!
-		/*
-		miMemoria[i].PID = -1
-		miMemoria[i].numeroDePagina = i;
-		miMemoria[i].contenidoDePagina = -1;
-		*/
+	int pagina;
+
+	for(pagina = 0; pagina < MARCOS * MARCO_SIZE; pagina++) {
+		*misFrames[pagina].posicion = malloc(MARCO_SIZE);
 	}
 }
 
-void reservarBloquesDeDato(memoria **miMemoria) { // TODO
+void limpiarFrame(frame frame) {
+	frame.enUso = 0;
+	frame.posicion->quienLaUsa = LIBRE;
+}
+
+void limpiarFrames(frame **misFrames) {
+	int i;
+
+	for(i = 0; i < MARCOS * MARCO_SIZE; i++) { // Para este checkpoint la memoria es un solo frame. REVISAR FUTUROS CHECKPOINTS!
+
+	}
+}
+
+void colocarHeapATodasLasPaginas(frame **misFrames) {
+
+}
+
+void reservarBloquesDeDato(frame **misFrames) { // TODO
 
 	/*
 	 * Algunas cosas de esto solo vale para el Checkpoint 2
@@ -931,4 +973,5 @@ void reservarBloquesDeDato(memoria **miMemoria) { // TODO
 	 * Nachito
 	 */
 
+	colocarHeapATodasLasPaginas(misFrames);
 }
