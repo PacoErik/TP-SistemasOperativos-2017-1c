@@ -183,16 +183,15 @@ int main(void) {
 		}																\
 
 void agregarCliente(char identificador, int socketCliente, listaCliente *clientes) {
+	if (existeCliente(socketCliente)) {
+		logearError("No se puede agregar 2 veces mismo socket\n", false);
+		return;
+	}
+
 	miCliente *cliente = malloc(sizeof (miCliente));
 	cliente->identificador = identificador;
 	cliente->socketCliente = socketCliente;
 
-	DEF_MISMO_SOCKET(socketCliente);
-
-	if (list_any_satisfy(clientes, mismoSocket)) {
-		logearError("No se puede agregar 2 veces mismo socket\n", false);
-		return;
-	}
 	list_add(clientes, cliente);
 }
 
