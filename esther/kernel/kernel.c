@@ -109,6 +109,7 @@ int main(void) {
     FD_ZERO(&read_fds);
 
     FD_SET(servidor, &conectados);
+    FD_SET(fileno(stdin), &conectados);
 
     int fdmax;	// valor maximo de los FDs
     fdmax = servidor; // Por ahora hay un solo socket, por eso es el maximo
@@ -148,6 +149,14 @@ int main(void) {
 					logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
 				}
 			}
+			//Mensaje por interfaz del Kernel
+			else if (i == fileno(stdin)) {
+				//Esto es solo testeo, para probar que efectivamente se puede
+				//tener input a la vez de recibir clientes y toda esa wea
+				char str[16];
+				scanf("%s",&str);
+				printf("%s\n",str);
+			}
 			// Un cliente mando un mensaje
 			else {
 				if (existeCliente(i, misClientes) == 0) { // Nuevo cliente, debe enviar un handshake
@@ -183,7 +192,7 @@ int main(void) {
 		}																\
 
 void agregarCliente(char identificador, int socketCliente, listaCliente *clientes) {
-	if (existeCliente(socketCliente)) {
+	if (existeCliente(socketCliente,clientes)) {
 		logearError("No se puede agregar 2 veces mismo socket\n", false);
 		return;
 	}
