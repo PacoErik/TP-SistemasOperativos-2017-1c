@@ -1,4 +1,6 @@
 #include <qepd/qepd.h>
+#include <pthread.h>
+#include "commons/collections/list.h"
 
 t_log* logger;
 t_config* config;
@@ -6,6 +8,15 @@ t_config* config;
 int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
+
+typedef struct proceso {
+    int PID;
+	pthread_t hiloID;
+} proceso;
+
+typedef t_list listaProceso;
+
+listaProceso *procesos;
 
 void imprimirOpcionesDeConsola();
 void iniciarPrograma();
@@ -19,12 +30,27 @@ void establecerConfiguracion();
 
 int main(void) {
 
+	procesos = list_create();
 	configurar("consola");
 	conectar(&servidor,IP_KERNEL,PUERTO_KERNEL);
 	handshake(servidor, CONSOLA);
 	interaccionConsola();
 
 	return 0;
+}
+
+void agregarProceso(int PID, pthread_t hiloID) {
+	proceso *nuevoProceso = malloc(sizeof (proceso));
+	nuevoProceso->PID = PID;
+	nuevoProceso->hiloID = hiloID;
+	list_add(procesos, nuevoProceso);
+}
+
+void eliminarProceso(int PID) {
+	_Bool mismoPID(void* elemento) {
+		return PID == ((proceso *) elemento)->PID;
+	}
+	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
 }
 
 void imprimirOpcionesDeConsola() {
