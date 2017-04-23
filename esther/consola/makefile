@@ -5,7 +5,7 @@ LIBBIN=$(LIB)/build
 all: compile
 
 compile:
-	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG)
+	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -lpthread -Wl,-rpath=$(LIBBIN) -o $(PROG)
 
 clean:
 	rm -f consola
