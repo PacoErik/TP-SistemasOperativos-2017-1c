@@ -69,8 +69,34 @@ void imprimirOpcionesDeConsola() {
 	printf("--------------------\n");
 }
 
-void* iniciarPrograma(void* _) {
-	unsigned int TID = process_get_thread_id();
+void configurarPrograma() {
+	char* ruta = calloc(64,sizeof(char));
+	printf("\nIngresar ruta: ");
+	scanf("%63[^\n]", ruta);
+	pthread_t hiloPrograma;
+	pthread_create(&hiloPrograma, NULL, iniciarPrograma, ruta);
+}
+
+void* iniciarPrograma(void* arg) {
+	clock_t inicio = clock();
+
+	char* ruta = arg;
+	printf("Ruta ingresada:%s\n",ruta);
+	FILE* prog = fopen(ruta,"r");
+	free(arg); //ya no necesitamos más la ruta
+	int c;
+	if (prog) {
+	    while ((c = getc(prog)) != EOF)
+	        putchar(c);
+	    fclose(prog);
+	}
+
+	clock_t fin = clock();
+	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
+	printf("\nPrograma leido en %f segundos\n",tiempoEjecucion);
+	//CLOCKS_PER_SEC es una constante que ya viene en el header time.h
+	return NULL;
+	/*unsigned int TID = process_get_thread_id();
 	//unsigned int PID = process_getpid();
 	printf("\nPrograma ejecutandose en Hilo %u\n", TID);
 	conectar(&servidor, IP_KERNEL, PUERTO_KERNEL);
@@ -94,7 +120,7 @@ void* iniciarPrograma(void* _) {
 	send(servidor, mensaje, size, 0);
 
 	for(;;);
-	return NULL;
+	return NULL;*/
 }
 
 void desconectarPrograma() {
@@ -180,14 +206,13 @@ void interaccionConsola() {
 
 		switch (opcion) {
 		case '1': {
-			pthread_t hiloPrograma;
-			pthread_create(&hiloPrograma, NULL, iniciarPrograma, NULL);
-			logearInfo("Comando de inicio de programa ejecutado");
+			configurarPrograma();
+			logearInfo("Comando de inicio de programa ejecutado\n");
 			break;
 		}
 		case '2': {
 			desconectarPrograma(); // TODO
-			logearInfo("Comando de desconexión de programa ejecutado");
+			logearInfo("Comando de desconexión de programa ejecutado\n");
 			break;
 		}
 		case '3': {
@@ -200,8 +225,7 @@ void interaccionConsola() {
 			enviarMensaje();
 			logearInfo("Comando de envío de mensaje ejecutado\n");
 			leerMensaje();
-			logearInfo(
-					"Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
+			logearInfo("Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
 			break;
 		}
 		case '5': {
