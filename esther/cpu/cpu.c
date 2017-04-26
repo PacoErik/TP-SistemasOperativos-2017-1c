@@ -8,81 +8,244 @@
 #include "commons/config.h"
 #include "commons/string.h"
 #include <stdarg.h>
+#include <pthread.h>
 
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "cpu.log"
+#define MAX_THREADS 2
 
 t_log* logger;
 t_config* config;
 
 enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+	MENSAJE, // Mensaje a leer
+	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
+	EXCEPCION_DE_SOLICITUD, // Mensajes provenientes de procesos varios
+	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO, FINALIZAR_PROGRAMA // Mensajes provenientes de Kernel
 };
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
-	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
+	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel). 6 en adelante son códigos de distintos procesos.
 }__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
-int servidorKernel; //kernel
-int servidorMemoria;
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
 char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 
-void desconectarConsola();
-void leerMensaje();
+typedef struct instruccionUtil {
+	char offsetInicio;
+	char offsetFin;
+} instruccionUtil;
+
+typedef struct indiceCodigo {
+	instruccionUtil *instrucciones;
+} indiceCodigo;
+
+typedef struct indiceEtiquetas {
+	// Diccionario what the actual fuck
+} indiceEtiquetas;
+
+typedef struct indiceStack {
+	// Lista de argumentos
+	// Lista de variables
+	// Direccion de retorno
+	// Posicion de la variable de retorno
+} indiceStack;
+
+typedef struct PCB {
+	char processID;
+	char programCounter;
+	char paginasDeCodigo;
+	indiceCodigo indiceDeCodigo;
+	indiceEtiquetas indiceDeEtiquetas;
+	indiceStack indiceDeStack;
+	int8_t exitCode;
+} PCB;
+
+typedef struct servidor { // Esto es más que nada una cheteada para poder usar al socket/identificador como constante en los switch
+	int socket;
+	char identificador;
+} servidor;
+
+servidor kernel;
+servidor memoria;
+
 void establecerConfiguracion();
 void configurar(char*);
-void conectarAKernel();
 void handshake(int, char);
 void serializarHeader(headerDeLosRipeados *, void *);
 void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
-void conectarAMemoria(void);
+void conectarA(char* IP, int PUERTO, char identificador);
+void leerMensaje(servidor servidor, short bytesDePayload);
+void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion);
+void cumplirDeseosDeKernel(char codigoDeOperacion);
+void cumplirDeseosDeMemoria(char codigoDeOperacion);
+void finalizarPrograma();
+void* atenderKernel();
+void* atenderMemoria();
 
 int main(void) {
 
 	configurar("cpu");
-	conectarAKernel();
-	//conectarAMemoria();
-	handshake(servidorKernel, CPU);
-	//handshake(servidorMemoria, CPU);
-	while (1){
-		leerMensaje(servidorKernel);
-		//leerMensaje(servidorMemoria);
-		//watafaq? XD
-	}
+
+	conectarA(IP_KERNEL, PUERTO_KERNEL, KERNEL);
+	conectarA(IP_MEMORIA, PUERTO_MEMORIA, MEMORIA);
+
+	handshake(kernel.socket, CPU);
+	handshake(memoria.socket, CPU);
+
+	pthread_t hilo[MAX_THREADS];
+
+//	pthread_create(&hilo[0], NULL, &atenderKernel, NULL);
+//	pthread_create(&hilo[1], NULL, &atenderMemoria, NULL);
 
 	return 0;
 }
 
+void* atenderKernel(void) {
+	while(1) {
 
-void desconectarConsola() {
-	close(servidorKernel);
-	//close(servidorMemoria);
-	exit(EXIT_SUCCESS);
-}
-
-void leerMensaje(servidor) {
-
-	int bytesRecibidos;
-	char mensaje[512];
-	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
-	mensaje[bytesRecibidos]='\0';
-	if(bytesRecibidos <= 0){
-		close(servidor);
-		logearError("Uno de los servidores fue desconectado luego de intentar leer mensaje", true);
 	}
-	logearInfo("Mensaje recibido: %s\n",mensaje);
+
+	return NULL;
 }
+
+void* atenderMemoria(void) {
+	while(1) {
+
+	}
+
+	return NULL;
+}
+
+/*
+ * ↓ Llega información de alguno de los servidores ↓
+ */
+
+/**
+ * Analiza el contenido del header, y respecto a ello realiza distintas acciones
+ * devuelve -1 si el servidor causa problemas
+ */
+int analizarHeader(servidor servidor, void* bufferHeader) {
+    headerDeLosRipeados header;
+    deserializarHeader(&header, bufferHeader);
+
+    if (header.codigoDeOperacion == MENSAJE) {
+        if (header.bytesDePayload <= 0) {
+            logearError("El cliente %i intentó mandar un mensaje sin contenido\n", false, servidor.socket);
+            return -1;
+        }
+        else {
+            leerMensaje(servidor, header.bytesDePayload);
+        }
+    } else {
+    	analizarCodigosDeOperacion(servidor, header.codigoDeOperacion);
+    }
+
+    return 0;
+}
+
+
+void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion) {
+
+	switch(servidor.identificador) {
+		case KERNEL:
+			cumplirDeseosDeKernel(codigoDeOperacion);
+			break;
+
+		case MEMORIA:
+			cumplirDeseosDeMemoria(codigoDeOperacion);
+			break;
+
+		default:
+			// TODO
+			exit(EXIT_FAILURE);
+	}
+}
+
+
+void cumplirDeseosDeKernel(char codigoDeOperacion) {
+	switch(codigoDeOperacion) {
+		case EXCEPCION_DE_SOLICITUD:
+			logearError("Excepcion al solicitar al Kernel", false);
+			finalizarPrograma();
+			break;
+
+		case ABRIR_ARCHIVO:
+			// TODO
+			break;
+
+		case LEER_ARCHIVO:
+			// TODO
+			break;
+
+		case ESCRIBIR_ARCHIVO:
+			// TODO
+			break;
+
+		case CERRAR_ARCHIVO:
+			// TODO
+			break;
+
+		case FINALIZAR_PROGRAMA:
+			finalizarPrograma();
+			break;
+
+		default:
+			printf("TODO");
+			// TODO
+	}
+}
+
+void cumplirDeseosDeMemoria(char codigoDeOperacion) {
+	switch(codigoDeOperacion) {
+		case EXCEPCION_DE_SOLICITUD:
+			logearError("Excepcion al solicitar a la memoria", false);
+			finalizarPrograma();
+			break;
+
+		default:
+			printf("TODO");
+			// TODO
+	}
+}
+
+/*
+ * ↑ Llega información de alguno de los servidores ↑
+ */
+
+/*
+ * ↓ Acatar ordenes de algunos de los servidores ↓
+ */
+
+void finalizarPrograma() {
+
+}
+
+void leerMensaje(servidor servidor, short bytesDePayload) {
+    char* mensaje = malloc(bytesDePayload+1);
+    recv(servidor.socket, mensaje, bytesDePayload,0);
+    mensaje[bytesDePayload]='\0';
+    logearInfo("Mensaje recibido: %s\n", mensaje);
+    free(mensaje);
+}
+
+/*
+ * ↑ Acatar ordenes de algunos de los servidores ↑
+ */
+
+/*
+ * ↓ Configuración del CPU y conexión a los servidores ↓
+ */
 
 void establecerConfiguracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logearInfo("Puerto Kernel: %d \n",PUERTO_KERNEL);
+		logearInfo("Puerto Kernel: %i \n",PUERTO_KERNEL);
 	} else {
 		logearError("Error al leer el puerto del Kernel", true);
 	}
@@ -94,7 +257,7 @@ void establecerConfiguracion() {
 	}
 	if(config_has_property(config, "PUERTO_MEMORIA")) {
 		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logearInfo("Puerto Memoria: %d \n", PUERTO_MEMORIA);
+		logearInfo("Puerto Memoria: %i \n", PUERTO_MEMORIA);
 	} else {
 		logearError("Error al leer el puerto de la Memoria", true);
 	}
@@ -104,43 +267,7 @@ void establecerConfiguracion() {
 	} else {
 		logearError("Error al leer la IP de la Memoria", true);
 	}
-}
 
-int existeArchivo(const char *ruta)
-{
-    FILE *archivo;
-    if ((archivo = fopen(ruta, "r")))
-    {
-        fclose(archivo);
-        return true;
-    }
-    return false;
-}
-
-void conectarAKernel() {
-	struct sockaddr_in direccionServidor;
-	direccionServidor.sin_family = AF_INET;
-	direccionServidor.sin_addr.s_addr = inet_addr( (char*) IP_KERNEL);
-	direccionServidor.sin_port = htons(PUERTO_KERNEL);
-	servidorKernel = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidorKernel, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
-		close(servidorKernel);
-		logearError("No se pudo conectar al Kernel",true);
-	}
-	logearInfo("Conectado al Kernel\n");
-}
-
-void conectarAMemoria() {
-	struct sockaddr_in direccionMemoria;
-	direccionMemoria.sin_family = AF_INET;
-	direccionMemoria.sin_addr.s_addr = inet_addr( (char*) IP_MEMORIA);
-	direccionMemoria.sin_port = htons(PUERTO_MEMORIA);
-	servidorMemoria = socket(AF_INET, SOCK_STREAM, 0);
-	if (connect(servidorMemoria, (struct sockaddr *) &direccionMemoria,sizeof(direccionMemoria)) < 0) {
-		close(servidorMemoria);
-		logearError("No se pudo conectar a la Memoria",true);
-	}
-	logearInfo("Conectado a la Memoria\n");
 }
 
 void configurar(char* quienSoy) {
@@ -154,7 +281,7 @@ void configurar(char* quienSoy) {
 	if (existeArchivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
 		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
-	}else{
+	} else {
 		config = config_create(string_from_format("../%s",RUTA_CONFIG));
 		logger = log_create(string_from_format("../%s",RUTA_LOG), quienSoy,false, LOG_LEVEL_INFO);
 	}
@@ -168,7 +295,39 @@ void configurar(char* quienSoy) {
 	} else {
 		logearError("Error al leer archivo de configuración",true);
 	}
+
 	config_destroy(config);
+}
+
+void conectarA(char* IP, int PUERTO, char identificador) {
+
+	struct sockaddr_in direccionServidor;
+	direccionServidor.sin_family = AF_INET;
+	direccionServidor.sin_addr.s_addr = inet_addr((char*) IP);
+	direccionServidor.sin_port = htons(PUERTO);
+
+	int servidor = socket(AF_INET, SOCK_STREAM, 0);
+
+	char* quienEs;
+	quienEs = malloc(8);
+
+	if(identificador == KERNEL) {
+		strcpy(quienEs, "Kernel");
+		kernel.socket = servidor;
+		kernel.identificador = identificador;
+	} else {
+		strcpy(quienEs, "Memoria");
+		memoria.socket = servidor;
+		memoria.identificador = identificador;
+	}
+
+	if (connect(servidor, (struct sockaddr *) &direccionServidor, sizeof(direccionServidor)) < 0) {
+		close(servidor);
+		logearError("No se pudo conectar a %s", true, quienEs);
+	}
+
+	logearInfo("Conectado a %s\n", quienEs);
+	free(quienEs);
 }
 
 void handshake(int socket, char operacion) {
@@ -195,19 +354,13 @@ void handshake(int socket, char operacion) {
 	free(buffer);
 }
 
-void serializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	*pBytesDePayload = header->bytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	*pCodigoDeOperacion = header->codigoDeOperacion;
-}
+/*
+ * ↑ Configuración del CPU y conexión a los servidores ↑
+ */
 
-void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	header->bytesDePayload = *pBytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	header->codigoDeOperacion = *pCodigoDeOperacion;
-}
+/*
+ * ↓ Logeos de CPU ↓
+ */
 
 void logearInfo(char* formato, ...) {
 	char* mensaje;
@@ -229,3 +382,40 @@ void logearError(char* formato, int terminar , ...) {
 	va_end(args);
 	if (terminar==true) exit(0);
 }
+
+/*
+ * ↑ Logeos del CPU ↑
+ */
+
+/*
+ * ↓ Funciones auxiliares del CPU ↓
+ */
+
+int existeArchivo(const char *ruta)
+{
+    FILE *archivo;
+    if ((archivo = fopen(ruta, "r")))
+    {
+        fclose(archivo);
+        return true;
+    }
+    return false;
+}
+
+void serializarHeader(headerDeLosRipeados *header, void *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	*pBytesDePayload = header->bytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	*pCodigoDeOperacion = header->codigoDeOperacion;
+}
+
+void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	header->bytesDePayload = *pBytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	header->codigoDeOperacion = *pCodigoDeOperacion;
+}
+
+/*
+ * ↑ Funciones auxiliares del CPU ↑
+ */
