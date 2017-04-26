@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include "commons/collections/list.h"
 
 t_log* logger;
 t_config* config;
@@ -21,17 +22,17 @@ typedef struct miCliente {
     char identificador;
 } miCliente;
 
-void limpiarClientes(miCliente *);
+typedef t_list listaCliente;
+
 void establecerConfiguracion();
-void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes);
-int posicionSocket(int , miCliente *);
-void agregarCliente(char , int , miCliente *);
-void borrarCliente(int , miCliente *);
-int recibirMensaje(int socketCliente, miCliente *clientes);
-int recibirHandshake(int socketCliente, miCliente *clientes);
-int recibirHeader(int socketCliente, miCliente *clientes);
-int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes);
-int existeCliente(int socketCliente, miCliente *clientes);
+void cerrarConexion(int, char*, listaCliente *);
+void agregarCliente(char, int , listaCliente *);
+void borrarCliente(int, listaCliente *);
+int recibirMensaje(int, listaCliente *);
+int recibirHandshake(int, listaCliente *);
+int recibirHeader(int);
+int recibirPayload(int, int, listaCliente *);
+int existeCliente(int, listaCliente *);
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -44,8 +45,10 @@ void *get_in_addr(struct sockaddr *sa) {
 int main(void) {
 	configurar("kernel");
 
-	miCliente misClientes[MAX_NUM_CLIENTES];
-    limpiarClientes(misClientes);
+	// miCliente misClientes[MAX_NUM_CLIENTES];
+    // limpiarClientes(misClientes);
+
+	listaCliente *misClientes = list_create();
 
     int buffersize = sizeof(headerDeLosRipeados);
     void* buffer = malloc(buffersize);
@@ -106,6 +109,7 @@ int main(void) {
     FD_ZERO(&read_fds);
 
     FD_SET(servidor, &conectados);
+    FD_SET(fileno(stdin), &conectados);
 
     int fdmax;	// valor maximo de los FDs
     fdmax = servidor; // Por ahora hay un solo socket, por eso es el maximo
@@ -145,6 +149,14 @@ int main(void) {
 					logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
 				}
 			}
+			//Mensaje por interfaz del Kernel
+			else if (i == fileno(stdin)) {
+				//Esto es solo testeo, para probar que efectivamente se puede
+				//tener input a la vez de recibir clientes y toda esa wea
+				char str[16];
+				scanf("%s",&str);
+				printf("%s\n",str);
+			}
 			// Un cliente mando un mensaje
 			else {
 				if (existeCliente(i, misClientes) == 0) { // Nuevo cliente, debe enviar un handshake
@@ -170,42 +182,57 @@ int main(void) {
         }
     }
     free(buffer);
+    list_destroy_and_destroy_elements(misClientes, free);
     return 0;
 }
 
-void agregarCliente(char identificador, int socketCliente, miCliente *clientes) {
-	int i;
-	for (i=0; i<MAX_NUM_CLIENTES; i++) {
-		if (clientes[i].socketCliente == -1) { //woohoo, encontramos un espacio libre
-			clientes[i].socketCliente = socketCliente;
-			clientes[i].identificador = identificador;
-			break;
-		}
+#define DEF_MISMO_SOCKET(SOCKET)										\
+		_Bool mismoSocket(void* elemento) {							\
+			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
+		}																\
+
+void agregarCliente(char identificador, int socketCliente, listaCliente *clientes) {
+	if (existeCliente(socketCliente,clientes)) {
+		logearError("No se puede agregar 2 veces mismo socket\n", false);
+		return;
 	}
+
+	miCliente *cliente = malloc(sizeof (miCliente));
+	cliente->identificador = identificador;
+	cliente->socketCliente = socketCliente;
+
+	list_add(clientes, cliente);
 }
 
-void borrarCliente(int socketCliente, miCliente *clientes) {
-	int posicion = posicionSocket(socketCliente,clientes);
-	if (posicion >= 0) {
-		clientes[posicion].socketCliente = -1;
-		clientes[posicion].identificador = 255;
-	}
+void borrarCliente(int socketCliente, listaCliente *clientes) {
+	DEF_MISMO_SOCKET(socketCliente);
+	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
 }
 
-
-int enviarMensajeATodos(int socketCliente, char* mensaje, miCliente *clientes) {
-	int cantidad = 0;
-	int i;
-	for (i=0;i<MAX_NUM_CLIENTES;i++) { //enviamos mensaje a los clientes registrados
-		if (clientes[i].identificador >= MEMORIA && clientes[i].identificador <= CPU) { //solo le mandamos a MEMORIA,FILESYSTEM y CPU
-			send(clientes[i].socketCliente, mensaje, strlen(mensaje), 0);
-			cantidad++;
-		}
-	}
-	return cantidad;
+int existeCliente(int socketCliente, listaCliente *clientes) {
+	DEF_MISMO_SOCKET(socketCliente);
+	return list_any_satisfy(clientes, mismoSocket);
 }
 
-int recibirHandshake(int socketCliente, miCliente *clientes) {
+int enviarMensajeATodos(int socketCliente, char* mensaje, listaCliente *clientes) {
+	_Bool condicion(void* elemento) {
+		miCliente *cliente = (miCliente*)elemento;
+		return (cliente->identificador >= MEMORIA && cliente->identificador <= CPU);
+	}
+
+	listaCliente *clientesFiltrados = list_filter(clientes, condicion);
+
+	void enviarMensaje(void* elemento) {
+		miCliente *cliente = (miCliente*)elemento;
+		send(cliente->socketCliente, mensaje, strlen(mensaje), 0);
+	}
+
+	list_iterate(clientesFiltrados, enviarMensaje);
+
+	return list_size(clientesFiltrados);
+}
+
+int recibirHandshake(int socketCliente, listaCliente *clientes) {
 	int buffersize = sizeof(headerDeLosRipeados);
 	void *buffer = malloc(buffersize);
     int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
@@ -230,12 +257,9 @@ int recibirHandshake(int socketCliente, miCliente *clientes) {
 	}
 
 	if (CONSOLA <= codigoDeOperacion || codigoDeOperacion <= CPU) {
-		int indice = posicionSocket(socketCliente,clientes);
-    	if (indice < 0) {
-    		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(codigoDeOperacion));
-    		agregarCliente(codigoDeOperacion, socketCliente, clientes);
-    		return 1;
-    	}
+		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(codigoDeOperacion));
+		agregarCliente(codigoDeOperacion, socketCliente, clientes);
+		return 1;
 	}
 	return 0;
 }
@@ -245,7 +269,7 @@ int recibirHandshake(int socketCliente, miCliente *clientes) {
  * Retorna la cantidad de bytes de payload.
  * Retorna -1 cuando hubo error.
  */
-int recibirHeader(int socketCliente, miCliente *clientes) {
+int recibirHeader(int socketCliente) {
 	int buffersize = sizeof(headerDeLosRipeados);
 	void *buffer = malloc(buffersize);
     int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
@@ -266,7 +290,7 @@ int recibirHeader(int socketCliente, miCliente *clientes) {
 	return -1;
 }
 
-int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes) {
+int recibirPayload(int socketCliente, int bytesDePayload, listaCliente *clientes) {
     char* mensaje = malloc(bytesDePayload);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
     if (bytesRecibidos != -1) {
@@ -289,8 +313,8 @@ int recibirPayload(int socketCliente, int bytesDePayload, miCliente *clientes) {
  * Retorna la cantidad de bytes recibidos.
  * Retorna 0 cuando hubo error.
  */
-int recibirMensaje(int socketCliente, miCliente *clientes) {
-	int bytesDePayload = recibirHeader(socketCliente, clientes);
+int recibirMensaje(int socketCliente, listaCliente *clientes) {
+	int bytesDePayload = recibirHeader(socketCliente);
 	if (bytesDePayload > 0) {
 		int bytesRecibidos = recibirPayload(socketCliente, bytesDePayload + 1, clientes);
 		return bytesRecibidos;
@@ -302,29 +326,7 @@ int recibirMensaje(int socketCliente, miCliente *clientes) {
 	return 0;
 }
 
-void limpiarClientes(miCliente *clientes) {
-    int i;
-    for(i = 0; i < MAX_NUM_CLIENTES; i++) {
-        clientes[i].socketCliente = -1;
-        clientes[i].identificador = 255;
-    }
-}
-
-int existeCliente(int socketCliente, miCliente *clientes) {
-	return (posicionSocket(socketCliente, clientes) != -1);
-}
-
-int posicionSocket(int socketCliente, miCliente *clientes) {
-    int i;
-    for(i = 0; i < MAX_NUM_CLIENTES; i++) {
-        if(clientes[i].socketCliente == socketCliente) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-void cerrarConexion(int socketCliente, char* motivo, miCliente *clientes) {
+void cerrarConexion(int socketCliente, char* motivo, listaCliente *clientes) {
 	logearInfo(motivo, socketCliente);
 	borrarCliente(socketCliente, clientes);
 	close(socketCliente);

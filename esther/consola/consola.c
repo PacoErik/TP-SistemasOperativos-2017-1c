@@ -1,4 +1,7 @@
 #include <qepd/qepd.h>
+#include <pthread.h>
+#include "commons/collections/list.h"
+#include "commons/process.h"
 
 t_log* logger;
 t_config* config;
@@ -7,24 +10,47 @@ int servidor; //kernel
 char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
 int PUERTO_KERNEL;
 
+typedef struct proceso {
+	int PID;
+	pthread_t hiloID;
+} proceso;
+
+typedef t_list listaProceso;
+
+listaProceso *procesos;
+
 void imprimirOpcionesDeConsola();
-void iniciarPrograma();
+static void* iniciarPrograma(void*);
 void desconectarPrograma();
 void desconectarConsola();
 void enviarMensaje();
-void leerMensaje();
 void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
 
 int main(void) {
 
+	procesos = list_create();
 	configurar("consola");
-	conectar(&servidor,IP_KERNEL,PUERTO_KERNEL);
+	conectar(&servidor, IP_KERNEL, PUERTO_KERNEL);
 	handshake(servidor, CONSOLA);
 	interaccionConsola();
 
 	return 0;
+}
+
+void agregarProceso(int PID, pthread_t hiloID) {
+	proceso *nuevoProceso = malloc(sizeof(proceso));
+	nuevoProceso->PID = PID;
+	nuevoProceso->hiloID = hiloID;
+	list_add(procesos, nuevoProceso);
+}
+
+void eliminarProceso(int PID) {
+	_Bool mismoPID(void* elemento) {
+		return PID == ((proceso *) elemento)->PID;
+	}
+	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
 }
 
 void imprimirOpcionesDeConsola() {
@@ -43,13 +69,64 @@ void imprimirOpcionesDeConsola() {
 	printf("--------------------\n");
 }
 
-void iniciarPrograma() {
-	printf("TODO\n");
-} // TODO
+void configurarPrograma() {
+	char* ruta = calloc(64,sizeof(char));
+	printf("\nIngresar ruta: ");
+	scanf("%63[^\n]", ruta);
+	pthread_t hiloPrograma;
+	pthread_create(&hiloPrograma, NULL, iniciarPrograma, ruta);
+}
+
+void* iniciarPrograma(void* arg) {
+	clock_t inicio = clock();
+
+	char* ruta = arg;
+	printf("Ruta ingresada:%s\n",ruta);
+	FILE* prog = fopen(ruta,"r");
+	free(arg); //ya no necesitamos más la ruta
+	int c;
+	if (prog) {
+	    while ((c = getc(prog)) != EOF)
+	        putchar(c);
+	    fclose(prog);
+	}
+
+	clock_t fin = clock();
+	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
+	printf("\nPrograma leido en %f segundos\n",tiempoEjecucion);
+	//CLOCKS_PER_SEC es una constante que ya viene en el header time.h
+	return NULL;
+	/*unsigned int TID = process_get_thread_id();
+	//unsigned int PID = process_getpid();
+	printf("\nPrograma ejecutandose en Hilo %u\n", TID);
+	conectar(&servidor, IP_KERNEL, PUERTO_KERNEL);
+	handshake(servidor, CONSOLA);
+
+	int size = strlen("Thread ID XX") + 1;
+	char mensaje[size];
+	sprintf(mensaje, "Thread ID %2d", TID);
+
+	headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = size;
+	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
+
+	int headerSize = sizeof(headerDeMiMensaje);
+	void *headerComprimido = malloc(headerSize);
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+	send(servidor, headerComprimido, headerSize, 0);
+	free(headerComprimido);
+
+	send(servidor, mensaje, size, 0);
+
+	for(;;);
+	return NULL;*/
+}
 
 void desconectarPrograma() {
-	printf("TODO\n");
-} // TODO
+
+//	pthread_cancel(hiloID);
+}
 
 void desconectarConsola() {
 	close(servidor);
@@ -59,15 +136,15 @@ void desconectarConsola() {
 void enviarMensaje() {
 	char mensaje[512] = "";
 
-EscribirMensaje:
-	printf("\nEscribir mensaje: ");
+	EscribirMensaje: printf("\nEscribir mensaje: ");
 	scanf("%511[^\n]", mensaje);
 
 	if (strlen(mensaje) == 0) {
 		printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
 		// Limpiar buffer de entrada
 		int c;
-		while ( (c = getchar()) != '\n' && c != EOF );
+		while ((c = getchar()) != '\n' && c != EOF)
+			;
 		goto EscribirMensaje;
 	}
 
@@ -94,13 +171,14 @@ void leerMensaje() {
 
 	int bytesRecibidos;
 	char mensaje[512];
-	bytesRecibidos = recv(servidor,&mensaje,sizeof(mensaje), 0);
-	mensaje[bytesRecibidos]='\0';
-	if(bytesRecibidos <= 0 || !strncmp(mensaje,"Error, desconectado",18)){
+	bytesRecibidos = recv(servidor, &mensaje, sizeof(mensaje), 0);
+	mensaje[bytesRecibidos] = '\0';
+	if (bytesRecibidos <= 0 || !strncmp(mensaje, "Error, desconectado", 18)) {
 		close(servidor);
-		logearError("Servidor desconectado luego de intentar leer mensaje",true);
+		logearError("Servidor desconectado luego de intentar leer mensaje",
+				true);
 	}
-	logearInfo("Mensaje recibido: %s\n",mensaje);
+	logearInfo("Mensaje recibido: %s\n", mensaje);
 }
 
 void limpiarPantalla() {
@@ -110,16 +188,15 @@ void limpiarPantalla() {
 void interaccionConsola() {
 	imprimirOpcionesDeConsola();
 	char input[3];
-	while(1) {
+	while (1) {
 		scanf("%2s", input);
 
 		// limpiar buffer de entrada
 		int c;
-		while ( (c = getchar()) != '\n' && c != EOF );
+		while ((c = getchar()) != '\n' && c != EOF);
 
 		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-		if ( (strlen(input) != 1)
-				|| '1' > input[0] || input[0] > '6' ) {
+		if ((strlen(input) != 1) || '1' > input[0] || input[0] > '6') {
 			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 
 			continue;
@@ -127,53 +204,54 @@ void interaccionConsola() {
 
 		char opcion = input[0];
 
-		switch(opcion) {
-			case '1' : {
-				iniciarPrograma(); // TODO
-				logearInfo("Comando de inicio de programa ejecutado");
-				break;
-			}
-			case '2' : {
-				desconectarPrograma(); // TODO
-				logearInfo("Comando de desconexión de programa ejecutado");
-				break;
-			}
-			case '3' : {
-				logearInfo("Comando de apagado de consola ejecutado\n");
-				log_destroy(logger);
-				desconectarConsola();
-				break;
-			}
-			case '4' : {
-				enviarMensaje();
-				logearInfo("Comando de envío de mensaje ejecutado\n");
-				leerMensaje();
-				logearInfo("Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
-				break;
-			}
-			case '5' : {
-				limpiarPantalla();
-				break;
-			}
-			case '6' : {
-				imprimirOpcionesDeConsola();
-				break;
-			}
+		switch (opcion) {
+		case '1': {
+			configurarPrograma();
+			logearInfo("Comando de inicio de programa ejecutado\n");
+			break;
+		}
+		case '2': {
+			desconectarPrograma(); // TODO
+			logearInfo("Comando de desconexión de programa ejecutado\n");
+			break;
+		}
+		case '3': {
+			logearInfo("Comando de apagado de consola ejecutado\n");
+			log_destroy(logger);
+			desconectarConsola();
+			break;
+		}
+		case '4': {
+			enviarMensaje();
+			logearInfo("Comando de envío de mensaje ejecutado\n");
+			leerMensaje();
+			logearInfo("Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
+			break;
+		}
+		case '5': {
+			limpiarPantalla();
+			break;
+		}
+		case '6': {
+			imprimirOpcionesDeConsola();
+			break;
+		}
 		}
 	}
 }
 
 void establecerConfiguracion() {
-	if(config_has_property(config, "PUERTO_KERNEL")){
-		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");;
-		logearInfo("Puerto Kernel: %d \n",PUERTO_KERNEL);
-	}else{
-		logearError("Error al leer el puerto del Kernel",true);
+	if (config_has_property(config, "PUERTO_KERNEL")) {
+		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
+		;
+		logearInfo("Puerto Kernel: %d \n", PUERTO_KERNEL);
+	} else {
+		logearError("Error al leer el puerto del Kernel", true);
 	}
-	if(config_has_property(config, "IP_KERNEL")){
-		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		logearInfo("IP Kernel: %s \n",IP_KERNEL);
-	}else{
-		logearError("Error al leer la IP del Kernel",true);
+	if (config_has_property(config, "IP_KERNEL")) {
+		strcpy(IP_KERNEL, config_get_string_value(config, "IP_KERNEL"));
+		logearInfo("IP Kernel: %s \n", IP_KERNEL);
+	} else {
+		logearError("Error al leer la IP del Kernel", true);
 	}
 }
