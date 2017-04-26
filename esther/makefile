@@ -1,8 +1,4 @@
 all:
-	@echo "Compilando QEPDLibrary"
-	@echo "======================"
-	cd QEPDLibrary; make
-	@echo " "
 	@echo "Compilando consola"
 	@echo "======================"
 	cd consola; make
