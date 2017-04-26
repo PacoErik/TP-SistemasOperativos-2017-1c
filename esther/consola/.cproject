@@ -116,8 +116,5 @@
 		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.release.1091421757;cdt.managedbuild.config.gnu.cross.exe.release.1091421757.;cdt.managedbuild.tool.gnu.cross.c.compiler.604503827;cdt.managedbuild.tool.gnu.c.compiler.input.874123323">
 			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
 		</scannerConfigBuildInfo>
-		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.debug.1095394551;cdt.managedbuild.config.gnu.cross.exe.debug.1095394551.;cdt.managedbuild.tool.gnu.c.compiler.base.2139109180;cdt.managedbuild.tool.gnu.c.compiler.input.1256156720">
-			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
-		</scannerConfigBuildInfo>
 	</storageModule>
 </cproject>
