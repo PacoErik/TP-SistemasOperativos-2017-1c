@@ -83,17 +83,37 @@ void* iniciarPrograma(void* arg) {
 	char* ruta = arg;
 	printf("Ruta ingresada:%s\n",ruta);
 	FILE* prog = fopen(ruta,"r");
-	free(arg); //ya no necesitamos más la ruta
-	int c;
-	if (prog) {
-	    while ((c = getc(prog)) != EOF)
-	        putchar(c);
-	    fclose(prog);
+
+
+	char* codigo = NULL;
+	size_t bytes;
+	ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
+	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
+	if (bytes_leidos != -1) {
+		headerDeLosRipeados headerDeMiMensaje;
+		headerDeMiMensaje.bytesDePayload = bytes_leidos+1;
+		headerDeMiMensaje.codigoDeOperacion = PROGRAMA;
+
+		int headerSize = sizeof(headerDeMiMensaje);
+		void *headerComprimido = malloc(headerSize);
+		serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+		send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
+		free(headerComprimido);
+
+		codigo[bytes_leidos]='\0';
+		send(servidor,codigo,bytes_leidos,0); //El codigo después, we
+		leerMensaje(); //mensaje de confirmación
+	} else {
+		logearError("No se pudo leer el archivo %s",false,ruta);
 	}
 
+	free(arg); //ya no necesitamos más la ruta
+	free(codigo); //ya no necesitamos más el código
+	fclose(prog);
 	clock_t fin = clock();
 	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
-	printf("\nPrograma leido en %f segundos\n",tiempoEjecucion);
+	printf("Programa leido en %f segundos\n",tiempoEjecucion);
 	//CLOCKS_PER_SEC es una constante que ya viene en el header time.h
 	return NULL;
 	/*unsigned int TID = process_get_thread_id();
@@ -207,6 +227,7 @@ void interaccionConsola() {
 		case '1': {
 			configurarPrograma();
 			logearInfo("Comando de inicio de programa ejecutado\n");
+			leerMensaje();
 			break;
 		}
 		case '2': {
