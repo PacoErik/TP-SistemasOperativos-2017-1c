@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include "commons/collections/list.h"
+#include <string.h>
 
 t_log* logger;
 t_config* config;
@@ -28,12 +29,11 @@ void establecerConfiguracion();
 void cerrarConexion(int, char*, listaCliente *);
 void agregarCliente(char, int , listaCliente *);
 void borrarCliente(int, listaCliente *);
-int tipoCliente(int socketCliente, listaCliente *cliente);
-void procesarMensaje(int socketCliente, listaCliente *clientes);
-int recibirMensaje(int, listaCliente *);
+int tipoCliente(int, listaCliente *);
+void procesarMensaje(int socketCliente, listaCliente *, char, int);
+int recibirMensaje(int, int, listaCliente *);
 int recibirHandshake(int, listaCliente *);
 int recibirHeader(int);
-int recibirPayload(int, int, listaCliente *);
 int existeCliente(int, listaCliente *);
 
 void *get_in_addr(struct sockaddr *sa) {
@@ -172,12 +172,27 @@ int main(void) {
 					}
 				}
 				else {
-					procesarMensaje(i, misClientes);
-					if (recibirMensaje(i, misClientes) == 0) {
+					//Recibir header
+					int buffersize = sizeof(headerDeLosRipeados);
+					void *buffer = malloc(buffersize);
+					int bytesRecibidos = recv(i, buffer, buffersize, 0);
+					if (bytesRecibidos <= 0) {
 						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
 						FD_CLR(i, &conectados);
+						free(buffer);
 						continue;
 					}
+					headerDeLosRipeados header;
+					deserializarHeader(&header, buffer);
+					free(buffer);
+
+					int bytesDePayload = header.bytesDePayload;
+					int codigoDeOperacion = header.codigoDeOperacion;
+
+					//Procesar operación del header
+					procesarMensaje(i, misClientes,codigoDeOperacion,bytesDePayload);
+
+					//Confirmación de mensaje (algún día vamos a sacar esto..)
 					char *respuesta = "Mensaje recibido";
 					send(i, respuesta, strlen(respuesta) + 1, 0);
 				}
@@ -303,70 +318,54 @@ int recibirHeader(int socketCliente) {
 	return -1;
 }
 
-int recibirPayload(int socketCliente, int bytesDePayload, listaCliente *clientes) {
+int recibirMensaje(int socketCliente, int bytesDePayload, listaCliente *clientes) {
     char* mensaje = malloc(bytesDePayload);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
-    if (bytesRecibidos != -1) {
+    if (bytesRecibidos > 0) {
         logearInfo("Mensaje recibido: %s\n", mensaje);
         int cantidad = enviarMensajeATodos(socketCliente, mensaje, clientes);
         logearInfo("Mensaje retransmitido a %i clientes\n", cantidad);
-    }
-    else if (bytesRecibidos == 0) {
-		logearError("El socket %d se desconectó\n", socketCliente);
-	}
-    else {
-    	logearError("Error en el recv\n", false);
+    } else {
+    	cerrarConexion(socketCliente,"Error al recibir mensaje del socket %i",clientes);
     }
     free(mensaje);
 	return bytesRecibidos;
 }
 
-
-/*
- * Retorna la cantidad de bytes recibidos.
- * Retorna 0 cuando hubo error.
- */
-int recibirMensaje(int socketCliente, listaCliente *clientes) {
-	int bytesDePayload = recibirHeader(socketCliente);
-	if (bytesDePayload > 0) {
-		int bytesRecibidos = recibirPayload(socketCliente, bytesDePayload + 1, clientes);
-		return bytesRecibidos;
-	}
-	if (bytesDePayload == 0) {
-        logearError("El cliente %i intentó mandar un mensaje sin contenido\n", false, socketCliente);
-	}
-	// bytesDePayload == -1
-	return 0;
-}
-
 // Esta debera reemplazar la funcion recibirMensaje()
-void procesarMensaje(int socketCliente, listaCliente *clientes) {
-	switch(tipoCliente(socketCliente, clientes)) {
-	case CONSOLA:
-		printf("Consola\n");
-		break;
+void procesarMensaje(int socketCliente, listaCliente *clientes, char operacion, int bytes) {
 
-	case MEMORIA:
-		printf("Memoria\n");
-		break;
+	int tipo = tipoCliente(socketCliente, clientes);
 
-	case FILESYSTEM:
-		printf("File System\n");
-		break;
+	switch(tipo) {
+		case CONSOLA:
+			if (operacion == MENSAJE) {
+				recibirMensaje(socketCliente,bytes,clientes);
+			} else if (operacion == PROGRAMA) {
+				recibirMensaje(socketCliente,bytes,clientes);
+			}
+			break;
 
-	case CPU:
-		printf("CPU\n");
-		break;
+		case MEMORIA:
+			printf("Memoria\n");
+			break;
 
-	default:
-		fprintf(stderr, "Cliente no identificado\n");
-		// Error;
-		break;
+		case FILESYSTEM:
+			printf("File System\n");
+			break;
+
+		case CPU:
+			printf("CPU\n");
+			break;
+
+		default:
+			logearError("Operación inválida de %s\n", false, ID_CLIENTE(tipo));
+			break;
 	}
 }
 
 void cerrarConexion(int socketCliente, char* motivo, listaCliente *clientes) {
-	logearInfo(motivo, socketCliente);
+	logearError(motivo, false, socketCliente);
 	borrarCliente(socketCliente, clientes);
 	close(socketCliente);
 }
