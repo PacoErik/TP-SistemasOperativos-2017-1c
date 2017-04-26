@@ -19,7 +19,7 @@
 #define RUTA_CONFIG "config.cfg"
 
 enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU
+	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU, PROGRAMA
 };
 
 typedef struct headerDeLosRipeados {
