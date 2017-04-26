@@ -28,6 +28,8 @@ void establecerConfiguracion();
 void cerrarConexion(int, char*, listaCliente *);
 void agregarCliente(char, int , listaCliente *);
 void borrarCliente(int, listaCliente *);
+int tipoCliente(int socketCliente, listaCliente *cliente);
+void procesarMensaje(int socketCliente, listaCliente *clientes);
 int recibirMensaje(int, listaCliente *);
 int recibirHandshake(int, listaCliente *);
 int recibirHeader(int);
@@ -170,6 +172,7 @@ int main(void) {
 					}
 				}
 				else {
+					procesarMensaje(i, misClientes);
 					if (recibirMensaje(i, misClientes) == 0) {
 						cerrarConexion(i, "El socket %d se desconectó\n", misClientes);
 						FD_CLR(i, &conectados);
@@ -212,6 +215,16 @@ void borrarCliente(int socketCliente, listaCliente *clientes) {
 int existeCliente(int socketCliente, listaCliente *clientes) {
 	DEF_MISMO_SOCKET(socketCliente);
 	return list_any_satisfy(clientes, mismoSocket);
+}
+
+// Devuelve el tipo de cliente
+int tipoCliente(int socketCliente, listaCliente *cliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	miCliente *found = (miCliente*)(list_find(cliente, mismoSocket));
+	if (found == NULL) {
+		return -1;
+	}
+	return found->identificador;
 }
 
 int enviarMensajeATodos(int socketCliente, char* mensaje, listaCliente *clientes) {
@@ -324,6 +337,32 @@ int recibirMensaje(int socketCliente, listaCliente *clientes) {
 	}
 	// bytesDePayload == -1
 	return 0;
+}
+
+// Esta debera reemplazar la funcion recibirMensaje()
+void procesarMensaje(int socketCliente, listaCliente *clientes) {
+	switch(tipoCliente(socketCliente, clientes)) {
+	case CONSOLA:
+		printf("Consola\n");
+		break;
+
+	case MEMORIA:
+		printf("Memoria\n");
+		break;
+
+	case FILESYSTEM:
+		printf("File System\n");
+		break;
+
+	case CPU:
+		printf("CPU\n");
+		break;
+
+	default:
+		fprintf(stderr, "Cliente no identificado\n");
+		// Error;
+		break;
+	}
 }
 
 void cerrarConexion(int socketCliente, char* motivo, listaCliente *clientes) {

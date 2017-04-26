@@ -143,8 +143,7 @@ void enviarMensaje() {
 		printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
 		// Limpiar buffer de entrada
 		int c;
-		while ((c = getchar()) != '\n' && c != EOF)
-			;
+		while ((c = getchar()) != '\n' && c != EOF);
 		goto EscribirMensaje;
 	}
 
