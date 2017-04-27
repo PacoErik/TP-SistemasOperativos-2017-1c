@@ -27,6 +27,8 @@ void enviarMensaje();
 void limpiarPantalla();
 void interaccionConsola();
 void establecerConfiguracion();
+void limpiarBufferEntrada();
+void confirmarComando();
 
 int main(void) {
 
@@ -71,27 +73,31 @@ void imprimirOpcionesDeConsola() {
 
 void configurarPrograma() {
 	char* ruta = calloc(64,sizeof(char));
-	printf("\nIngresar ruta: ");
+	printf("Ingresar ruta: ");
 	scanf("%63[^\n]", ruta);
 	pthread_t hiloPrograma;
-	pthread_create(&hiloPrograma, NULL, iniciarPrograma, ruta);
+	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
 }
 
 void* iniciarPrograma(void* arg) {
 	clock_t inicio = clock();
 
 	char* ruta = arg;
-	printf("Ruta ingresada:%s\n",ruta);
+	logearInfo("Ruta ingresada:%s\n",ruta);
+	if (!existeArchivo(ruta)) {
+		logearError("No se encontró el archivo %s\n",false,ruta);
+		limpiarBufferEntrada();
+		return NULL;
+	}
+
 	FILE* prog = fopen(ruta,"r");
-
-
 	char* codigo = NULL;
 	size_t bytes;
 	ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
-	if (bytes_leidos != -1) {
+	if (bytes_leidos > 0) {
 		headerDeLosRipeados headerDeMiMensaje;
-		headerDeMiMensaje.bytesDePayload = bytes_leidos+1;
+		headerDeMiMensaje.bytesDePayload = bytes_leidos;
 		headerDeMiMensaje.codigoDeOperacion = PROGRAMA;
 
 		int headerSize = sizeof(headerDeMiMensaje);
@@ -101,11 +107,11 @@ void* iniciarPrograma(void* arg) {
 		send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
 		free(headerComprimido);
 
-		codigo[bytes_leidos]='\0';
 		send(servidor,codigo,bytes_leidos,0); //El codigo después, we
-		leerMensaje(); //mensaje de confirmación
+
+		confirmarComando();
 	} else {
-		logearError("No se pudo leer el archivo %s",false,ruta);
+		logearError("No se pudo leer el archivo %s\n",false,ruta);
 	}
 
 	free(arg); //ya no necesitamos más la ruta
@@ -113,7 +119,8 @@ void* iniciarPrograma(void* arg) {
 	fclose(prog);
 	clock_t fin = clock();
 	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
-	printf("Programa leido en %f segundos\n",tiempoEjecucion);
+
+	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n",tiempoEjecucion);
 	//CLOCKS_PER_SEC es una constante que ya viene en el header time.h
 	return NULL;
 	/*unsigned int TID = process_get_thread_id();
@@ -153,6 +160,11 @@ void desconectarConsola() {
 	exit(0);
 }
 
+void limpiarBufferEntrada() {
+	int c;
+	while ((c = getchar()) != '\n' && c != EOF);
+}
+
 void enviarMensaje() {
 	char mensaje[512] = "";
 
@@ -161,9 +173,7 @@ void enviarMensaje() {
 
 	if (strlen(mensaje) == 0) {
 		printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
-		// Limpiar buffer de entrada
-		int c;
-		while ((c = getchar()) != '\n' && c != EOF);
+		limpiarBufferEntrada();
 		goto EscribirMensaje;
 	}
 
@@ -178,7 +188,7 @@ void enviarMensaje() {
 	send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
 	free(headerComprimido);
 
-	send(servidor, mensaje, strlen(mensaje) + 1, 0); // Mando el mensaje después
+	send(servidor, mensaje,headerDeMiMensaje.bytesDePayload, 0); // Mando el mensaje después
 
 	// El server retransmite el mensaje
 	//leerMensaje();
@@ -194,7 +204,7 @@ void leerMensaje() {
 	mensaje[bytesRecibidos] = '\0';
 	if (bytesRecibidos <= 0 || !strncmp(mensaje, "Error, desconectado", 18)) {
 		close(servidor);
-		logearError("Servidor desconectado luego de intentar leer mensaje",
+		logearError("Servidor desconectado luego de intentar leer mensaje\n",
 				true);
 	}
 	logearInfo("Mensaje recibido: %s\n", mensaje);
@@ -202,6 +212,11 @@ void leerMensaje() {
 
 void limpiarPantalla() {
 	printf("\033[H\033[J");
+}
+
+void confirmarComando() {
+	leerMensaje();
+	logearInfo("Comando completado, coloque otra opción. Opcion 6 para más información\n");
 }
 
 void interaccionConsola() {
@@ -225,14 +240,13 @@ void interaccionConsola() {
 
 		switch (opcion) {
 		case '1': {
-			configurarPrograma();
 			logearInfo("Comando de inicio de programa ejecutado\n");
-			leerMensaje();
+			configurarPrograma();
 			break;
 		}
 		case '2': {
-			desconectarPrograma(); // TODO
 			logearInfo("Comando de desconexión de programa ejecutado\n");
+			desconectarPrograma(); // TODO
 			break;
 		}
 		case '3': {
@@ -242,10 +256,9 @@ void interaccionConsola() {
 			break;
 		}
 		case '4': {
-			enviarMensaje();
 			logearInfo("Comando de envío de mensaje ejecutado\n");
-			leerMensaje();
-			logearInfo("Mensaje completado, coloque otra opción. Opcion 6 para más información\n");
+			enviarMensaje();
+			confirmarComando();
 			break;
 		}
 		case '5': {
@@ -266,12 +279,12 @@ void establecerConfiguracion() {
 		;
 		logearInfo("Puerto Kernel: %d \n", PUERTO_KERNEL);
 	} else {
-		logearError("Error al leer el puerto del Kernel", true);
+		logearError("Error al leer el puerto del Kernel\n", true);
 	}
 	if (config_has_property(config, "IP_KERNEL")) {
 		strcpy(IP_KERNEL, config_get_string_value(config, "IP_KERNEL"));
 		logearInfo("IP Kernel: %s \n", IP_KERNEL);
 	} else {
-		logearError("Error al leer la IP del Kernel", true);
+		logearError("Error al leer la IP del Kernel\n", true);
 	}
 }
