@@ -281,7 +281,7 @@ int recibirHandshake(int socketCliente, listaCliente *clientes) {
 	int codigoDeOperacion = handy.codigoDeOperacion;
 
 	if (bytesDePayload != 0) {
-		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0", false);
+		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0\n", false);
 	}
 
 	if (CONSOLA <= codigoDeOperacion || codigoDeOperacion <= CPU) {
@@ -319,14 +319,15 @@ int recibirHeader(int socketCliente) {
 }
 
 int recibirMensaje(int socketCliente, int bytesDePayload, listaCliente *clientes) {
-    char* mensaje = malloc(bytesDePayload);
+    char* mensaje = malloc(bytesDePayload+1);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
+    mensaje[bytesDePayload]='\0';
     if (bytesRecibidos > 0) {
         logearInfo("Mensaje recibido: %s\n", mensaje);
         int cantidad = enviarMensajeATodos(socketCliente, mensaje, clientes);
         logearInfo("Mensaje retransmitido a %i clientes\n", cantidad);
     } else {
-    	cerrarConexion(socketCliente,"Error al recibir mensaje del socket %i",clientes);
+    	cerrarConexion(socketCliente,"Error al recibir mensaje del socket %i\n",clientes);
     }
     free(mensaje);
 	return bytesRecibidos;
@@ -375,7 +376,7 @@ void establecerConfiguracion() {
 		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
 		logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
 	} else {
-		logearError("Error al leer el puerto del Kernel",true);
+		logearError("Error al leer el puerto del Kernel\n",true);
 	}
 }
 
