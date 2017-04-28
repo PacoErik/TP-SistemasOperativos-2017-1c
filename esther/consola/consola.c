@@ -79,6 +79,19 @@ void configurarPrograma() {
 	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
 }
 
+void enviarHeader(int socket, char operacion, int bytes) {
+	headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = bytes;
+	headerDeMiMensaje.codigoDeOperacion = operacion;
+
+	int headerSize = sizeof(headerDeMiMensaje);
+	void *headerComprimido = malloc(headerSize);
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+	send(socket, headerComprimido, headerSize, 0);
+	free(headerComprimido);
+}
+
 void* iniciarPrograma(void* arg) {
 	clock_t inicio = clock();
 
@@ -96,19 +109,8 @@ void* iniciarPrograma(void* arg) {
 	ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
 	if (bytes_leidos > 0) {
-		headerDeLosRipeados headerDeMiMensaje;
-		headerDeMiMensaje.bytesDePayload = bytes_leidos;
-		headerDeMiMensaje.codigoDeOperacion = PROGRAMA;
-
-		int headerSize = sizeof(headerDeMiMensaje);
-		void *headerComprimido = malloc(headerSize);
-		serializarHeader(&headerDeMiMensaje, headerComprimido);
-
-		send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
-		free(headerComprimido);
-
-		send(servidor,codigo,bytes_leidos,0); //El codigo después, we
-
+		enviarHeader(servidor,PROGRAMA,bytes_leidos);
+		send(servidor,codigo,bytes_leidos,0);
 		confirmarComando();
 	} else {
 		logearError("No se pudo leer el archivo %s\n",false,ruta);
@@ -177,18 +179,11 @@ void enviarMensaje() {
 		goto EscribirMensaje;
 	}
 
-	headerDeLosRipeados headerDeMiMensaje;
-	headerDeMiMensaje.bytesDePayload = strlen(mensaje);
-	headerDeMiMensaje.codigoDeOperacion = MENSAJE;
+	int bytes = strlen(mensaje);
 
-	int headerSize = sizeof(headerDeMiMensaje);
-	void *headerComprimido = malloc(headerSize);
-	serializarHeader(&headerDeMiMensaje, headerComprimido);
+	enviarHeader(servidor,MENSAJE,bytes);
 
-	send(servidor, headerComprimido, headerSize, 0); // Mando el header primero
-	free(headerComprimido);
-
-	send(servidor, mensaje,headerDeMiMensaje.bytesDePayload, 0); // Mando el mensaje después
+	send(servidor, mensaje, bytes, 0); // Mando el mensaje después
 
 	// El server retransmite el mensaje
 	//leerMensaje();
