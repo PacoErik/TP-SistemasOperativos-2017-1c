@@ -203,6 +203,10 @@ void* iniciarPrograma(void* arg) {
 }
 
 void interaccionConsola() {
+	enum OpcionConsola {
+		EJECUTAR_PROGRAMA=1, DESCONECTAR_PROGRAMA, DESCONECTAR_CONSOLA,
+		ENVIAR_MENSAJE, LIMPIAR_PANTALLA, IMPRIMIR_OPCIONES
+	};
 	imprimirOpcionesDeConsola();
 	char input[3];
 	while (1) {
@@ -210,43 +214,43 @@ void interaccionConsola() {
 
 		limpiarBufferEntrada();
 
-		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-		if ((strlen(input) != 1) || '1' > input[0] || input[0] > '6') {
-			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+		int opcion = input[0] - '0';
 
+		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
+		if ((strlen(input) != 1) || EJECUTAR_PROGRAMA > opcion
+				|| opcion > IMPRIMIR_OPCIONES) {
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 			continue;
 		}
 
-		char opcion = input[0];
-
 		switch (opcion) {
-			case '1': {
+			case EJECUTAR_PROGRAMA: {
 				logearInfo("Comando de inicio de programa ejecutado\n");
 				configurarPrograma();
 				break;
 			}
-			case '2': {
+			case DESCONECTAR_PROGRAMA: {
 				logearInfo("Comando de desconexión de programa ejecutado\n");
 				desconectarPrograma(); // TODO
 				break;
 			}
-			case '3': {
+			case DESCONECTAR_CONSOLA: {
 				logearInfo("Comando de apagado de consola ejecutado\n");
 				log_destroy(logger);
 				desconectarConsola();
 				break;
 			}
-			case '4': {
+			case ENVIAR_MENSAJE: {
 				logearInfo("Comando de envío de mensaje ejecutado\n");
 				enviarMensaje();
 				confirmarComando();
 				break;
 			}
-			case '5': {
+			case LIMPIAR_PANTALLA: {
 				limpiarPantalla();
 				break;
 			}
-			case '6': {
+			case IMPRIMIR_OPCIONES: {
 				imprimirOpcionesDeConsola();
 				break;
 			}
