@@ -1,3 +1,4 @@
+//-----HEADERS-----//
 #include <qepd/qepd.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -6,49 +7,46 @@
 #include "commons/collections/list.h"
 #include <string.h>
 
-t_log* logger;
-t_config* config;
-
-char PUERTO_KERNEL[6];
-
+//-----DEFINES-----//
 #define MAX_NUM_CLIENTES 100
-
 #define ID_CLIENTE(x) ID_CLIENTES[x-1]
-static const char *ID_CLIENTES[] = {
-	"Consola", "Memoria", "File System", "CPU"
-};
+#define DEF_MISMO_SOCKET(SOCKET)										\
+		_Bool mismoSocket(void* elemento) {							\
+			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
+		}
 
+//-----ESTRUCTURAS-----//
 typedef struct miCliente {
     short socketCliente;
     char identificador;
 } miCliente;
-
 typedef t_list listaCliente;
 
-void establecerConfiguracion();
-void cerrarConexion(int, char*, listaCliente *);
+//-----VARIABLES GLOBALES-----//
+t_log* logger;
+t_config* config;
+char PUERTO_KERNEL[6];
+static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
+
+//-----PROTOTIPOS DE FUNCIONES-----//
 void agregarCliente(char, int , listaCliente *);
 void borrarCliente(int, listaCliente *);
-int tipoCliente(int, listaCliente *);
+void cerrarConexion(int, char*, listaCliente *);
+int enviarMensajeATodos(int, char*, listaCliente *);
+void establecerConfiguracion();
+int existeCliente(int, listaCliente *);
+void* get_in_addr(struct sockaddr *);
 void procesarMensaje(int socketCliente, listaCliente *, char, int);
-int recibirMensaje(int, int, listaCliente *);
 int recibirHandshake(int, listaCliente *);
 int recibirHeader(int);
-int existeCliente(int, listaCliente *);
+int recibirMensaje(int, int, listaCliente *);
+int tipoCliente(int, listaCliente *);
 
-void *get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
 
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
 
+//-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
 	configurar("kernel");
-
-	// miCliente misClientes[MAX_NUM_CLIENTES];
-    // limpiarClientes(misClientes);
 
 	listaCliente *misClientes = list_create();
 
@@ -202,13 +200,9 @@ int main(void) {
     free(buffer);
     list_destroy_and_destroy_elements(misClientes, free);
     return 0;
-}
+}															\
 
-#define DEF_MISMO_SOCKET(SOCKET)										\
-		_Bool mismoSocket(void* elemento) {							\
-			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
-		}																\
-
+//-----DEFINICIÓN DE FUNCIONES-----//
 void agregarCliente(char identificador, int socketCliente, listaCliente *clientes) {
 	if (existeCliente(socketCliente,clientes)) {
 		logearError("No se puede agregar 2 veces mismo socket\n", false);
@@ -221,27 +215,15 @@ void agregarCliente(char identificador, int socketCliente, listaCliente *cliente
 
 	list_add(clientes, cliente);
 }
-
 void borrarCliente(int socketCliente, listaCliente *clientes) {
 	DEF_MISMO_SOCKET(socketCliente);
 	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
 }
-
-int existeCliente(int socketCliente, listaCliente *clientes) {
-	DEF_MISMO_SOCKET(socketCliente);
-	return list_any_satisfy(clientes, mismoSocket);
+void cerrarConexion(int socketCliente, char* motivo, listaCliente *clientes) {
+	logearError(motivo, false, socketCliente);
+	borrarCliente(socketCliente, clientes);
+	close(socketCliente);
 }
-
-// Devuelve el tipo de cliente
-int tipoCliente(int socketCliente, listaCliente *cliente) {
-	DEF_MISMO_SOCKET(socketCliente);
-	miCliente *found = (miCliente*)(list_find(cliente, mismoSocket));
-	if (found == NULL) {
-		return -1;
-	}
-	return found->identificador;
-}
-
 int enviarMensajeATodos(int socketCliente, char* mensaje, listaCliente *clientes) {
 	_Bool condicion(void* elemento) {
 		miCliente *cliente = (miCliente*)elemento;
@@ -259,7 +241,55 @@ int enviarMensajeATodos(int socketCliente, char* mensaje, listaCliente *clientes
 
 	return list_size(clientesFiltrados);
 }
+void establecerConfiguracion() {
+	if(config_has_property(config, "PUERTO_KERNEL")) {
+		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
+		logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
+	} else {
+		logearError("Error al leer el puerto del Kernel\n",true);
+	}
+}
+int existeCliente(int socketCliente, listaCliente *clientes) {
+	DEF_MISMO_SOCKET(socketCliente);
+	return list_any_satisfy(clientes, mismoSocket);
+}
+void* get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
 
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+void procesarMensaje(int socketCliente, listaCliente *clientes, char operacion, int bytes) {
+
+	int tipo = tipoCliente(socketCliente, clientes);
+
+	switch(tipo) {
+		case CONSOLA:
+			if (operacion == MENSAJE) {
+				recibirMensaje(socketCliente,bytes,clientes);
+			} else if (operacion == PROGRAMA) {
+				recibirMensaje(socketCliente,bytes,clientes);
+			}
+			break;
+
+		case MEMORIA:
+			printf("Memoria\n");
+			break;
+
+		case FILESYSTEM:
+			printf("File System\n");
+			break;
+
+		case CPU:
+			printf("CPU\n");
+			break;
+
+		default:
+			logearError("Operación inválida de %s\n", false, ID_CLIENTE(tipo));
+			break;
+	}
+}
 int recibirHandshake(int socketCliente, listaCliente *clientes) {
 	int buffersize = sizeof(headerDeLosRipeados);
 	void *buffer = malloc(buffersize);
@@ -291,12 +321,6 @@ int recibirHandshake(int socketCliente, listaCliente *clientes) {
 	}
 	return 0;
 }
-
-/*
- * Solo sirve para recibir el header de un mensaje, no un handshake.
- * Retorna la cantidad de bytes de payload.
- * Retorna -1 cuando hubo error.
- */
 int recibirHeader(int socketCliente) {
 	int buffersize = sizeof(headerDeLosRipeados);
 	void *buffer = malloc(buffersize);
@@ -317,7 +341,6 @@ int recibirHeader(int socketCliente) {
 	logearInfo("Socket %d: Codigo de operacion invalida\n", socketCliente);
 	return -1;
 }
-
 int recibirMensaje(int socketCliente, int bytesDePayload, listaCliente *clientes) {
     char* mensaje = malloc(bytesDePayload+1);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
@@ -332,51 +355,14 @@ int recibirMensaje(int socketCliente, int bytesDePayload, listaCliente *clientes
     free(mensaje);
 	return bytesRecibidos;
 }
-
-// Esta debera reemplazar la funcion recibirMensaje()
-void procesarMensaje(int socketCliente, listaCliente *clientes, char operacion, int bytes) {
-
-	int tipo = tipoCliente(socketCliente, clientes);
-
-	switch(tipo) {
-		case CONSOLA:
-			if (operacion == MENSAJE) {
-				recibirMensaje(socketCliente,bytes,clientes);
-			} else if (operacion == PROGRAMA) {
-				recibirMensaje(socketCliente,bytes,clientes);
-			}
-			break;
-
-		case MEMORIA:
-			printf("Memoria\n");
-			break;
-
-		case FILESYSTEM:
-			printf("File System\n");
-			break;
-
-		case CPU:
-			printf("CPU\n");
-			break;
-
-		default:
-			logearError("Operación inválida de %s\n", false, ID_CLIENTE(tipo));
-			break;
+int tipoCliente(int socketCliente, listaCliente *cliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	miCliente *found = (miCliente*)(list_find(cliente, mismoSocket));
+	if (found == NULL) {
+		return -1;
 	}
+	return found->identificador;
 }
 
-void cerrarConexion(int socketCliente, char* motivo, listaCliente *clientes) {
-	logearError(motivo, false, socketCliente);
-	borrarCliente(socketCliente, clientes);
-	close(socketCliente);
-}
 
-void establecerConfiguracion() {
-	if(config_has_property(config, "PUERTO_KERNEL")) {
-		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
-		logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
-	} else {
-		logearError("Error al leer el puerto del Kernel\n",true);
-	}
-}
 
