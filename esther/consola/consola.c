@@ -63,6 +63,7 @@ void configurarPrograma() {
 	scanf("%63[^\n]", ruta);
 	pthread_t hiloPrograma;
 	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
+	pthread_detach(hiloPrograma);
 }
 void confirmarComando() {
 	leerMensaje();
