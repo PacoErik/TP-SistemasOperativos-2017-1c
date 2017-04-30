@@ -104,14 +104,14 @@ void enviarHeader(int socket, char operacion, int bytes) {
 void enviarMensaje() {
 	char mensaje[512] = "";
 
-	EscribirMensaje: printf("\nEscribir mensaje: ");
-	scanf("%511[^\n]", mensaje);
-
-	if (strlen(mensaje) == 0) {
-		printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
-		limpiarBufferEntrada();
-		goto EscribirMensaje;
-	}
+	do {
+		printf("\nEscribir mensaje: ");
+		scanf("%511[^\n]", mensaje);
+		if (strlen(mensaje) == 0) {
+			printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
+			limpiarBufferEntrada();
+		}
+	} while (strlen(mensaje) == 0);
 
 	int bytes = strlen(mensaje);
 
