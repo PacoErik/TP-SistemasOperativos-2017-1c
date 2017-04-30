@@ -36,7 +36,7 @@ void 			interaccionConsola();
 void 			leerMensaje();
 void 			limpiarBufferEntrada();
 void 			limpiarPantalla();
-
+char*			remove_newline(char*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -61,7 +61,8 @@ void configurarPrograma() {
 	char* ruta = calloc(64,sizeof(char));
 	//calloc es similar a malloc pero inicializa cada valor a 0
 	printf("Ingresar ruta: ");
-	scanf("%63[^\n]", ruta);
+	fgets(ruta, 64, stdin);
+	remove_newline(ruta);
 	pthread_t hiloPrograma;
 	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
 	pthread_detach(hiloPrograma);
@@ -107,10 +108,10 @@ void enviarMensaje() {
 
 	do {
 		printf("\nEscribir mensaje: ");
-		scanf("%511[^\n]", mensaje);
+		fgets(mensaje, sizeof mensaje, stdin);
+		remove_newline(mensaje);
 		if (strlen(mensaje) == 0) {
 			printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
-			limpiarBufferEntrada();
 		}
 	} while (strlen(mensaje) == 0);
 
@@ -122,7 +123,6 @@ void enviarMensaje() {
 void establecerConfiguracion() {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		;
 		logearInfo("Puerto Kernel: %d \n", PUERTO_KERNEL);
 	} else {
 		logearError("Error al leer el puerto del Kernel\n", true);
@@ -158,7 +158,6 @@ void* iniciarPrograma(void* arg) {
 	logearInfo("Ruta ingresada:%s\n",ruta);
 	if (!existeArchivo(ruta)) {
 		logearError("No se encontró el archivo %s\n",false,ruta);
-		limpiarBufferEntrada();
 		return NULL;
 	}
 
@@ -219,9 +218,8 @@ void interaccionConsola() {
 	imprimirOpcionesDeConsola();
 	char input[3];
 	while (1) {
-		scanf("%2s", input);
-
-		limpiarBufferEntrada();
+		fgets(input, sizeof input, stdin);
+		remove_newline(input);
 
 		int opcion = input[0] - '0';
 
@@ -229,6 +227,7 @@ void interaccionConsola() {
 		if ((strlen(input) != 1) || EJECUTAR_PROGRAMA > opcion
 				|| opcion > IMPRIMIR_OPCIONES) {
 			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+			limpiarBufferEntrada();
 			continue;
 		}
 
@@ -284,4 +283,12 @@ void limpiarBufferEntrada() {
 }
 void limpiarPantalla() {
 	printf("\033[H\033[J");
+}
+char* remove_newline(char* s) { // By Beej
+    int len = strlen(s);
+
+    if (len > 0 && s[len-1] == '\n')  // if there's a newline
+        s[len-1] = '\0';          // truncate the string
+
+    return s;
 }
