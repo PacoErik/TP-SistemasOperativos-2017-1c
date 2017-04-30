@@ -104,21 +104,32 @@ void* iniciarPrograma(void* arg) {
 	}
 
 	FILE* prog = fopen(ruta,"r");
+
 	char* codigo = NULL;
-	size_t bytes;
-	ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
+	long int bytes;
+	//size_t bytes;
+	//ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
+
+	fseek(prog, 0, SEEK_END);
+	bytes = ftell(prog);
+	fseek(prog, 0, SEEK_SET);
+	codigo = malloc(bytes);
+	fread(codigo, 1, bytes, prog);
+	fclose(prog);
+
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
-	if (bytes_leidos > 0) {
-		enviarHeader(servidor,PROGRAMA,bytes_leidos);
-		send(servidor,codigo,bytes_leidos,0);
+	if (bytes > 0) {
+		enviarHeader(servidor, PROGRAMA, bytes);
+		send(servidor, codigo, bytes, 0);
 		confirmarComando();
+	} else if (bytes == 0) {
+		logearError("Archivo vacio: %s\n", false, ruta);
 	} else {
-		logearError("No se pudo leer el archivo %s\n",false,ruta);
+		logearError("No se pudo leer el archivo: %s\n", false, ruta);
 	}
 
 	free(arg); //ya no necesitamos más la ruta
 	free(codigo); //ya no necesitamos más el código
-	fclose(prog);
 	clock_t fin = clock();
 	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
 
