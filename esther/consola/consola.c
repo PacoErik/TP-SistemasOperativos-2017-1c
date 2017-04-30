@@ -3,10 +3,11 @@
 #include <pthread.h>
 #include "commons/collections/list.h"
 #include "commons/process.h"
+#include <sys/types.h>
 
 //-----ESTRUCTURAS-----//
 typedef struct proceso {
-	int PID;
+	unsigned int PID;
 	pthread_t hiloID;
 } proceso;
 typedef t_list listaProceso;
@@ -20,7 +21,7 @@ int PUERTO_KERNEL;
 listaProceso *procesos;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregarProceso(int, pthread_t);
+void 			agregarProceso(unsigned int, pthread_t);
 void 			configurarPrograma();
 void 			confirmarComando();
 void 			desconectarConsola();
@@ -50,7 +51,7 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregarProceso(int PID, pthread_t hiloID) {
+void agregarProceso(unsigned int PID, pthread_t hiloID) {
 	proceso *nuevoProceso = malloc(sizeof(proceso));
 	nuevoProceso->PID = PID;
 	nuevoProceso->hiloID = hiloID;
@@ -152,9 +153,6 @@ void* iniciarPrograma(void* arg) {
 	//Inicio del programa
 	clock_t inicio = clock();
 
-	/*unsigned int TID = process_get_thread_id();
-	unsigned int PID = process_getpid();*/
-
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
 	logearInfo("Ruta ingresada:%s\n",ruta);
@@ -199,6 +197,17 @@ void* iniciarPrograma(void* arg) {
 	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n",tiempoEjecucion);
 	//Fin-testing
 
+	pthread_t hiloID = pthread_self();
+	unsigned int PID = process_get_thread_id();
+	// TODO: Recibir el PID que le asigna el kernel
+
+	logearInfo("Thread ID: %lu\n", hiloID);
+	logearInfo("Process ID: %u\n", PID);
+
+	agregarProceso(PID, hiloID);
+
+	// Un loop infinito para ver si se puede desconectar el programa desde la consola
+	for(;;);
 	return NULL;
 }
 
@@ -276,12 +285,3 @@ void limpiarBufferEntrada() {
 void limpiarPantalla() {
 	printf("\033[H\033[J");
 }
-
-
-
-
-
-
-
-
-
