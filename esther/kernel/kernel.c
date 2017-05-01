@@ -55,6 +55,7 @@ void 	agregarProceso(int, int, int);
 void 	borrarCliente(int);
 void 	cerrarConexion(int, char*);
 void	eliminarProceso(int);
+void 	enviarHeader(int, char, int);
 int 	enviarMensajeATodos(int, char*);
 void 	establecerConfiguracion();
 int 	existeCliente(int);
@@ -216,8 +217,9 @@ int main(void) {
 					procesarMensaje(i,codigoDeOperacion,bytesDePayload);
 
 					//Confirmación de mensaje (algún día vamos a sacar esto..)
-					char *respuesta = "Mensaje recibido";
-					send(i, respuesta, strlen(respuesta) + 1, 0);
+					char *respuesta = "Header recibido y procesado :)";
+					enviarHeader(i, MENSAJE, strlen(respuesta));
+					send(i, respuesta, strlen(respuesta), 0);
 				}
 			}
         }
@@ -225,7 +227,7 @@ int main(void) {
     free(buffer);
     list_destroy_and_destroy_elements(clientes, free);
     return 0;
-}															\
+}
 
 //-----DEFINICIÓN DE FUNCIONES-----//
 void agregarCliente(char identificador, int socketCliente) {
@@ -275,6 +277,7 @@ int enviarMensajeATodos(int socketCliente, char* mensaje) {
 
 	void enviarMensaje(void* elemento) {
 		miCliente *cliente = (miCliente*)elemento;
+		enviarHeader(cliente->socketCliente, MENSAJE, strlen(mensaje));
 		send(cliente->socketCliente, mensaje, strlen(mensaje), 0);
 	}
 
@@ -340,30 +343,29 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				recibirMensaje(socketCliente,bytes);
 			}
 			else if (operacion == INICIAR_PROGRAMA) {
-				unsigned long int id_hilo;
-				recv(socketCliente, &id_hilo, sizeof(id_hilo), 0);
+				char* codigo = malloc(bytes+1);
+				recv(socketCliente, codigo, bytes, 0);
+				codigo[bytes]='\0';
 
-				int bytesRestantes = bytes - sizeof(id_hilo);
-				char* codigo = malloc(bytesRestantes+1);
-				recv(socketCliente, codigo, bytesRestantes, 0);
-				codigo[bytesRestantes]='\0';
-
+				int nuevo_PID;
 				if (list_size(procesos) < GRADO_MULTIPROG) {
 					PID_GLOBAL++;
 					//TODO: delegar a la memoria el agregado de nuestro proceso
 					//Quizás haya un error al alocarlo, por lo que el proceso
 					//puede terminar luego de la petición a la memoria.
-					agregarProceso(PID_GLOBAL,0,1);
+					nuevo_PID = PID_GLOBAL;
+					agregarProceso(nuevo_PID,0,1);
 					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
 					// Le envia el PID a la consola
-					send(socketCliente, &PID_GLOBAL, sizeof(int), 0);
+					enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
+					send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
 				} else {
 					//Enviarle de nuevo el hilo_id a la consola para que
 					//mate al hilo que envió este programa
 					printf("No se pudo añadir proceso\n");
-					int reject = -1;
-					send(socketCliente, &reject, sizeof(int), 0);
+					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
 				}
+
 			}
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
