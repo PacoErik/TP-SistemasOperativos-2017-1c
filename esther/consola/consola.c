@@ -152,6 +152,8 @@ void imprimirOpcionesDeConsola() {
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
 	clock_t inicio = clock();
+	pthread_t id_hilo = pthread_self();
+	printf("ID Hilo: %i\n",id_hilo);
 
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
@@ -179,6 +181,7 @@ void* iniciarPrograma(void* arg) {
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
 	if (bytes > 0) {
 		enviarHeader(servidor, PROGRAMA, bytes);
+		send(servidor, id_hilo, sizeof(id_hilo), 0);
 		send(servidor, codigo, bytes, 0);
 		confirmarComando();
 	} else if (bytes == 0) {
@@ -196,14 +199,6 @@ void* iniciarPrograma(void* arg) {
 	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n",tiempoEjecucion);
 	//Fin-testing
 
-	pthread_t hiloID = pthread_self();
-	unsigned int PID = process_get_thread_id();
-	// TODO: Recibir el PID que le asigna el kernel
-
-	logearInfo("Thread ID: %lu\n", hiloID);
-	logearInfo("Process ID: %u\n", PID);
-
-	agregarProceso(PID, hiloID);
 
 	// Un loop infinito para ver si se puede desconectar el programa desde la consola
 	for(;;);
