@@ -95,9 +95,13 @@ void confirmarComando() {
 	logearInfo("Comando completado, coloque otra opción. Opcion 6 para más información\n");
 }
 void desconectarConsola() {
-	//TODO
-	//Aplicar desconectarPrograma() a todos los programas
-	//que estén en el sistema
+	void _finalizar(void *element) {
+		proceso *proc = (proceso*) element;
+		int PID = proc->PID;
+		desconectarPrograma(PID);
+	}
+	list_destroy_and_destroy_elements(procesos, _finalizar);
+
 	close(servidor);
 	exit(0);
 }
