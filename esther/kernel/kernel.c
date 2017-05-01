@@ -9,7 +9,7 @@
 
 //-----DEFINES-----//
 #define MAX_NUM_CLIENTES 100
-#define ID_CLIENTE(x) ID_CLIENTES[x-1]
+#define ID_CLIENTE(x) ID_CLIENTES[x]
 #define DEF_MISMO_SOCKET(SOCKET)										\
 		_Bool mismoSocket(void* elemento) {							\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
@@ -21,27 +21,48 @@ typedef struct miCliente {
     char identificador;
 } miCliente;
 typedef t_list listaCliente;
+typedef t_list listaProcesos;
+typedef struct PCB {
+	int PID;
+	int PC;
+	int ERROR_NUM;
+} PCB;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
 listaCliente *clientes;
-char PUERTO_KERNEL[6];
+listaProcesos *procesos;
 static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
+char PUERTO_KERNEL[6];
+char IP_MEMORIA[16];
+int PUERTO_MEMORIA;
+char IP_FS[16];
+int PUERTO_FS;
+int QUANTUM;
+int QUANTUM_SLEEP;
+char ALGORITMO[5];
+int GRADO_MULTIPROG;
+//SEM_IDS
+//SEM_INIT
+//SHARED_VARS
+int STACK_SIZE;
+int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void agregarCliente(char, int);
-void borrarCliente(int);
-void cerrarConexion(int, char*);
-int enviarMensajeATodos(int, char*);
-void establecerConfiguracion();
-int existeCliente(int);
-void* get_in_addr(struct sockaddr *);
-void procesarMensaje(int socketCliente, char, int);
-int recibirHandshake(int);
-int recibirHeader(int);
-int recibirMensaje(int, int);
-int tipoCliente(int);
+void 	agregarCliente(char, int);
+void 	agregarProceso(int, int, int);
+void 	borrarCliente(int);
+void 	cerrarConexion(int, char*);
+int 	enviarMensajeATodos(int, char*);
+void 	establecerConfiguracion();
+int 	existeCliente(int);
+void* 	get_in_addr(struct sockaddr *);
+void 	procesarMensaje(int, char, int);
+int 	recibirHandshake(int);
+int 	recibirHeader(int);
+int 	recibirMensaje(int, int);
+int 	tipoCliente(int);
 
 
 
@@ -50,6 +71,7 @@ int main(void) {
 	configurar("kernel");
 
 	clientes = list_create();
+	procesos = list_create();
 
     int buffersize = sizeof(headerDeLosRipeados);
     void* buffer = malloc(buffersize);
@@ -216,6 +238,13 @@ void agregarCliente(char identificador, int socketCliente) {
 
 	list_add(clientes, cliente);
 }
+void agregarProceso(int pid, int PC, int error) {
+	PCB *proceso = malloc(sizeof(PCB));
+	proceso->PID = pid;
+	proceso->PC = PC;
+	proceso->PC = PC;
+	list_add(procesos, proceso);
+}
 void borrarCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
@@ -243,12 +272,35 @@ int enviarMensajeATodos(int socketCliente, char* mensaje) {
 	return list_size(clientesFiltrados);
 }
 void establecerConfiguracion() {
-	if(config_has_property(config, "PUERTO_KERNEL")) {
-		strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
-		logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
-	} else {
-		logearError("Error al leer el puerto del Kernel\n",true);
-	}
+	strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
+	logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
+
+	strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
+	logearInfo("IP Memoria: %s \n",IP_MEMORIA);
+
+	PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
+	logearInfo("Puerto Memoria: %d \n", PUERTO_MEMORIA);
+
+	strcpy(IP_FS,config_get_string_value(config, "IP_FS"));
+	logearInfo("IP File System: %s \n",IP_FS);
+
+	PUERTO_FS = config_get_int_value(config, "PUERTO_FS");
+	logearInfo("Puerto File System: %d \n", PUERTO_FS);
+
+	QUANTUM = config_get_int_value(config, "QUANTUM");
+	logearInfo("QUANTUM: %d \n", QUANTUM);
+
+	QUANTUM_SLEEP = config_get_int_value(config, "QUANTUM_SLEEP");
+	logearInfo("QUANTUM_SLEEP: %d \n", QUANTUM_SLEEP);
+
+	strcpy(ALGORITMO,config_get_string_value(config, "ALGORITMO"));
+	logearInfo("ALGORITMO: %s \n",ALGORITMO);
+
+	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
+	logearInfo("GRADO_MULTIPROG: %d \n", GRADO_MULTIPROG);
+
+	STACK_SIZE = config_get_int_value(config, "STACK_SIZE");
+	logearInfo("STACK_SIZE: %d \n", STACK_SIZE);
 }
 int existeCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
@@ -269,8 +321,37 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 		case CONSOLA:
 			if (operacion == MENSAJE) {
 				recibirMensaje(socketCliente,bytes);
-			} else if (operacion == PROGRAMA) {
-				recibirMensaje(socketCliente,bytes);
+			}
+			else if (operacion == INICIAR_PROGRAMA) {
+				unsigned long int id_hilo;
+				recv(socketCliente, &id_hilo, sizeof(id_hilo), 0);
+
+				int bytesRestantes = bytes - sizeof(id_hilo);
+				char* codigo = malloc(bytesRestantes+1);
+				recv(socketCliente, codigo, bytesRestantes, 0);
+				codigo[bytesRestantes]='\0';
+
+				if (list_size(procesos) < GRADO_MULTIPROG) {
+					PID_GLOBAL++;
+					//TODO: delegar a la memoria el agregado de nuestro proceso
+					//Quizás haya un error al alocarlo, por lo que el proceso
+					//puede terminar luego de la petición a la memoria.
+					agregarProceso(PID_GLOBAL,0,1);
+					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
+					// Le envia el PID a la consola
+					send(socketCliente, &PID_GLOBAL, sizeof(int), 0);
+				} else {
+					//Enviarle de nuevo el hilo_id a la consola para que
+					//mate al hilo que envió este programa
+					printf("No se pudo añadir proceso\n");
+					int reject = -1;
+					send(socketCliente, &reject, sizeof(int), 0);
+				}
+			}
+			else if (operacion == FINALIZAR_PROGRAMA) {
+				int PID;
+				recv(socketCliente, &PID, sizeof PID, 0);
+				printf("Pedido de finalizacion de PID %d\n", PID);
 			}
 			break;
 

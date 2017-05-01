@@ -10,7 +10,7 @@
 
 //-----ESTRUCTURAS-----//
 typedef struct proceso {
-	unsigned int PID;
+	int PID;
 	pthread_t hiloID;
 } proceso;
 typedef t_list listaProceso;
@@ -24,16 +24,16 @@ int PUERTO_KERNEL;
 listaProceso *procesos;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregarProceso(unsigned int, pthread_t);
+void 			agregarProceso(int, pthread_t);
 void 			configurarPrograma();
 void 			confirmarComando();
 void 			desconectarConsola();
 void 			desconectarPrograma();
-void 			eliminarProceso(unsigned int);
+void 			eliminarProceso(int);
 void 			enviarHeader(int, char, int);
 void 			enviarMensaje();
 void 			establecerConfiguracion();
-pthread_t		hiloIDPrograma(unsigned int);
+pthread_t		hiloIDPrograma(int);
 void 			imprimirOpcionesDeConsola();
 static void* 	iniciarPrograma(void*);
 void 			interaccionConsola();
@@ -56,7 +56,7 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregarProceso(unsigned int PID, pthread_t hiloID) {
+void agregarProceso(int PID, pthread_t hiloID) {
 	proceso *nuevoProceso = malloc(sizeof(proceso));
 	nuevoProceso->PID = PID;
 	nuevoProceso->hiloID = hiloID;
@@ -69,8 +69,17 @@ void configurarPrograma() {
 	fgets(ruta, 64, stdin);
 	remove_newline(ruta);
 	pthread_t hiloPrograma;
+	int PID;
 	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
-	//pthread_detach(hiloPrograma);
+	pthread_detach(hiloPrograma);
+	recv(servidor, &PID, sizeof PID, 0);
+	if (PID == -1) {
+		printf("No se pudo añadir proceso\n");
+		return;
+	}
+	printf("Hilo ID: %lu\n", hiloPrograma);
+	printf("PID: %d\n", PID);
+	agregarProceso(PID, hiloPrograma);
 }
 void confirmarComando() {
 	leerMensaje();
@@ -83,20 +92,27 @@ void desconectarConsola() {
 	close(servidor);
 	exit(0);
 }
-void desconectarPrograma(unsigned int PID) {
-	printf("PID %u: Cerrando programa...\n", PID);
+void desconectarPrograma(int PID) {
+	printf("PID %d: Cerrando programa...\n", PID);
+	enviarHeader(servidor, FINALIZAR_PROGRAMA, sizeof PID);
+	send(servidor, &PID, sizeof PID, 0);
+
 	pthread_t TID = hiloIDPrograma(PID);
+	if (TID == 0) {
+		logearError("No existe proceso con PID %d\n", PID);
+		return;
+	}
 	pthread_cancel(TID);
 	pthread_join(TID, NULL);
-	printf("El programa fue desconectado\n");
+	printf("El programa fue finalizado\n");
 
 	//	TODO
 	//	[X] Matar al hilo correspondiente al programa
 	//	[ ] Calcular su duración en el sistema
-	//	[ ] Avisarle al Kernel que mate a dicho programa, liberando las estructuras
+	//	[X] Avisarle al Kernel que mate a dicho programa, liberando las estructuras
 	//	    que ocupó en memoria y borrando su PCB
 }
-void eliminarProceso(unsigned int PID) {
+void eliminarProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
 		return PID == ((proceso *) elemento)->PID;
 	}
@@ -145,13 +161,12 @@ void establecerConfiguracion() {
 		logearError("Error al leer la IP del Kernel\n", true);
 	}
 }
-pthread_t hiloIDPrograma(unsigned int PID) {
+pthread_t hiloIDPrograma(int PID) {
 	_Bool mismoPID(void* elemento) {
 		return PID == ((proceso *) elemento)->PID;
 	}
 	proceso *elemento = list_find(procesos, mismoPID);
 	if (elemento == NULL) {
-		printf("Error: PID %u no encontrado\n", PID);
 		return 0;
 	}
 	return elemento->hiloID;
@@ -174,7 +189,8 @@ void imprimirOpcionesDeConsola() {
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
 	clock_t inicio = clock();
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); //
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	pthread_t id_hilo = pthread_self();
 
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
@@ -199,36 +215,28 @@ void* iniciarPrograma(void* arg) {
 	fread(codigo, 1, bytes, prog);
 	fclose(prog);
 
+	int PID;
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
 	if (bytes > 0) {
-		enviarHeader(servidor, PROGRAMA, bytes);
+		enviarHeader(servidor, INICIAR_PROGRAMA, bytes);
+		send(servidor, &id_hilo, sizeof id_hilo, 0);
 		send(servidor, codigo, bytes, 0);
 		confirmarComando();
 	} else if (bytes == 0) {
 		logearError("Archivo vacio: %s\n", false, ruta);
+		return NULL;
 	} else {
 		logearError("No se pudo leer el archivo: %s\n", false, ruta);
+		return NULL;
 	}
 
 	free(arg); //ya no necesitamos más la ruta
 	free(codigo); //ya no necesitamos más el código
 
 	//Testing: esto es solo para chequear que el programa se envió y el kernel respondió
-	clock_t fin = clock();
-	double tiempoEjecucion = (double)(fin - inicio) / CLOCKS_PER_SEC;
-	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n",tiempoEjecucion);
+	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n", DURACION(inicio));
 	//Fin-testing
 
-	pthread_t hiloID = pthread_self();
-	unsigned int PID = process_get_thread_id();
-	// TODO: Recibir el PID que le asigna el kernel
-
-	logearInfo("Thread ID: %lu\n", hiloID);
-	logearInfo("Process ID: %u\n", PID);
-
-	agregarProceso(PID, hiloID);
-
-	// Un loop infinito para ver si se puede desconectar el programa desde la consola
 	for(;;);
 	return NULL;
 }
@@ -282,7 +290,7 @@ void interaccionConsola() {
 					logearError("PID debe ser un numero\n", false);
 					break;
 				}
-				unsigned int PID = strtoul(sPID, NULL, 0);
+				int PID = strtoul(sPID, NULL, 0);
 				desconectarPrograma(PID);
 				break;
 			}

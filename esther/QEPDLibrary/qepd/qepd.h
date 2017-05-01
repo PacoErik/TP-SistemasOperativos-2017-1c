@@ -19,7 +19,19 @@
 #define RUTA_CONFIG "config.cfg"
 
 enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU, PROGRAMA
+
+	/* Handshake */
+	CONSOLA, MEMORIA, FILESYSTEM, CPU,
+
+	/* Consola */
+	MENSAJE, INICIAR_PROGRAMA, FINALIZAR_PROGRAMA,
+
+	/* Memoria */
+
+	/* File System */
+
+	/* CPU */
+
 };
 
 typedef struct headerDeLosRipeados {
