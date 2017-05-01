@@ -9,6 +9,11 @@
 #include "commons/string.h"
 #include <stdarg.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include "commons/collections/list.h"
 
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "cpu.log"
@@ -21,7 +26,7 @@ enum CodigoDeOperacion {
 	MENSAJE, // Mensaje a leer
 	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
 	EXCEPCION_DE_SOLICITUD, // Mensajes provenientes de procesos varios
-	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO, FINALIZAR_PROGRAMA // Mensajes provenientes de Kernel
+	RECIBIR_PCB, ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO // Mensajes provenientes de Kernel
 };
 
 typedef struct headerDeLosRipeados {
@@ -47,12 +52,21 @@ typedef struct indiceEtiquetas {
 	// Diccionario what the actual fuck
 } indiceEtiquetas;
 
+typedef struct posicionDeMemoria {
+	char numeroDePagina;
+	char offset;
+	char size;
+} posicionDeMemoria;
+
 typedef struct indiceStack {
-	// Lista de argumentos
-	// Lista de variables
-	// Direccion de retorno
-	// Posicion de la variable de retorno
+	t_list listaDeArgumentos;
+	t_list listaDeVariables;
+	char direccionDeRetorno;
+	posicionDeMemoria posicionDeLaVariableDeRetorno;
 } indiceStack;
+
+typedef t_list listaArgumentos;
+typedef t_list listaVariables;
 
 typedef struct PCB {
 	char processID;
@@ -72,6 +86,8 @@ typedef struct servidor { // Esto es más que nada una cheteada para poder usar 
 servidor kernel;
 servidor memoria;
 
+PCB actualPCB; // Programa corriendo
+
 void establecerConfiguracion();
 void configurar(char*);
 void handshake(int, char);
@@ -81,12 +97,20 @@ void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
 void leerMensaje(servidor servidor, short bytesDePayload);
-void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion);
-void cumplirDeseosDeKernel(char codigoDeOperacion);
+void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion, unsigned short bytesDePayload);
+void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
 void cumplirDeseosDeMemoria(char codigoDeOperacion);
+void esperarPCB();
+void ejecutarPrimitivas();
+void devolverPCB();
 void finalizarPrograma();
-void* atenderKernel();
-void* atenderMemoria();
+void obtenerPCB(unsigned short bytesDePayload);
+void comenzarTrabajo();
+void serializarPCB(PCB *miPCB, void *bufferPCB);
+void deserializarPCB(PCB *miPCB, void *bufferPCB);
+void obtenerInstruccionesUtiles();
+int esLaPrimeraVezQueSeEjecuta();
+void ejecutarInstruccion();
 
 int main(void) {
 
@@ -98,29 +122,61 @@ int main(void) {
 	handshake(kernel.socket, CPU);
 	handshake(memoria.socket, CPU);
 
-	pthread_t hilo[MAX_THREADS];
+	comenzarTrabajo();
 
-//	pthread_create(&hilo[0], NULL, &atenderKernel, NULL);
-//	pthread_create(&hilo[1], NULL, &atenderMemoria, NULL);
-
-	return 0;
+	return 1;
 }
 
-void* atenderKernel(void) {
-	while(1) {
+/*
+ * ↓ Trabajar ↓
+ */
 
+void comenzarTrabajo() {
+	for(;;) {
+		esperarPCB();
+		ejecutarInstruccion();
+		devolverPCB();
 	}
-
-	return NULL;
 }
 
-void* atenderMemoria(void) {
-	while(1) {
-
+void esperarPCB() {
+	while(analizarHeader(kernel) < 0) { // Hasta que no te llegue info
+		continue;
 	}
-
-	return NULL;
 }
+
+void ejecutarInstruccion() {
+	if(esLaPrimeraVezQueSeEjecuta()) {
+		obtenerInstruccionesUtiles();
+	} else {
+		ejecutarPrimitivas();
+	}
+}
+
+void devolverPCB() {
+	int PCBSize = sizeof(actualPCB);
+	void *PCBComprimido = malloc(PCBSize);
+	void serializarPCB(PCB *miPCB, void *PCBComprimido);
+
+	headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = PCBSize;
+	headerDeMiMensaje.codigoDeOperacion = RECIBIR_PCB;
+	int headerSize = sizeof(headerDeMiMensaje);
+	void *headerComprimido = malloc(headerSize);
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+	send(kernel.socket, headerComprimido, headerSize, 0);
+	free(headerComprimido);
+
+	send(kernel.socket, PCBComprimido, PCBSize, 0);
+	free(PCBComprimido);
+
+	// limpiarActualPCB(); No haría realmente falta.. Pero sería más realista
+}
+
+/*
+ * ↑ Trabajar ↑
+ */
 
 /*
  * ↓ Llega información de alguno de los servidores ↓
@@ -130,31 +186,39 @@ void* atenderMemoria(void) {
  * Analiza el contenido del header, y respecto a ello realiza distintas acciones
  * devuelve -1 si el servidor causa problemas
  */
-int analizarHeader(servidor servidor, void* bufferHeader) {
+int analizarHeader(servidor servidor) {
+	int bufferHeaderSize = sizeof(headerDeLosRipeados);
+	void *bufferHeader = malloc(bufferHeaderSize);
+    int bytesRecibidos = recv(servidor.socket, bufferHeader, bufferHeaderSize, 0);
+
+	if (bytesRecibidos <= 0) {
+		return -1;
+	}
+
     headerDeLosRipeados header;
     deserializarHeader(&header, bufferHeader);
+    free(bufferHeader);
 
     if (header.codigoDeOperacion == MENSAJE) {
         if (header.bytesDePayload <= 0) {
             logearError("El cliente %i intentó mandar un mensaje sin contenido\n", false, servidor.socket);
-            return -1;
+            return -2;
         }
         else {
             leerMensaje(servidor, header.bytesDePayload);
         }
     } else {
-    	analizarCodigosDeOperacion(servidor, header.codigoDeOperacion);
+    	analizarCodigosDeOperacion(servidor, header.codigoDeOperacion, header.bytesDePayload);
     }
 
-    return 0;
+    return 1;
 }
 
-
-void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion) {
+void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion, unsigned short bytesDePayload) {
 
 	switch(servidor.identificador) {
 		case KERNEL:
-			cumplirDeseosDeKernel(codigoDeOperacion);
+			cumplirDeseosDeKernel(codigoDeOperacion, bytesDePayload);
 			break;
 
 		case MEMORIA:
@@ -167,12 +231,15 @@ void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion) {
 	}
 }
 
-
-void cumplirDeseosDeKernel(char codigoDeOperacion) {
+void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload) {
 	switch(codigoDeOperacion) {
 		case EXCEPCION_DE_SOLICITUD:
 			logearError("Excepcion al solicitar al Kernel", false);
 			finalizarPrograma();
+			break;
+
+		case RECIBIR_PCB:
+			obtenerPCB(bytesDePayload);
 			break;
 
 		case ABRIR_ARCHIVO:
@@ -189,10 +256,6 @@ void cumplirDeseosDeKernel(char codigoDeOperacion) {
 
 		case CERRAR_ARCHIVO:
 			// TODO
-			break;
-
-		case FINALIZAR_PROGRAMA:
-			finalizarPrograma();
 			break;
 
 		default:
@@ -222,8 +285,31 @@ void cumplirDeseosDeMemoria(char codigoDeOperacion) {
  * ↓ Acatar ordenes de algunos de los servidores ↓
  */
 
-void finalizarPrograma() {
+void obtenerPCB(unsigned short bytesDePayload) {
+	void *bufferPCB = malloc(bytesDePayload);
+	int bytesRecibidos = recv(kernel.socket, bufferPCB, bytesDePayload, 0);
 
+	if(bytesRecibidos <= 0) {
+		// La cagó el Kernel
+	}
+
+    PCB miPCB;
+	deserializarPCB(&miPCB, bufferPCB);
+	free(bufferPCB);
+
+	actualPCB = miPCB;
+}
+
+void obtenerInstruccionesUtiles() { // TODO
+
+}
+
+void ejecutarPrimitivas() { // TODO
+
+}
+
+void finalizarPrograma() {
+	// TODO
 }
 
 void leerMensaje(servidor servidor, short bytesDePayload) {
@@ -414,6 +500,18 @@ void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
 	header->bytesDePayload = *pBytesDePayload;
 	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
 	header->codigoDeOperacion = *pCodigoDeOperacion;
+}
+
+void serializarPCB(PCB *miPCB, void *bufferPCB) {
+	// hora de chinear
+}
+
+void deserializarPCB(PCB *miPCB, void *bufferPCB) {
+	// hora de chinear
+}
+
+int esLaPrimeraVezQueSeEjecuta() {
+	return actualPCB.programCounter == 0;
 }
 
 /*
