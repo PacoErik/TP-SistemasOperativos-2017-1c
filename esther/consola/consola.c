@@ -68,11 +68,20 @@ void configurarPrograma() {
 	printf("Ingresar ruta: ");
 	fgets(ruta, 64, stdin);
 	remove_newline(ruta);
+
+	pthread_attr_t attr;
 	pthread_t hiloPrograma;
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+	pthread_create(&hiloPrograma, &attr, &iniciarPrograma, ruta);
+
+	pthread_attr_destroy(&attr);
+
 	int PID;
-	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
-	pthread_detach(hiloPrograma);
 	recv(servidor, &PID, sizeof PID, 0);
+
 	if (PID == -1) {
 		printf("No se pudo añadir proceso\n");
 		return;
@@ -93,17 +102,19 @@ void desconectarConsola() {
 	exit(0);
 }
 void desconectarPrograma(int PID) {
-	printf("PID %d: Cerrando programa...\n", PID);
+	printf("Finalizando PID %d...\n", PID);
+	pthread_t TID = hiloIDPrograma(PID);
+	if (TID == 0) {
+		logearError("No existe PID %d\n", false, PID);
+		return;
+	}
 	enviarHeader(servidor, FINALIZAR_PROGRAMA, sizeof PID);
 	send(servidor, &PID, sizeof PID, 0);
 
-	pthread_t TID = hiloIDPrograma(PID);
-	if (TID == 0) {
-		logearError("No existe proceso con PID %d\n", PID);
-		return;
-	}
 	pthread_cancel(TID);
 	pthread_join(TID, NULL);
+
+	eliminarProceso(PID);
 	printf("El programa fue finalizado\n");
 
 	//	TODO

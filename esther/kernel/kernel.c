@@ -58,6 +58,7 @@ void	eliminarProceso(int);
 int 	enviarMensajeATodos(int, char*);
 void 	establecerConfiguracion();
 int 	existeCliente(int);
+int		existeProceso(int PID);
 void* 	get_in_addr(struct sockaddr *);
 void 	procesarMensaje(int, char, int);
 int 	recibirHandshake(int);
@@ -240,6 +241,9 @@ void agregarCliente(char identificador, int socketCliente) {
 	list_add(clientes, cliente);
 }
 void agregarProceso(int pid, int PC, int error) {
+	if (existeProceso(pid)) {
+		printf("Warning: Ya existe proceso con mismo PID\n");
+	}
 	PCB *proceso = malloc(sizeof(PCB));
 	proceso->PID = pid;
 	proceso->PC = PC;
@@ -313,6 +317,12 @@ int existeCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	return list_any_satisfy(clientes, mismoSocket);
 }
+int existeProceso(int PID) {
+	_Bool mismoPID(void* elemento) {
+		return PID == ((PCB*) elemento)->PID;
+	}
+	return list_any_satisfy(procesos, mismoPID);
+}
 void* get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
@@ -358,7 +368,16 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
 				recv(socketCliente, &PID, sizeof PID, 0);
-				printf("Pedido de finalizacion de PID %d\n", PID);
+				logearInfo("Pedido de finalizacion de PID %d\n", PID);
+				if (existeProceso(PID)) {
+					eliminarProceso(PID);
+					if (!existeProceso(PID))
+						logearInfo("PID %d Eliminado\n", PID);
+				}
+				else {
+					logearError("No existe PID %d\n", false, PID);
+					break;
+				}
 			}
 			break;
 
@@ -452,6 +471,3 @@ int tipoCliente(int socketCliente) {
 	}
 	return found->identificador;
 }
-
-
-
