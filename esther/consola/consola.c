@@ -5,6 +5,9 @@
 #include "commons/process.h"
 #include <sys/types.h>
 
+//-----DEFINES-----//
+#define DURACION(INICIO) ((double)(clock() - INICIO) / CLOCKS_PER_SEC)
+
 //-----ESTRUCTURAS-----//
 typedef struct proceso {
 	unsigned int PID;
@@ -26,10 +29,11 @@ void 			configurarPrograma();
 void 			confirmarComando();
 void 			desconectarConsola();
 void 			desconectarPrograma();
-void 			eliminarProceso(int);
+void 			eliminarProceso(unsigned int);
 void 			enviarHeader(int, char, int);
 void 			enviarMensaje();
 void 			establecerConfiguracion();
+pthread_t		hiloIDPrograma(unsigned int);
 void 			imprimirOpcionesDeConsola();
 static void* 	iniciarPrograma(void*);
 void 			interaccionConsola();
@@ -37,6 +41,7 @@ void 			leerMensaje();
 void 			limpiarBufferEntrada();
 void 			limpiarPantalla();
 char*			remove_newline(char*);
+int				soloNumeros(char*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -65,7 +70,7 @@ void configurarPrograma() {
 	remove_newline(ruta);
 	pthread_t hiloPrograma;
 	pthread_create(&hiloPrograma, NULL, &iniciarPrograma, ruta);
-	pthread_detach(hiloPrograma);
+	//pthread_detach(hiloPrograma);
 }
 void confirmarComando() {
 	leerMensaje();
@@ -78,14 +83,20 @@ void desconectarConsola() {
 	close(servidor);
 	exit(0);
 }
-void desconectarPrograma() {
-	//TODO
-	//Matar al hilo correspondiente al programa
-	//Calcular su duración en el sistema
-	//Avisarle al Kernel que mate a dicho programa, liberando las estructuras
-	//que ocupó en memoria y borrando su PCB
+void desconectarPrograma(unsigned int PID) {
+	printf("PID %u: Cerrando programa...\n", PID);
+	pthread_t TID = hiloIDPrograma(PID);
+	pthread_cancel(TID);
+	pthread_join(TID, NULL);
+	printf("El programa fue desconectado\n");
+
+	//	TODO
+	//	[X] Matar al hilo correspondiente al programa
+	//	[ ] Calcular su duración en el sistema
+	//	[ ] Avisarle al Kernel que mate a dicho programa, liberando las estructuras
+	//	    que ocupó en memoria y borrando su PCB
 }
-void eliminarProceso(int PID) {
+void eliminarProceso(unsigned int PID) {
 	_Bool mismoPID(void* elemento) {
 		return PID == ((proceso *) elemento)->PID;
 	}
@@ -134,6 +145,17 @@ void establecerConfiguracion() {
 		logearError("Error al leer la IP del Kernel\n", true);
 	}
 }
+pthread_t hiloIDPrograma(unsigned int PID) {
+	_Bool mismoPID(void* elemento) {
+		return PID == ((proceso *) elemento)->PID;
+	}
+	proceso *elemento = list_find(procesos, mismoPID);
+	if (elemento == NULL) {
+		printf("Error: PID %u no encontrado\n", PID);
+		return 0;
+	}
+	return elemento->hiloID;
+}
 void imprimirOpcionesDeConsola() {
 	printf("\n--------------------\n");
 	printf("\n");
@@ -152,6 +174,7 @@ void imprimirOpcionesDeConsola() {
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
 	clock_t inicio = clock();
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); //
 
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
@@ -218,7 +241,11 @@ void interaccionConsola() {
 	imprimirOpcionesDeConsola();
 	char input[3];
 	while (1) {
+		memset(input, 0, sizeof input);
 		fgets(input, sizeof input, stdin);
+		if (strlen(input) == 1) {
+			continue;
+		}
 		remove_newline(input);
 
 		int opcion = input[0] - '0';
@@ -239,7 +266,24 @@ void interaccionConsola() {
 			}
 			case DESCONECTAR_PROGRAMA: {
 				logearInfo("Comando de desconexión de programa ejecutado\n");
-				desconectarPrograma(); // TODO
+				char sPID[12]; // String que representa PID
+				printf("Ingresar PID: ");
+				fgets(sPID, sizeof sPID, stdin);
+				if (strlen(sPID) == 1) {
+					logearError("PID invalido\n", false);
+				}
+				if (sPID[strlen(sPID) - 1] != '\n') {
+					logearError("PID no puede tener mas de 10 digitos\n", false);
+					limpiarBufferEntrada();
+					break;
+				}
+				remove_newline(sPID);
+				if (!soloNumeros(sPID)) {
+					logearError("PID debe ser un numero\n", false);
+					break;
+				}
+				unsigned int PID = strtoul(sPID, NULL, 0);
+				desconectarPrograma(PID);
 				break;
 			}
 			case DESCONECTAR_CONSOLA: {
@@ -291,4 +335,12 @@ char* remove_newline(char* s) { // By Beej
         s[len-1] = '\0';          // truncate the string
 
     return s;
+}
+int soloNumeros(char *str) {
+    while (*str) {
+        if (isdigit(*str++) == 0) {
+        	return 0;
+        }
+    }
+    return 1;
 }
