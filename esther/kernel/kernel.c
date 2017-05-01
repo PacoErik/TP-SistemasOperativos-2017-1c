@@ -54,6 +54,7 @@ void 	agregarCliente(char, int);
 void 	agregarProceso(int, int, int);
 void 	borrarCliente(int);
 void 	cerrarConexion(int, char*);
+void	eliminarProceso(int);
 int 	enviarMensajeATodos(int, char*);
 void 	establecerConfiguracion();
 int 	existeCliente(int);
@@ -242,7 +243,7 @@ void agregarProceso(int pid, int PC, int error) {
 	PCB *proceso = malloc(sizeof(PCB));
 	proceso->PID = pid;
 	proceso->PC = PC;
-	proceso->PC = PC;
+	proceso->ERROR_NUM = error;
 	list_add(procesos, proceso);
 }
 void borrarCliente(int socketCliente) {
@@ -253,6 +254,12 @@ void cerrarConexion(int socketCliente, char* motivo) {
 	logearError(motivo, false, socketCliente);
 	borrarCliente(socketCliente);
 	close(socketCliente);
+}
+void eliminarProceso(int PID) {
+	_Bool mismoPID(void* elemento) {
+		return PID == ((PCB*) elemento)->PID;
+	}
+	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
 }
 int enviarMensajeATodos(int socketCliente, char* mensaje) {
 	_Bool condicion(void* elemento) {
