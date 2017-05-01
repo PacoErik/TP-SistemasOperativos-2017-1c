@@ -1,16 +1,5 @@
 #include "qepd.h"
 
-int existeArchivo(const char *ruta)
-{
-    FILE *archivo;
-    if ((archivo = fopen(ruta, "r")))
-    {
-        fclose(archivo);
-        return true;
-    }
-    return false;
-}
-
 void conectar(int* servidor,char* IP,int PUERTO) {
 	struct sockaddr_in direccionServidor;
 	direccionServidor.sin_family = AF_INET;
@@ -23,7 +12,6 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 	}
 	logearInfo("Conectado al servidor\n");
 }
-
 void configurar(char* quienSoy) {
 
 	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
@@ -51,7 +39,34 @@ void configurar(char* quienSoy) {
 	}
 	config_destroy(config);
 }
+void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	header->bytesDePayload = *pBytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	header->codigoDeOperacion = *pCodigoDeOperacion;
+}
+void enviarHeader(int socket, char operacion, int bytes) {
+	headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = bytes;
+	headerDeMiMensaje.codigoDeOperacion = operacion;
 
+	int headerSize = sizeof(headerDeMiMensaje);
+	void *headerComprimido = malloc(headerSize);
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+
+	send(socket, headerComprimido, headerSize, 0);
+	free(headerComprimido);
+}
+int existeArchivo(const char *ruta)
+{
+    FILE *archivo;
+    if ((archivo = fopen(ruta, "r")))
+    {
+        fclose(archivo);
+        return true;
+    }
+    return false;
+}
 void handshake(int socket, char operacion) {
 	logearInfo("Conectando a servidor 0%%\n");
 	headerDeLosRipeados handy;
@@ -75,31 +90,6 @@ void handshake(int socket, char operacion) {
 	}
 	free(buffer);
 }
-
-void serializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	*pBytesDePayload = header->bytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	*pCodigoDeOperacion = header->codigoDeOperacion;
-}
-
-void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	header->bytesDePayload = *pBytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	header->codigoDeOperacion = *pCodigoDeOperacion;
-}
-
-void logearInfo(char* formato, ...) {
-	char* mensaje;
-	va_list args;
-	va_start(args, formato);
-	mensaje = string_from_vformat(formato,args);
-	log_info(logger,mensaje);
-	printf("%s", mensaje);
-	va_end(args);
-}
-
 void logearError(char* formato, int terminar , ...) {
 	char* mensaje;
 	va_list args;
@@ -109,4 +99,19 @@ void logearError(char* formato, int terminar , ...) {
 	printf("%s",mensaje);
 	va_end(args);
 	if (terminar==true) exit(0);
+}
+void logearInfo(char* formato, ...) {
+	char* mensaje;
+	va_list args;
+	va_start(args, formato);
+	mensaje = string_from_vformat(formato,args);
+	log_info(logger,mensaje);
+	printf("%s", mensaje);
+	va_end(args);
+}
+void serializarHeader(headerDeLosRipeados *header, void *buffer) {
+	short *pBytesDePayload = (short*) buffer;
+	*pBytesDePayload = header->bytesDePayload;
+	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
+	*pCodigoDeOperacion = header->codigoDeOperacion;
 }

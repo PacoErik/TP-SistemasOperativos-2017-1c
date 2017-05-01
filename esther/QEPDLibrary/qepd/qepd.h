@@ -21,7 +21,7 @@
 enum CodigoDeOperacion {
 
 	/* Handshake */
-	CONSOLA, MEMORIA, FILESYSTEM, CPU,
+	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL,
 
 	/* Consola */
 	MENSAJE, INICIAR_PROGRAMA, FINALIZAR_PROGRAMA,
@@ -32,23 +32,26 @@ enum CodigoDeOperacion {
 
 	/* CPU */
 
+	/* Errores */
+	ERROR_MULTIPROGRAMACION
 };
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
-	char codigoDeOperacion; // 0 (mensaje). Handshake: 1 (consola), 2 (memoria), 3 (filesystem), 4 (cpu), 5 (kernel)
+	char codigoDeOperacion;
 }__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
 extern t_log* logger;
 extern t_config* config;
 
-int existeArchivo(const char *);
-void conectar(int *,char *,int);
-void configurar(char*);
-void handshake(int,char);
-void serializarHeader(headerDeLosRipeados *, void *);
-void deserializarHeader(headerDeLosRipeados *, void *);
-void logearInfo(char*,...);
-void logearError(char*, int,...);
+void 	conectar(int *,char *,int);
+void 	configurar(char*);
+void 	deserializarHeader(headerDeLosRipeados *, void *);
+void 	enviarHeader(int, char, int);
+int 	existeArchivo(const char *);
+void 	handshake(int,char);
+void 	logearError(char*, int,...);
+void 	logearInfo(char*,...);
+void 	serializarHeader(headerDeLosRipeados *, void *);
 
 #endif /* QEPD_H_ */
