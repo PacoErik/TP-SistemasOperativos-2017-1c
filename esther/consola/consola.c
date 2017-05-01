@@ -26,7 +26,6 @@ listaProceso *procesos;
 //-----PROTOTIPOS DE FUNCIONES-----//
 void 			agregarProceso(int, pthread_t);
 void 			configurarPrograma();
-void 			confirmarComando();
 void 			desconectarConsola();
 void 			desconectarPrograma();
 void 			eliminarProceso(int);
@@ -37,10 +36,11 @@ pthread_t		hiloIDPrograma(int);
 void 			imprimirOpcionesDeConsola();
 static void* 	iniciarPrograma(void*);
 void 			interaccionConsola();
-void 			leerMensaje();
 void 			limpiarBufferEntrada();
 void 			limpiarPantalla();
-char*			remove_newline(char*);
+void 			procesarOperacion(char, int);
+void* 			recibirHeaders(void*);
+char*			removerSaltoDeLinea(char*);
 int				soloNumeros(char*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
@@ -50,8 +50,11 @@ int main(void) {
 	configurar("consola");
 	conectar(&servidor, IP_KERNEL, PUERTO_KERNEL);
 	handshake(servidor, CONSOLA);
-	interaccionConsola();
 
+	pthread_t hiloReceptor;
+	pthread_create(&hiloReceptor, NULL, &recibirHeaders, NULL);
+
+	interaccionConsola();
 	return 0;
 }
 
@@ -67,32 +70,15 @@ void configurarPrograma() {
 	//calloc es similar a malloc pero inicializa cada valor a 0
 	printf("Ingresar ruta: ");
 	fgets(ruta, 64, stdin);
-	remove_newline(ruta);
+	removerSaltoDeLinea(ruta);
 
 	pthread_attr_t attr;
 	pthread_t hiloPrograma;
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
 	pthread_create(&hiloPrograma, &attr, &iniciarPrograma, ruta);
-
 	pthread_attr_destroy(&attr);
-
-	int PID;
-	recv(servidor, &PID, sizeof PID, 0);
-
-	if (PID == -1) {
-		printf("No se pudo añadir proceso\n");
-		return;
-	}
-	printf("Hilo ID: %lu\n", hiloPrograma);
-	printf("PID: %d\n", PID);
-	agregarProceso(PID, hiloPrograma);
-}
-void confirmarComando() {
-	leerMensaje();
-	logearInfo("Comando completado, coloque otra opción. Opcion 6 para más información\n");
 }
 void desconectarConsola() {
 	void _finalizar(void *element) {
@@ -151,7 +137,7 @@ void enviarMensaje() {
 	do {
 		printf("\nEscribir mensaje: ");
 		fgets(mensaje, sizeof mensaje, stdin);
-		remove_newline(mensaje);
+		removerSaltoDeLinea(mensaje);
 		if (strlen(mensaje) == 0) {
 			printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
 		}
@@ -230,13 +216,12 @@ void* iniciarPrograma(void* arg) {
 	fread(codigo, 1, bytes, prog);
 	fclose(prog);
 
-	int PID;
+	int PID = -1;
 	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
 	if (bytes > 0) {
 		enviarHeader(servidor, INICIAR_PROGRAMA, bytes);
-		send(servidor, &id_hilo, sizeof id_hilo, 0);
 		send(servidor, codigo, bytes, 0);
-		confirmarComando();
+		agregarProceso(PID,id_hilo);
 	} else if (bytes == 0) {
 		logearError("Archivo vacio: %s\n", false, ruta);
 		return NULL;
@@ -248,14 +233,10 @@ void* iniciarPrograma(void* arg) {
 	free(arg); //ya no necesitamos más la ruta
 	free(codigo); //ya no necesitamos más el código
 
-	//Testing: esto es solo para chequear que el programa se envió y el kernel respondió
-	logearInfo("Programa leido, enviado y confirmación recibida en %f segundos\n", DURACION(inicio));
-	//Fin-testing
-
 	for(;;);
+	printf("Nunca me ejecutarán :CCC\n");
 	return NULL;
 }
-
 void interaccionConsola() {
 	enum OpcionConsola {
 		EJECUTAR_PROGRAMA=1, DESCONECTAR_PROGRAMA, DESCONECTAR_CONSOLA,
@@ -269,7 +250,7 @@ void interaccionConsola() {
 		if (strlen(input) == 1) {
 			continue;
 		}
-		remove_newline(input);
+		removerSaltoDeLinea(input);
 
 		int opcion = input[0] - '0';
 
@@ -300,7 +281,7 @@ void interaccionConsola() {
 					limpiarBufferEntrada();
 					break;
 				}
-				remove_newline(sPID);
+				removerSaltoDeLinea(sPID);
 				if (!soloNumeros(sPID)) {
 					logearError("PID debe ser un numero\n", false);
 					break;
@@ -318,7 +299,6 @@ void interaccionConsola() {
 			case ENVIAR_MENSAJE: {
 				logearInfo("Comando de envío de mensaje ejecutado\n");
 				enviarMensaje();
-				confirmarComando();
 				break;
 			}
 			case LIMPIAR_PANTALLA: {
@@ -332,18 +312,6 @@ void interaccionConsola() {
 		}
 	}
 }
-void leerMensaje() {
-	int bytesRecibidos;
-	char mensaje[512];
-	bytesRecibidos = recv(servidor, &mensaje, sizeof(mensaje), 0);
-	mensaje[bytesRecibidos] = '\0';
-	if (bytesRecibidos <= 0 || !strncmp(mensaje, "Error, desconectado", 18)) {
-		close(servidor);
-		logearError("Servidor desconectado luego de intentar leer mensaje\n",
-				true);
-	}
-	logearInfo("Mensaje recibido: %s\n", mensaje);
-}
 void limpiarBufferEntrada() {
 	int c;
 	while ((c = getchar()) != '\n' && c != EOF);
@@ -351,7 +319,65 @@ void limpiarBufferEntrada() {
 void limpiarPantalla() {
 	printf("\033[H\033[J");
 }
-char* remove_newline(char* s) { // By Beej
+void procesarOperacion(char operacion, int bytes) {
+	switch (operacion) {
+		case MENSAJE: ;
+			char* mensaje = malloc(bytes+1);
+			recv(servidor, mensaje, bytes, 0);
+			mensaje[bytes] = '\0';
+			logearInfo("Mensaje recibido: %s\n", mensaje);
+			free(mensaje);
+			break;
+		case INICIAR_PROGRAMA: ;
+			int PID;
+			recv(servidor, &PID, sizeof(PID), 0);
+
+			_Bool esNuevo(void* elemento) {
+				return -1 == ((proceso *) elemento)->PID;
+			}
+
+			//Actualizamos el PID del proceso que habíamos agregado
+			//con PID = -1;
+			proceso *procesoAux = list_find(procesos,esNuevo);
+			procesoAux->PID = PID;
+
+			logearInfo("Nuevo programa creado con PID:%d\n",PID);
+			break;
+		case ERROR_MULTIPROGRAMACION:
+			logearInfo("No se pudo crear el programa\n");
+			//Borramos el proceso que habíamos creado y seteado
+			//con PID = -1
+			eliminarProceso(-1);
+			break;
+		default:
+			logearError("Operación inválida\n", false);
+			break;
+	}
+}
+void* recibirHeaders(void* arg) {
+	while (1) {
+		//Recibir header
+		int buffersize = sizeof(headerDeLosRipeados);
+		void *buffer = malloc(buffersize);
+		int bytesRecibidos = recv(servidor, buffer, buffersize, 0);
+		if (bytesRecibidos <= 0) {
+			free(buffer);
+			logearError("Se desconectó el Kernel",true);
+		}
+		headerDeLosRipeados header;
+		deserializarHeader(&header, buffer);
+		free(buffer);
+
+		int bytesDePayload = header.bytesDePayload;
+		int codigoDeOperacion = header.codigoDeOperacion;
+
+		printf("Op:%d Bytes:%d\n",codigoDeOperacion, bytesDePayload);
+		//Procesar operación del header
+		procesarOperacion(codigoDeOperacion,bytesDePayload);
+	}
+	return NULL;
+}
+char* removerSaltoDeLinea(char* s) { // By Beej
     int len = strlen(s);
 
     if (len > 0 && s[len-1] == '\n')  // if there's a newline
