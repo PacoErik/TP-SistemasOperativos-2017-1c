@@ -14,18 +14,79 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include "commons/collections/list.h"
+#include <parser/parser.h>
 
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "cpu.log"
-#define MAX_THREADS 2
 
 t_log* logger;
 t_config* config;
 
+/*
+ * ↓ Parser Ansisop ↓
+ */
+
+// *************** Funciones
+t_puntero definirVariable(t_nombre_variable identificador_variable);
+t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable);
+t_valor_variable dereferenciar(t_puntero direccion_variable);
+void asignar(t_puntero direccion_variable, t_valor_variable valor);
+t_valor_variable obtenerValorCompartida(t_nombre_compartida variable);
+t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor);
+void irAlLabel(t_nombre_etiqueta t_nombre_etiqueta);
+void llamarSinRetorno(t_nombre_etiqueta etiqueta);
+void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar);
+void finalizar(void);
+void retornar(t_valor_variable retorno);
+
+// *************** Funciones nucleo
+void wait(t_nombre_semaforo identificador_semaforo);
+void signal(t_nombre_semaforo identificador_semaforo);
+t_puntero reservar(t_valor_variable espacio);
+void liberar(t_puntero puntero);
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags);
+void borrar(t_descriptor_archivo direccion);
+void cerrar(t_descriptor_archivo descriptor_archivo);
+void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion);
+void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio);
+void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio);
+
+AnSISOP_funciones funciones = {
+		.AnSISOP_definirVariable			= definirVariable,
+		.AnSISOP_obtenerPosicionVariable	= obtenerPosicionVariable,
+		.AnSISOP_dereferenciar				= dereferenciar,
+		.AnSISOP_asignar					= asignar,
+		.AnSISOP_obtenerValorCompartida		= obtenerValorCompartida,
+		.AnSISOP_asignarValorCompartida		= asignarValorCompartida,
+		.AnSISOP_irAlLabel					= irAlLabel,
+		.AnSISOP_llamarSinRetorno			= llamarSinRetorno,
+		.AnSISOP_llamarConRetorno			= llamarConRetorno,
+		.AnSISOP_finalizar					= finalizar,
+		.AnSISOP_retornar					= retornar
+};
+
+
+AnSISOP_kernel funcionesnucleo = {
+		.AnSISOP_wait	= wait,
+		.AnSISOP_signal = signal,
+		.AnSISOP_reservar = reservar,
+		.AnSISOP_liberar = liberar,
+		.AnSISOP_abrir = abrir,
+		.AnSISOP_cerrar = cerrar,
+		.AnSISOP_borrar = borrar,
+		.AnSISOP_moverCursor = moverCursor,
+		.AnSISOP_escribir = escribir,
+		.AnSISOP_leer = leer
+};
+
+/*
+ * ↑ Parser Ansisop ↑
+ */
+
 enum CodigoDeOperacion {
 	MENSAJE, // Mensaje a leer
 	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
-	EXCEPCION_DE_SOLICITUD, // Mensajes provenientes de procesos varios
+	EXCEPCION_DE_SOLICITUD, INSTRUCCION, // Mensajes provenientes de procesos varios
 	RECIBIR_PCB, ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO // Mensajes provenientes de Kernel
 };
 
@@ -40,30 +101,31 @@ char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 
 typedef struct instruccionUtil {
-	char offsetInicio;
-	char offsetFin;
-} instruccionUtil;
-
-typedef struct indiceCodigo {
-	instruccionUtil *instrucciones;
-} indiceCodigo;
-
-typedef struct indiceEtiquetas {
-	// Diccionario what the actual fuck
-} indiceEtiquetas;
-
-typedef struct posicionDeMemoria {
 	char numeroDePagina;
 	char offset;
 	char size;
-} posicionDeMemoria;
+}__attribute__((packed, aligned(1))) instruccionUtil;
+
+typedef struct indiceCodigo {
+	instruccionUtil *instruccion;
+}__attribute__((packed, aligned(1))) indiceCodigo;
+
+typedef struct indiceEtiquetas {
+	// Diccionario what the actual fuck
+}__attribute__((packed, aligned(1))) indiceEtiquetas;
+
+typedef struct posicionDeMemoria { // Esto es del stack
+	char numeroDePagina;
+	char offset;
+	char size;
+}__attribute__((packed, aligned(1))) posicionDeMemoria;
 
 typedef struct indiceStack {
 	t_list listaDeArgumentos;
 	t_list listaDeVariables;
 	char direccionDeRetorno;
 	posicionDeMemoria posicionDeLaVariableDeRetorno;
-} indiceStack;
+}__attribute__((packed, aligned(1))) indiceStack;
 
 typedef t_list listaArgumentos;
 typedef t_list listaVariables;
@@ -76,7 +138,7 @@ typedef struct PCB {
 	indiceEtiquetas indiceDeEtiquetas;
 	indiceStack indiceDeStack;
 	int8_t exitCode;
-} PCB;
+}__attribute__((packed, aligned(1))) PCB;
 
 typedef struct servidor { // Esto es más que nada una cheteada para poder usar al socket/identificador como constante en los switch
 	int socket;
@@ -108,9 +170,10 @@ void obtenerPCB(unsigned short bytesDePayload);
 void comenzarTrabajo();
 void serializarPCB(PCB *miPCB, void *bufferPCB);
 void deserializarPCB(PCB *miPCB, void *bufferPCB);
-void obtenerInstruccionesUtiles();
-int esLaPrimeraVezQueSeEjecuta();
 void ejecutarInstruccion();
+char *pedirInstruccionAMemoria();
+void serializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer);
+void deserializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer);
 
 int main(void) {
 
@@ -146,11 +209,14 @@ void esperarPCB() {
 }
 
 void ejecutarInstruccion() {
-	if(esLaPrimeraVezQueSeEjecuta()) {
-		obtenerInstruccionesUtiles();
-	} else {
-		ejecutarPrimitivas();
-	}
+	char *instruccion;
+	instruccion = malloc(actualPCB.indiceDeCodigo.instruccion[actualPCB.programCounter].size + 2); // 2bytes. Uno por el '/0', y otro porque la resta no me contempla un byte.
+	instruccion = pedirInstruccionAMemoria();
+
+	analizadorLinea(strdup(instruccion), &funciones, &funcionesnucleo);
+
+	// Una vez que analiza la instrucción, algo happenea
+	// TODO
 }
 
 void devolverPCB() {
@@ -300,16 +366,12 @@ void obtenerPCB(unsigned short bytesDePayload) {
 	actualPCB = miPCB;
 }
 
-void obtenerInstruccionesUtiles() { // TODO
-
-}
-
 void ejecutarPrimitivas() { // TODO
 
 }
 
-void finalizarPrograma() {
-	// TODO
+void finalizarPrograma() { // TODO
+
 }
 
 void leerMensaje(servidor servidor, short bytesDePayload) {
@@ -322,6 +384,68 @@ void leerMensaje(servidor servidor, short bytesDePayload) {
 
 /*
  * ↑ Acatar ordenes de algunos de los servidores ↑
+ */
+
+/*
+ * ↓ Parsear ↓
+ */
+
+char *pedirInstruccionAMemoria() {
+	instruccionUtil instruccion;
+	instruccion.numeroDePagina = actualPCB.indiceDeCodigo.instruccion->numeroDePagina;
+	instruccion.offset = actualPCB.indiceDeCodigo.instruccion->offset;
+	instruccion.size = actualPCB.indiceDeCodigo.instruccion->size;
+
+	char* bufferInstruccion;
+	bufferInstruccion = malloc(sizeof(instruccion));
+
+	serializarPosicionInstruccion(&instruccion, bufferInstruccion);
+	unsigned short instruccionSize = sizeof(bufferInstruccion);
+
+	headerDeLosRipeados header;
+	header.codigoDeOperacion = INSTRUCCION;
+	header.bytesDePayload = instruccionSize;
+
+	char* bufferHeader;
+	bufferHeader = malloc(sizeof(header));
+
+	serializarHeader(&header, bufferHeader);
+	char headerSize = sizeof(bufferHeader);
+	send(memoria.socket, bufferHeader, headerSize, 0); // Le mando el header
+
+	send(memoria.socket, bufferInstruccion, instruccionSize, 0); // Le mando la geolocalizacion de la instrucción
+
+	free(bufferInstruccion);
+
+	// Luego de un tiempo
+
+	recv(memoria.socket, bufferHeader, headerSize, 0); // Recibo el header
+
+	// Revisar que envio el correcto cod. de op. y que no hubo problemas
+
+	deserializarHeader(&header, bufferHeader);
+
+	instruccionSize = sizeof(header.bytesDePayload);
+	bufferInstruccion = malloc(instruccionSize);
+
+	recv(memoria.socket, bufferInstruccion, instruccionSize, 0); // Recibo la instruccion
+
+	// Revisar que no hubo problemas
+
+	return bufferInstruccion;
+
+
+	/*
+	 * https://github.com/sisoputnfrba/ansisop-parser/blob/master/parser/parser/metadata_program.h
+	 *
+	 * Serializa y deserializa instrucciones y etiquetas
+	 */
+
+
+}
+
+/*
+ * ↑ Parsear ↑
  */
 
 /*
@@ -409,7 +533,7 @@ void conectarA(char* IP, int PUERTO, char identificador) {
 
 	if (connect(servidor, (struct sockaddr *) &direccionServidor, sizeof(direccionServidor)) < 0) {
 		close(servidor);
-		logearError("No se pudo conectar a %s", true, quienEs);
+		logearError("No se pudo conectar a %s\n", true, quienEs);
 	}
 
 	logearInfo("Conectado a %s\n", quienEs);
@@ -502,16 +626,20 @@ void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
 	header->codigoDeOperacion = *pCodigoDeOperacion;
 }
 
-void serializarPCB(PCB *miPCB, void *bufferPCB) {
+void serializarPCB(PCB *miPCB, void *bufferPCB) { // TODO
 	// hora de chinear
 }
 
-void deserializarPCB(PCB *miPCB, void *bufferPCB) {
+void deserializarPCB(PCB *miPCB, void *bufferPCB) { // TODO
 	// hora de chinear
 }
 
-int esLaPrimeraVezQueSeEjecuta() {
-	return actualPCB.programCounter == 0;
+void serializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer) { // TODO
+
+}
+
+void deserializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer) { // TODO
+
 }
 
 /*
