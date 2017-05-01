@@ -4,11 +4,9 @@ LIBBIN=$(LIB)/build
 
 all: compile
 
-compile: $(LIB)/build
-	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG)
-
-$(LIB)/build:
-	cd $(LIB); make
+compile:
+	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG) -pthread
+	
 
 clean:
 	rm -f memoria
