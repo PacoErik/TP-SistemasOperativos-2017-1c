@@ -25,7 +25,9 @@
 								<option id="gnu.cpp.compiler.option.debugging.level.274590547" name="Debug Level" superClass="gnu.cpp.compiler.option.debugging.level" value="gnu.cpp.compiler.debugging.level.max" valueType="enumerated"/>
 							</tool>
 							<tool id="cdt.managedbuild.tool.gnu.c.compiler.base.804815874" name="GCC C Compiler" superClass="cdt.managedbuild.tool.gnu.c.compiler.base">
-								<option id="gnu.c.compiler.option.include.paths.1279456192" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths"/>
+								<option id="gnu.c.compiler.option.include.paths.1279456192" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/QEPDLibrary}&quot;"/>
+								</option>
 								<option defaultValue="gnu.c.optimization.level.none" id="gnu.c.compiler.option.optimization.level.1143920901" name="Optimization Level" superClass="gnu.c.compiler.option.optimization.level" valueType="enumerated"/>
 								<option id="gnu.c.compiler.option.debugging.level.1954129931" name="Debug Level" superClass="gnu.c.compiler.option.debugging.level" value="gnu.c.debugging.level.max" valueType="enumerated"/>
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1255787991" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
@@ -98,15 +100,6 @@
 	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
 		<project id="memoria.cdt.managedbuild.target.gnu.cross.exe.1500080999" name="Executable" projectType="cdt.managedbuild.target.gnu.cross.exe"/>
 	</storageModule>
-	<storageModule moduleId="scannerConfiguration">
-		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
-		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.debug.2076456206;cdt.managedbuild.config.gnu.cross.exe.debug.2076456206.;cdt.managedbuild.tool.gnu.cross.c.compiler.16751283;cdt.managedbuild.tool.gnu.c.compiler.input.406817599">
-			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
-		</scannerConfigBuildInfo>
-		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.release.1679242161;cdt.managedbuild.config.gnu.cross.exe.release.1679242161.;cdt.managedbuild.tool.gnu.cross.c.compiler.1586851564;cdt.managedbuild.tool.gnu.c.compiler.input.1151877461">
-			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
-		</scannerConfigBuildInfo>
-	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
 	<storageModule moduleId="refreshScope" versionNumber="2">
 		<configuration configurationName="Release">
@@ -115,5 +108,17 @@
 		<configuration configurationName="Debug">
 			<resource resourceType="PROJECT" workspacePath="/memoria"/>
 		</configuration>
+	</storageModule>
+	<storageModule moduleId="scannerConfiguration">
+		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.debug.2076456206;cdt.managedbuild.config.gnu.cross.exe.debug.2076456206.;cdt.managedbuild.tool.gnu.c.compiler.base.804815874;cdt.managedbuild.tool.gnu.c.compiler.input.1255787991">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.debug.2076456206;cdt.managedbuild.config.gnu.cross.exe.debug.2076456206.;cdt.managedbuild.tool.gnu.cross.c.compiler.16751283;cdt.managedbuild.tool.gnu.c.compiler.input.406817599">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="cdt.managedbuild.config.gnu.cross.exe.release.1679242161;cdt.managedbuild.config.gnu.cross.exe.release.1679242161.;cdt.managedbuild.tool.gnu.cross.c.compiler.1586851564;cdt.managedbuild.tool.gnu.c.compiler.input.1151877461">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
 	</storageModule>
 </cproject>
