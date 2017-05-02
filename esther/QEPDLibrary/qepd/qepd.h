@@ -18,23 +18,7 @@
 
 #define RUTA_CONFIG "config.cfg"
 
-enum CodigoDeOperacion {
-
-	/* Handshake */
-	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL,
-
-	/* Consola */
-	MENSAJE, INICIAR_PROGRAMA, FINALIZAR_PROGRAMA,
-
-	/* Memoria */
-
-	/* File System */
-
-	/* CPU */
-
-	/* Errores */
-	ERROR_MULTIPROGRAMACION
-};
+enum CodigoDeOperacion {CONSOLA,MEMORIA,FILESYSTEM,CPU,KERNEL,MENSAJE,INICIAR_PROGRAMA,FINALIZAR_PROGRAMA,ERROR_MULTIPROGRAMACION};
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
