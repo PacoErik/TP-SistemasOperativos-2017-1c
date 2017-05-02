@@ -92,7 +92,7 @@ int main(void) {
     int rv = getaddrinfo(NULL, PUERTO_KERNEL, &hints, &direcciones); // si devuelve 0 hay un error
     if (rv != 0) {
     	// gai_strerror() devuelve el mensaje de error segun el codigo de error
-        logearError("No se pudo abrir el server\n",true);
+        logearError("No se pudo abrir el server",true);
     }
 
     int servidor; // socket de escucha
@@ -118,15 +118,15 @@ int main(void) {
     }
 
     if (p == NULL) {
-        logearError("Fallo al bindear el puerto\n",true);
+        logearError("Fallo al bindear el puerto",true);
     }
 
     freeaddrinfo(direcciones); // No necesito mas la lista de direcciones
 
     if (listen(servidor, 10) == -1) {
-        logearError("Fallo al escuchar\n",true);
+        logearError("Fallo al escuchar",true);
     }
-    logearInfo("Estoy escuchando\n");
+    logearInfo("Estoy escuchando");
 
     fd_set conectados; // Set de FDs conectados
     fd_set read_fds; // sockets de lectura
@@ -144,7 +144,7 @@ int main(void) {
     for(;;) {
         read_fds = conectados;
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
-            logearError("Error en el select\n",true);
+            logearError("Error en el select",true);
         }
 
         // Se detecta algun cambio en alguno de los sockets
@@ -163,7 +163,7 @@ int main(void) {
 				nuevoCliente = accept(servidor, (struct sockaddr *)&direccionCliente, &addrlen);
 
 				if (nuevoCliente == -1) {
-					logearError("Fallo en el accept\n",false);
+					logearError("Fallo en el accept",false);
 				}
 				else {
 					FD_SET(nuevoCliente, &conectados); // Agregarlo al set
@@ -172,7 +172,7 @@ int main(void) {
 					}
 				    char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
 					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &direccionCliente), direccionIP, INET_ADDRSTRLEN);
-					logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP, nuevoCliente);
+					logearInfo("Nueva conexión desde %s en el socket %d", direccionIP, nuevoCliente);
 				}
 			}
 			//Mensaje por interfaz del Kernel
@@ -232,7 +232,7 @@ int main(void) {
 //-----DEFINICIÓN DE FUNCIONES-----//
 void agregarCliente(char identificador, int socketCliente) {
 	if (existeCliente(socketCliente)) {
-		logearError("No se puede agregar 2 veces mismo socket\n", false);
+		logearError("No se puede agregar 2 veces mismo socket", false);
 		return;
 	}
 
@@ -287,34 +287,34 @@ int enviarMensajeATodos(int socketCliente, char* mensaje) {
 }
 void establecerConfiguracion() {
 	strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
-	logearInfo("Puerto Kernel: %s \n",PUERTO_KERNEL);
+	logearInfo("Puerto Kernel: %s",PUERTO_KERNEL);
 
 	strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-	logearInfo("IP Memoria: %s \n",IP_MEMORIA);
+	logearInfo("IP Memoria: %s",IP_MEMORIA);
 
 	PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-	logearInfo("Puerto Memoria: %d \n", PUERTO_MEMORIA);
+	logearInfo("Puerto Memoria: %d", PUERTO_MEMORIA);
 
 	strcpy(IP_FS,config_get_string_value(config, "IP_FS"));
-	logearInfo("IP File System: %s \n",IP_FS);
+	logearInfo("IP File System: %s",IP_FS);
 
 	PUERTO_FS = config_get_int_value(config, "PUERTO_FS");
-	logearInfo("Puerto File System: %d \n", PUERTO_FS);
+	logearInfo("Puerto File System: %d", PUERTO_FS);
 
 	QUANTUM = config_get_int_value(config, "QUANTUM");
-	logearInfo("QUANTUM: %d \n", QUANTUM);
+	logearInfo("QUANTUM: %d", QUANTUM);
 
 	QUANTUM_SLEEP = config_get_int_value(config, "QUANTUM_SLEEP");
-	logearInfo("QUANTUM_SLEEP: %d \n", QUANTUM_SLEEP);
+	logearInfo("QUANTUM_SLEEP: %d", QUANTUM_SLEEP);
 
 	strcpy(ALGORITMO,config_get_string_value(config, "ALGORITMO"));
-	logearInfo("ALGORITMO: %s \n",ALGORITMO);
+	logearInfo("ALGORITMO: %s",ALGORITMO);
 
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
-	logearInfo("GRADO_MULTIPROG: %d \n", GRADO_MULTIPROG);
+	logearInfo("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
 
 	STACK_SIZE = config_get_int_value(config, "STACK_SIZE");
-	logearInfo("STACK_SIZE: %d \n", STACK_SIZE);
+	logearInfo("STACK_SIZE: %d", STACK_SIZE);
 }
 int existeCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
@@ -360,8 +360,6 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
 					send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
 				} else {
-					//Enviarle de nuevo el hilo_id a la consola para que
-					//mate al hilo que envió este programa
 					printf("No se pudo añadir proceso\n");
 					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
 				}
@@ -370,14 +368,14 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
 				recv(socketCliente, &PID, sizeof PID, 0);
-				logearInfo("Pedido de finalizacion de PID %d\n", PID);
+				logearInfo("Pedido de finalizacion de PID %d", PID);
 				if (existeProceso(PID)) {
 					eliminarProceso(PID);
 					if (!existeProceso(PID))
-						logearInfo("PID %d Eliminado\n", PID);
+						logearInfo("PID %d Eliminado", PID);
 				}
 				else {
-					logearError("No existe PID %d\n", false, PID);
+					logearError("No existe PID %d", false, PID);
 					break;
 				}
 			}
@@ -396,7 +394,7 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			break;
 
 		default:
-			logearError("Operación inválida de %s\n", false, ID_CLIENTE(tipo));
+			logearError("Operación inválida de %s", false, ID_CLIENTE(tipo));
 			break;
 	}
 }
@@ -406,10 +404,10 @@ int recibirHandshake(int socketCliente) {
     int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == -1) {
-			logearError("El socket %d se desconectó\n", false, socketCliente);
+			logearError("El socket %d se desconectó", false, socketCliente);
 		}
 		else {
-			logearError("Error en el recv\n",false);
+			logearError("Error en el recv",false);
 		}
 		return 0;
 	}
@@ -421,11 +419,11 @@ int recibirHandshake(int socketCliente) {
 	int codigoDeOperacion = handy.codigoDeOperacion;
 
 	if (bytesDePayload != 0) {
-		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0\n", false);
+		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0", false);
 	}
 
 	if (CONSOLA <= codigoDeOperacion || codigoDeOperacion <= CPU) {
-		logearInfo("El nuevo cliente fue identificado como: %s\n", ID_CLIENTE(codigoDeOperacion));
+		logearInfo("El nuevo cliente fue identificado como: %s", ID_CLIENTE(codigoDeOperacion));
 		agregarCliente(codigoDeOperacion, socketCliente);
 		return 1;
 	}
@@ -448,7 +446,7 @@ int recibirHeader(int socketCliente) {
 	if (codigoDeOperacion == MENSAJE) { // Si o si tiene que ser un mensaje
 		return bytesDePayload;
 	}
-	logearInfo("Socket %d: Codigo de operacion invalida\n", socketCliente);
+	logearInfo("Socket %d: Codigo de operacion invalida", socketCliente);
 	return -1;
 }
 int recibirMensaje(int socketCliente, int bytesDePayload) {
@@ -456,9 +454,9 @@ int recibirMensaje(int socketCliente, int bytesDePayload) {
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
     mensaje[bytesDePayload]='\0';
     if (bytesRecibidos > 0) {
-        logearInfo("Mensaje recibido: %s\n", mensaje);
+        logearInfo("Mensaje recibido: %s", mensaje);
         int cantidad = enviarMensajeATodos(socketCliente, mensaje);
-        logearInfo("Mensaje retransmitido a %i clientes\n", cantidad);
+        logearInfo("Mensaje retransmitido a %i clientes", cantidad);
     } else {
     	cerrarConexion(socketCliente,"Error al recibir mensaje del socket %i\n");
     }
