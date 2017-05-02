@@ -8,9 +8,9 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 	*servidor = socket(AF_INET, SOCK_STREAM, 0);
 	if (connect(*servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
 		close(*servidor);
-		logearError("No se pudo conectar al servidor\n",true);
+		logearError("No se pudo conectar al servidor",true);
 	}
-	logearInfo("Conectado al servidor\n");
+	logearInfo("Conectado al servidor");
 }
 void configurar(char* quienSoy) {
 
@@ -68,27 +68,20 @@ int existeArchivo(const char *ruta)
     return false;
 }
 void handshake(int socket, char operacion) {
-	logearInfo("Conectando a servidor 0%%\n");
-	headerDeLosRipeados handy;
-	handy.bytesDePayload = 0;
-	handy.codigoDeOperacion = operacion;
+	logearInfo("Conectando a servidor 0%%");
 
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-	serializarHeader(&handy, buffer);
-	send(socket, buffer, buffersize, 0);
+	enviarHeader(socket,operacion,0);
 
 	char respuesta[1024];
 	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
 
 	if (bytesRecibidos > 0) {
-		logearInfo("Conectado a servidor 100 porciento\n");
-		logearInfo("Mensaje del servidor: \"%s\"\n", respuesta);
+		logearInfo("Conectado a servidor 100 porciento");
+		logearInfo("Mensaje del servidor: \"%s\"", respuesta);
 	}
 	else {
-		logearError("Ripeaste\n",true);
+		logearError("Ripeaste",true);
 	}
-	free(buffer);
 }
 void logearError(char* formato, int terminar , ...) {
 	char* mensaje;
@@ -96,7 +89,7 @@ void logearError(char* formato, int terminar , ...) {
 	va_start(args, terminar);
 	mensaje = string_from_vformat(formato,args);
 	log_error(logger,mensaje);
-	printf("%s",mensaje);
+	printf("%s\n",mensaje);
 	va_end(args);
 	if (terminar==true) exit(0);
 }
@@ -106,7 +99,7 @@ void logearInfo(char* formato, ...) {
 	va_start(args, formato);
 	mensaje = string_from_vformat(formato,args);
 	log_info(logger,mensaje);
-	printf("%s", mensaje);
+	printf("%s\n", mensaje);
 	va_end(args);
 }
 void serializarHeader(headerDeLosRipeados *header, void *buffer) {
