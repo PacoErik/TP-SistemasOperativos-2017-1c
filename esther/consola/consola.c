@@ -12,6 +12,8 @@
 typedef struct proceso {
 	int PID;
 	pthread_t hiloID;
+	time_t inicio;
+	int cantidadImpresiones;
 } proceso;
 typedef t_list listaProceso;
 
@@ -24,7 +26,7 @@ int PUERTO_KERNEL;
 listaProceso *procesos;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregarProceso(int, pthread_t);
+void 			agregarProceso(int, pthread_t, time_t);
 void 			configurarPrograma();
 void 			desconectarConsola();
 void 			desconectarPrograma();
@@ -59,10 +61,12 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregarProceso(int PID, pthread_t hiloID) {
+void agregarProceso(int PID, pthread_t hiloID, time_t inicio) {
 	proceso *nuevoProceso = malloc(sizeof(proceso));
 	nuevoProceso->PID = PID;
 	nuevoProceso->hiloID = hiloID;
+	nuevoProceso->inicio = inicio;
+	nuevoProceso->cantidadImpresiones = 0;
 	list_add(procesos, nuevoProceso);
 }
 void configurarPrograma() {
@@ -92,7 +96,7 @@ void desconectarConsola() {
 	exit(0);
 }
 void desconectarPrograma(int PID) {
-	printf("Finalizando PID %d...\n", PID);
+	logearInfo("[PID:%d] Finalizando...\n", PID);
 	pthread_t TID = hiloIDPrograma(PID);
 	if (TID == 0) {
 		logearError("No existe PID %d\n", false, PID);
@@ -104,14 +108,26 @@ void desconectarPrograma(int PID) {
 	pthread_cancel(TID);
 	pthread_join(TID, NULL);
 
-	eliminarProceso(PID);
-	printf("El programa fue finalizado\n");
+	_Bool mismoPID(void* elemento) {
+			return PID == ((proceso *) elemento)->PID;
+		}
+	proceso *procesoAux = list_find(procesos,mismoPID);
 
-	//	TODO
-	//	[X] Matar al hilo correspondiente al programa
-	//	[ ] Calcular su duración en el sistema
-	//	[X] Avisarle al Kernel que mate a dicho programa, liberando las estructuras
-	//	    que ocupó en memoria y borrando su PCB
+	//Estadística
+	time_t inicio = procesoAux->inicio;
+	time_t fin = time(NULL);
+	char stringTiempo[20];
+	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
+	logearInfo("[PID:%d] Inicio: %s\n", PID, stringTiempo);
+	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
+	logearInfo("[PID:%d] Fin: %s\n", PID, stringTiempo);
+	logearInfo("[PID:%d] Cantidad de impresiones: %d\n", PID, procesoAux->cantidadImpresiones);
+	logearInfo("[PID:%d] Duración: %.fs\n", PID, difftime(fin,inicio));
+	//Fin estadística
+
+	eliminarProceso(PID);
+
+	logearInfo("[PID:%d] Proceso finalizado\n", PID);
 }
 void eliminarProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
@@ -189,7 +205,7 @@ void imprimirOpcionesDeConsola() {
 }
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
-	clock_t inicio = clock();
+	time_t inicio = time(NULL); //Obtiene el tiempo actual
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_t id_hilo = pthread_self();
 
@@ -206,8 +222,6 @@ void* iniciarPrograma(void* arg) {
 
 	char* codigo = NULL;
 	long int bytes;
-	//size_t bytes;
-	//ssize_t bytes_leidos = getdelim( &codigo, &bytes, '\0', prog);
 
 	fseek(prog, 0, SEEK_END);
 	bytes = ftell(prog);
@@ -217,11 +231,11 @@ void* iniciarPrograma(void* arg) {
 	fclose(prog);
 
 	int PID = -1;
-	//printf("Codigo:%s\nBytes:%i\nBytes_L:%i\nBytes_posta:%i\n",codigo,bytes,bytes_leidos,strlen(codigo));
+
 	if (bytes > 0) {
 		enviarHeader(servidor, INICIAR_PROGRAMA, bytes);
 		send(servidor, codigo, bytes, 0);
-		agregarProceso(PID,id_hilo);
+		agregarProceso(PID,id_hilo,inicio);
 	} else if (bytes == 0) {
 		logearError("Archivo vacio: %s\n", false, ruta);
 		return NULL;
@@ -341,7 +355,7 @@ void procesarOperacion(char operacion, int bytes) {
 			proceso *procesoAux = list_find(procesos,esNuevo);
 			procesoAux->PID = PID;
 
-			logearInfo("Nuevo programa creado con PID:%d\n",PID);
+			logearInfo("[PID:%d] Programa iniciado\n",PID);
 			break;
 		case ERROR_MULTIPROGRAMACION:
 			logearInfo("No se pudo crear el programa\n");
@@ -371,7 +385,8 @@ void* recibirHeaders(void* arg) {
 		int bytesDePayload = header.bytesDePayload;
 		int codigoDeOperacion = header.codigoDeOperacion;
 
-		printf("Op:%d Bytes:%d\n",codigoDeOperacion, bytesDePayload);
+		//printf("Op:%d Bytes:%d\n",codigoDeOperacion, bytesDePayload); //Rico debug
+
 		//Procesar operación del header
 		procesarOperacion(codigoDeOperacion,bytesDePayload);
 	}
