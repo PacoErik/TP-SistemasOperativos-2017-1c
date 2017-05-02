@@ -1,9 +1,9 @@
 //-----HEADERS-----//
-#include <qepd/qepd.h>
 #include <pthread.h>
 #include "commons/collections/list.h"
 #include "commons/process.h"
 #include <sys/types.h>
+#include "qepd/qepd.h"
 
 //-----DEFINES-----//
 #define DURACION(INICIO) ((double)(clock() - INICIO) / CLOCKS_PER_SEC)
@@ -96,10 +96,10 @@ void desconectarConsola() {
 	exit(0);
 }
 void desconectarPrograma(int PID) {
-	logearInfo("[PID:%d] Finalizando...\n", PID);
+	logearInfo("[PID:%d] Finalizando...", PID);
 	pthread_t TID = hiloIDPrograma(PID);
 	if (TID == 0) {
-		logearError("No existe PID %d\n", false, PID);
+		logearError("No existe PID %d", false, PID);
 		return;
 	}
 	enviarHeader(servidor, FINALIZAR_PROGRAMA, sizeof PID);
@@ -118,16 +118,16 @@ void desconectarPrograma(int PID) {
 	time_t fin = time(NULL);
 	char stringTiempo[20];
 	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
-	logearInfo("[PID:%d] Inicio: %s\n", PID, stringTiempo);
+	logearInfo("[PID:%d] Inicio: %s", PID, stringTiempo);
 	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
-	logearInfo("[PID:%d] Fin: %s\n", PID, stringTiempo);
-	logearInfo("[PID:%d] Cantidad de impresiones: %d\n", PID, procesoAux->cantidadImpresiones);
-	logearInfo("[PID:%d] Duración: %.fs\n", PID, difftime(fin,inicio));
+	logearInfo("[PID:%d] Fin: %s", PID, stringTiempo);
+	logearInfo("[PID:%d] Cantidad de impresiones: %d", PID, procesoAux->cantidadImpresiones);
+	logearInfo("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
 	//Fin estadística
 
 	eliminarProceso(PID);
 
-	logearInfo("[PID:%d] Proceso finalizado\n", PID);
+	logearInfo("[PID:%d] Proceso finalizado", PID);
 }
 void eliminarProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
@@ -167,15 +167,15 @@ void enviarMensaje() {
 void establecerConfiguracion() {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logearInfo("Puerto Kernel: %d \n", PUERTO_KERNEL);
+		logearInfo("Puerto Kernel: %d", PUERTO_KERNEL);
 	} else {
-		logearError("Error al leer el puerto del Kernel\n", true);
+		logearError("Error al leer el puerto del Kernel", true);
 	}
 	if (config_has_property(config, "IP_KERNEL")) {
 		strcpy(IP_KERNEL, config_get_string_value(config, "IP_KERNEL"));
-		logearInfo("IP Kernel: %s \n", IP_KERNEL);
+		logearInfo("IP Kernel: %s", IP_KERNEL);
 	} else {
-		logearError("Error al leer la IP del Kernel\n", true);
+		logearError("Error al leer la IP del Kernel", true);
 	}
 }
 pthread_t hiloIDPrograma(int PID) {
@@ -211,9 +211,9 @@ void* iniciarPrograma(void* arg) {
 
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
-	logearInfo("Ruta ingresada:%s\n",ruta);
+	logearInfo("Ruta ingresada:%s",ruta);
 	if (!existeArchivo(ruta)) {
-		logearError("No se encontró el archivo %s\n",false,ruta);
+		logearError("No se encontró el archivo %s",false,ruta);
 		return NULL;
 	}
 
@@ -237,10 +237,10 @@ void* iniciarPrograma(void* arg) {
 		send(servidor, codigo, bytes, 0);
 		agregarProceso(PID,id_hilo,inicio);
 	} else if (bytes == 0) {
-		logearError("Archivo vacio: %s\n", false, ruta);
+		logearError("Archivo vacio: %s", false, ruta);
 		return NULL;
 	} else {
-		logearError("No se pudo leer el archivo: %s\n", false, ruta);
+		logearError("No se pudo leer el archivo: %s", false, ruta);
 		return NULL;
 	}
 
@@ -248,7 +248,7 @@ void* iniciarPrograma(void* arg) {
 	free(codigo); //ya no necesitamos más el código
 
 	for(;;);
-	printf("Nunca me ejecutarán :CCC\n");
+	printf("Nunca me ejecutarán :CCC");
 	return NULL;
 }
 void interaccionConsola() {
@@ -278,26 +278,26 @@ void interaccionConsola() {
 
 		switch (opcion) {
 			case EJECUTAR_PROGRAMA: {
-				logearInfo("Comando de inicio de programa ejecutado\n");
+				logearInfo("Comando de inicio de programa ejecutado");
 				configurarPrograma();
 				break;
 			}
 			case DESCONECTAR_PROGRAMA: {
-				logearInfo("Comando de desconexión de programa ejecutado\n");
+				logearInfo("Comando de desconexión de programa ejecutado");
 				char sPID[12]; // String que representa PID
 				printf("Ingresar PID: ");
 				fgets(sPID, sizeof sPID, stdin);
 				if (strlen(sPID) == 1) {
-					logearError("PID invalido\n", false);
+					logearError("PID invalido", false);
 				}
 				if (sPID[strlen(sPID) - 1] != '\n') {
-					logearError("PID no puede tener mas de 10 digitos\n", false);
+					logearError("PID no puede tener mas de 10 digitos", false);
 					limpiarBufferEntrada();
 					break;
 				}
 				removerSaltoDeLinea(sPID);
 				if (!soloNumeros(sPID)) {
-					logearError("PID debe ser un numero\n", false);
+					logearError("PID debe ser un numero", false);
 					break;
 				}
 				int PID = strtoul(sPID, NULL, 0);
@@ -305,13 +305,13 @@ void interaccionConsola() {
 				break;
 			}
 			case DESCONECTAR_CONSOLA: {
-				logearInfo("Comando de apagado de consola ejecutado\n");
+				logearInfo("Comando de apagado de consola ejecutado");
 				log_destroy(logger);
 				desconectarConsola();
 				break;
 			}
 			case ENVIAR_MENSAJE: {
-				logearInfo("Comando de envío de mensaje ejecutado\n");
+				logearInfo("Comando de envío de mensaje ejecutado");
 				enviarMensaje();
 				break;
 			}
@@ -339,7 +339,7 @@ void procesarOperacion(char operacion, int bytes) {
 			char* mensaje = malloc(bytes+1);
 			recv(servidor, mensaje, bytes, 0);
 			mensaje[bytes] = '\0';
-			logearInfo("Mensaje recibido: %s\n", mensaje);
+			logearInfo("Mensaje recibido: %s", mensaje);
 			free(mensaje);
 			break;
 		case INICIAR_PROGRAMA: ;
@@ -355,16 +355,16 @@ void procesarOperacion(char operacion, int bytes) {
 			proceso *procesoAux = list_find(procesos,esNuevo);
 			procesoAux->PID = PID;
 
-			logearInfo("[PID:%d] Programa iniciado\n",PID);
+			logearInfo("[PID:%d] Programa iniciado",PID);
 			break;
 		case ERROR_MULTIPROGRAMACION:
-			logearInfo("No se pudo crear el programa\n");
+			logearInfo("No se pudo crear el programa");
 			//Borramos el proceso que habíamos creado y seteado
 			//con PID = -1
 			eliminarProceso(-1);
 			break;
 		default:
-			logearError("Operación inválida\n", false);
+			logearError("Operación inválida", false);
 			break;
 	}
 }
