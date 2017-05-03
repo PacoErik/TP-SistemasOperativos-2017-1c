@@ -191,7 +191,7 @@ int main(void) {
 						FD_CLR(i, &conectados);
 					}
 					else {
-						char *respuesta = "Handshake recibido";
+						char *respuesta = "Bienvenido!";
 						send(i, respuesta, strlen(respuesta) + 1, 0);
 					}
 				}
