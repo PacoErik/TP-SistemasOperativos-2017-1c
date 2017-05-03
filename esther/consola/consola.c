@@ -274,7 +274,7 @@ void interaccionConsola() {
 		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
 		if ((strlen(input) != 1) || EJECUTAR_PROGRAMA > opcion
 				|| opcion > IMPRIMIR_OPCIONES) {
-			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+			printf("Coloque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
 			limpiarBufferEntrada();
 			continue;
 		}
