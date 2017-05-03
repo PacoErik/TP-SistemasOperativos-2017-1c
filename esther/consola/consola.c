@@ -4,6 +4,7 @@
 #include "commons/process.h"
 #include <sys/types.h>
 #include "qepd/qepd.h"
+#include <string.h>
 
 //-----DEFINES-----//
 #define DURACION(INICIO) ((double)(clock() - INICIO) / CLOCKS_PER_SEC)
@@ -91,8 +92,10 @@ void desconectarConsola() {
 		desconectarPrograma(PID);
 	}
 	list_destroy_and_destroy_elements(procesos, _finalizar);
-
 	close(servidor);
+
+	logearInfo("Chau!");
+
 	exit(0);
 }
 void desconectarPrograma(int PID) {
@@ -306,7 +309,6 @@ void interaccionConsola() {
 			}
 			case DESCONECTAR_CONSOLA: {
 				logearInfo("Comando de apagado de consola ejecutado");
-				log_destroy(logger);
 				desconectarConsola();
 				break;
 			}
