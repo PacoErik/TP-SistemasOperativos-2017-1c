@@ -1,4 +1,5 @@
 #include "qepd.h"
+#include <string.h>
 
 void conectar(int* servidor,char* IP,int PUERTO) {
 	struct sockaddr_in direccionServidor;
@@ -14,23 +15,17 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 }
 void configurar(char* quienSoy) {
 
-	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
-	//como si estuviese en la carpeta esther/consola/
-	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
-	//pero en ese caso no existiria el archivo config ni el log
-	//y es por eso que tenemos que leerlo desde el directorio anterior
-
 	if (existeArchivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
-		logger = log_create(string_from_format("%s.log",quienSoy), quienSoy, false, LOG_LEVEL_INFO);
-	}else{
-		config = config_create(string_from_format("../%s",RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s.log",quienSoy), quienSoy, false, LOG_LEVEL_INFO);
-	}
+		int longitud = strlen(quienSoy)+strlen(".log ");
+		char *ruta = malloc(longitud+1);
+		snprintf(ruta,longitud,"%s%s",quienSoy,".log");
+		logger = log_create(ruta, quienSoy, false, LOG_LEVEL_INFO);
+		free(ruta);
 
-	//Si la cantidad de valores establecidos en la configuración
-	//es mayor a 0, entonces configurar la ip y el puerto,
-	//sino, estaría mal hecho el config.cfg
+	}else{
+		logearError("No existe el archivo de configuración",true);
+	}
 
 	if(config_keys_amount(config) > 0) {
 		establecerConfiguracion();
@@ -68,39 +63,42 @@ int existeArchivo(const char *ruta)
     return false;
 }
 void handshake(int socket, char operacion) {
-	logearInfo("Conectando a servidor 0%%");
+	logearInfo("Enviando saludo al servidor");
 
 	enviarHeader(socket,operacion,0);
 
-	char respuesta[1024];
-	int bytesRecibidos = recv(socket, (void *) &respuesta, sizeof(respuesta), 0);
+	char* respuesta = malloc(32);
+	int bytesRecibidos = recv(socket, respuesta, 32, 0);
 
 	if (bytesRecibidos > 0) {
-		logearInfo("Conectado a servidor 100 porciento");
-		logearInfo("Mensaje del servidor: \"%s\"", respuesta);
+		logearInfo("Saludo recibido: \"%s\"", respuesta);
 	}
 	else {
-		logearError("Ripeaste",true);
+		logearError("Ripeaste papu",true);
 	}
+
+	free(respuesta);
 }
 void logearError(char* formato, int terminar , ...) {
-	char* mensaje;
 	va_list args;
 	va_start(args, terminar);
-	mensaje = string_from_vformat(formato,args);
+	char* mensaje = malloc(512);
+	vsnprintf(mensaje,512,formato,args);
 	log_error(logger,mensaje);
-	printf("%s\n",mensaje);
+	vprintf(formato,args);printf("\n");
 	va_end(args);
-	if (terminar==true) exit(0);
+	free(mensaje);
+	if (terminar) exit(0);
 }
 void logearInfo(char* formato, ...) {
-	char* mensaje;
 	va_list args;
 	va_start(args, formato);
-	mensaje = string_from_vformat(formato,args);
+	char* mensaje = malloc(512);
+	vsnprintf(mensaje,512,formato,args);
 	log_info(logger,mensaje);
-	printf("%s\n", mensaje);
+	vprintf(formato,args);printf("\n");
 	va_end(args);
+	free(mensaje);
 }
 void serializarHeader(headerDeLosRipeados *header, void *buffer) {
 	short *pBytesDePayload = (short*) buffer;
