@@ -201,7 +201,14 @@ int main(void) {
 					void *buffer = malloc(buffersize);
 					int bytesRecibidos = recv(i, buffer, buffersize, 0);
 					if (bytesRecibidos <= 0) {
-						cerrarConexion(i, "El socket %d se desconectó\n");
+						int tipo = tipoCliente(i);
+						if (tipo >= 0) {
+							logearInfo("Cliente [%s] desconectado",ID_CLIENTE(tipo));
+							borrarCliente(i);
+							close(i);
+						} else {
+							cerrarConexion(i, "El socket %d se desconectó\n");
+						}
 						FD_CLR(i, &conectados);
 						free(buffer);
 						continue;
@@ -418,11 +425,7 @@ int recibirHandshake(int socketCliente) {
 	int bytesDePayload = handy.bytesDePayload;
 	int codigoDeOperacion = handy.codigoDeOperacion;
 
-	if (bytesDePayload != 0) {
-		logearError("La cantidad de bytes de payload de un handshake no puede ser distinto de 0", false);
-	}
-
-	if (CONSOLA <= codigoDeOperacion || codigoDeOperacion <= CPU) {
+	if (CONSOLA <= codigoDeOperacion && codigoDeOperacion <= CPU && bytesDePayload == 0) {
 		logearInfo("El nuevo cliente fue identificado como: %s", ID_CLIENTE(codigoDeOperacion));
 		agregarCliente(codigoDeOperacion, socketCliente);
 		return 1;
