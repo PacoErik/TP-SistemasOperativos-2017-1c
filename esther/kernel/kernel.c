@@ -28,6 +28,24 @@ typedef struct PCB {
 	int ERROR_NUM;
 } PCB;
 
+//Un choclazo de struct para llevar la estadística de los procesos y tener
+//un control más agrupado.. o algo así :v
+typedef struct Proceso {
+	int socketPadre; //nada que ver con hilos, es solo el socket de la consola que mandó a iniciar este proceso
+	//pongo esto para abarcar el caso en el que una consola se desconecte de una,
+	//por lo que habría que matar todos los procesos que estaban relacionados a ella
+
+	int cantRafagas;
+	int cantOperacionesPriv;
+	int cantPaginasHeap;
+	int cantAlocar;
+	int bytesAlocados;
+	int cantLiberar;
+	int bytesLiberados;
+	int cantSyscalls; //sí, me encantan los int
+	PCB pcb;
+} Proceso;
+
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
