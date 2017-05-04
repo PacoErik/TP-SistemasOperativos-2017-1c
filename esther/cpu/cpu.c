@@ -83,11 +83,26 @@ AnSISOP_kernel funcionesnucleo = {
  * ↑ Parser Ansisop ↑
  */
 
+#define VIVITO_Y_COLEANDO 1; // No se pueden revisar los exit code previo a que ripee
+#define FINALIZO_CORRECTAMENTE 0;
+#define NO_SE_PUDIERON_RESERVAR_RECURSOS -1;
+#define ARCHIVO_NO_EXISTE -2;
+#define INTENTO_LEER_SIN_PERMISOS -3;
+#define INTENTO_ESCRIBIR_SIN_PERMISOS -4;
+#define EXCEPCION_MEMORIA -5;
+#define DESCONEXION_CONSOLA -6;
+#define COMANDO_FINALIZAR_PROGRAMA -7;
+#define INTENTO_RESERVAR_MAS_MEMORIA_QUE_PAGINA -8;
+#define NO_SE_PUEDEN_ASIGNAR_MAS_PAGINAS -9;
+#define EXCEPCION_KERNEL -10;
+#define SIN_DEFINICION -20;
+
 enum CodigoDeOperacion {
 	MENSAJE, // Mensaje a leer
 	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
-	EXCEPCION_DE_SOLICITUD, INSTRUCCION, // Mensajes provenientes de procesos varios
-	RECIBIR_PCB, ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO // Mensajes provenientes de Kernel
+	EXCEPCION_DE_SOLICITUD, INSTRUCCION, PCB_INCOMPLETO,// Mensajes provenientes de procesos varios
+	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO, // Mensajes provenientes de Kernel
+	PCB_COMPLETO // Mensajes provenientes de la CPU
 };
 
 typedef struct headerDeLosRipeados {
@@ -100,14 +115,10 @@ int PUERTO_KERNEL;
 char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 
-typedef struct instruccionUtil {
+typedef struct indiceCodigo {
 	char numeroDePagina;
 	char offset;
 	char size;
-}__attribute__((packed, aligned(1))) instruccionUtil;
-
-typedef struct indiceCodigo {
-	instruccionUtil *instruccion;
 }__attribute__((packed, aligned(1))) indiceCodigo;
 
 typedef struct indiceEtiquetas {
@@ -127,9 +138,6 @@ typedef struct indiceStack {
 	posicionDeMemoria posicionDeLaVariableDeRetorno;
 }__attribute__((packed, aligned(1))) indiceStack;
 
-typedef t_list listaArgumentos;
-typedef t_list listaVariables;
-
 typedef struct PCB {
 	char processID;
 	char programCounter;
@@ -148,6 +156,11 @@ typedef struct servidor { // Esto es más que nada una cheteada para poder usar 
 servidor kernel;
 servidor memoria;
 
+bool programaVivitoYColeando; // Si el programa fallecio o no
+bool elProgramaNoFinalizo; // Si el programa finalizo correctamente o sigue en curso
+
+char* actualInstruccion; // Lo modelo como variable global porque se me hace menos codigo analizar los header y demas.
+
 PCB actualPCB; // Programa corriendo
 
 void establecerConfiguracion();
@@ -158,12 +171,9 @@ void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
-void leerMensaje(servidor servidor, short bytesDePayload);
-void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion, unsigned short bytesDePayload);
 void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
-void cumplirDeseosDeMemoria(char codigoDeOperacion);
-void esperarPCB();
-void ejecutarPrimitivas();
+void cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
+void solicitarPCB();
 void devolverPCB();
 void finalizarPrograma();
 void obtenerPCB(unsigned short bytesDePayload);
@@ -171,9 +181,11 @@ void comenzarTrabajo();
 void serializarPCB(PCB *miPCB, void *bufferPCB);
 void deserializarPCB(PCB *miPCB, void *bufferPCB);
 void ejecutarInstruccion();
-char *pedirInstruccionAMemoria();
-void serializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer);
-void deserializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer);
+void serializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer);
+void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer);
+void obtenerInstruccionDeMemoria();
+void solicitarInstruccion();
+bool elProgramaEstaASalvo();
 
 int main(void) {
 
@@ -196,37 +208,101 @@ int main(void) {
 
 void comenzarTrabajo() {
 	for(;;) {
-		esperarPCB();
+		programaVivitoYColeando = true;
+		elProgramaNoFinalizo = true;
+		solicitarPCB();
+		solicitarInstruccion();
 		ejecutarInstruccion();
 		devolverPCB();
 	}
 }
 
-void esperarPCB() {
-	while(analizarHeader(kernel) < 0) { // Hasta que no te llegue info
-		continue;
+void solicitarPCB() {
+	int bufferHeaderSize = sizeof(headerDeLosRipeados);
+	void *bufferHeader = malloc(bufferHeaderSize);
+	int bytesRecibidos;
+
+	do {
+		bytesRecibidos = recv(kernel.socket, bufferHeader, bufferHeaderSize, 0);
+	} while(bytesRecibidos <= 0);
+
+	analizarHeader(kernel, bufferHeader);
+}
+
+void solicitarInstruccion() {
+	if(!elProgramaEstaASalvo()) {
+		return;
 	}
+
+	indiceCodigo instruccion;
+	instruccion.numeroDePagina = actualPCB.indiceDeCodigo.numeroDePagina;
+	instruccion.offset = actualPCB.indiceDeCodigo.offset;
+	instruccion.size = actualPCB.indiceDeCodigo.size;
+
+	char* bufferInstruccion;
+	bufferInstruccion = malloc(sizeof(instruccion));
+
+	serializarPosicionInstruccion(&instruccion, bufferInstruccion);
+	unsigned short instruccionSize = instruccion.size;
+
+	headerDeLosRipeados header;
+	header.codigoDeOperacion = INSTRUCCION;
+	header.bytesDePayload = instruccionSize;
+
+	char* bufferHeader;
+	bufferHeader = malloc(sizeof(header));
+
+	serializarHeader(&header, bufferHeader);
+	int bufferHeaderSize = sizeof(headerDeLosRipeados);
+	send(memoria.socket, bufferHeader, bufferHeaderSize, 0); // Le mando el header
+
+	send(memoria.socket, bufferInstruccion, instruccionSize, 0); // Le mando la geolocalizacion de la instrucción
+
+	free(bufferInstruccion);
+
+	// Ahora esperamos la instruccion
+
+	int bytesRecibidos;
+
+	do {
+		bytesRecibidos = recv(memoria.socket, bufferHeader, bufferHeaderSize, 0);
+	} while(bytesRecibidos <= 0);
+
+	analizarHeader(memoria, bufferHeader);
+
 }
 
 void ejecutarInstruccion() {
-	char *instruccion;
-	instruccion = malloc(actualPCB.indiceDeCodigo.instruccion[actualPCB.programCounter].size + 2); // 2bytes. Uno por el '/0', y otro porque la resta no me contempla un byte.
-	instruccion = pedirInstruccionAMemoria();
+	if(!elProgramaEstaASalvo()) {
+		return;
+	}
 
-	analizadorLinea(strdup(instruccion), &funciones, &funcionesnucleo);
+	analizadorLinea(strdup(actualInstruccion), &funciones, &funcionesnucleo);
+	free(actualInstruccion);
 
-	// Una vez que analiza la instrucción, algo happenea
+	// ¿? Acá pasa algo ¿?
+
+	actualPCB.programCounter++;
+
 	// TODO
 }
 
 void devolverPCB() {
+	char codigo;
+
+	if(elProgramaNoFinalizo) {
+		codigo = PCB_INCOMPLETO;
+	} else {
+		codigo = PCB_COMPLETO;
+	}
+
 	int PCBSize = sizeof(actualPCB);
 	void *PCBComprimido = malloc(PCBSize);
 	void serializarPCB(PCB *miPCB, void *PCBComprimido);
 
 	headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = PCBSize;
-	headerDeMiMensaje.codigoDeOperacion = RECIBIR_PCB;
+	headerDeMiMensaje.codigoDeOperacion = codigo;
 	int headerSize = sizeof(headerDeMiMensaje);
 	void *headerComprimido = malloc(headerSize);
 	serializarHeader(&headerDeMiMensaje, headerComprimido);
@@ -252,6 +328,7 @@ void devolverPCB() {
  * Analiza el contenido del header, y respecto a ello realiza distintas acciones
  * devuelve -1 si el servidor causa problemas
  */
+/*
 int analizarHeader(servidor servidor) {
 	int bufferHeaderSize = sizeof(headerDeLosRipeados);
 	void *bufferHeader = malloc(bufferHeaderSize);
@@ -279,32 +356,44 @@ int analizarHeader(servidor servidor) {
 
     return 1;
 }
+*/
 
-void analizarCodigosDeOperacion(servidor servidor, char codigoDeOperacion, unsigned short bytesDePayload) {
+int analizarHeader(servidor servidor, void* bufferHeader) {
+	headerDeLosRipeados header;
+	deserializarHeader(&header, bufferHeader);
+	free(bufferHeader);
 
 	switch(servidor.identificador) {
 		case KERNEL:
-			cumplirDeseosDeKernel(codigoDeOperacion, bytesDePayload);
+			cumplirDeseosDeKernel(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		case MEMORIA:
-			cumplirDeseosDeMemoria(codigoDeOperacion);
+			cumplirDeseosDeMemoria(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		default:
 			// TODO
 			exit(EXIT_FAILURE);
 	}
+
+	return 1;
 }
 
 void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload) {
 	switch(codigoDeOperacion) {
+		/*
+		 * No nos va a interesar que nos mande un msj.
+		 *
+		case MENSAJE:
+			leerMensaje(kernel, bytesDePayload);
+			break;
+		*/
 		case EXCEPCION_DE_SOLICITUD:
-			logearError("Excepcion al solicitar al Kernel", false);
-			finalizarPrograma();
+			finalizarPrograma(kernel);
 			break;
 
-		case RECIBIR_PCB:
+		case PCB_INCOMPLETO:
 			obtenerPCB(bytesDePayload);
 			break;
 
@@ -330,11 +419,21 @@ void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload
 	}
 }
 
-void cumplirDeseosDeMemoria(char codigoDeOperacion) {
+void cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
 	switch(codigoDeOperacion) {
+	/*
+	 * No nos va a interesar que nos mande un msj.
+	 *
+		case MENSAJE:
+			leerMensaje(memoria, bytesDePayload);
+			break;
+	*/
 		case EXCEPCION_DE_SOLICITUD:
-			logearError("Excepcion al solicitar a la memoria", false);
-			finalizarPrograma();
+			finalizarPrograma(memoria);
+			break;
+
+		case INSTRUCCION:
+			obtenerInstruccionDeMemoria();
 			break;
 
 		default:
@@ -356,7 +455,8 @@ void obtenerPCB(unsigned short bytesDePayload) {
 	int bytesRecibidos = recv(kernel.socket, bufferPCB, bytesDePayload, 0);
 
 	if(bytesRecibidos <= 0) {
-		// La cagó el Kernel
+		// La cagó el Kernel TODO
+		// Finalizo programa?
 	}
 
     PCB miPCB;
@@ -366,35 +466,70 @@ void obtenerPCB(unsigned short bytesDePayload) {
 	actualPCB = miPCB;
 }
 
-void ejecutarPrimitivas() { // TODO
+void finalizarPrograma(servidor servidor) {
+	switch(servidor.identificador) {
+		case KERNEL:
+			printf("Debido a una excepcion de solicitud al Kernel, el proceso %c ripeo", actualPCB.processID);
+			actualPCB.exitCode = EXCEPCION_KERNEL; // EXIT CODE -10: Excepcion de Kernel.
+			break;
+
+		case MEMORIA:
+			printf("Debido a una excepcion de solicitud a la Memoria, el proceso %c ripeo", actualPCB.processID);
+			actualPCB.exitCode = EXCEPCION_MEMORIA;
+			break;
+	}
+
+	programaVivitoYColeando = false;
 
 }
 
-void finalizarPrograma() { // TODO
+/*
+void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
+    if(bytesDePayload <= 0) {
+    	// Concha tuya. TODO
+    }
 
-}
-
-void leerMensaje(servidor servidor, short bytesDePayload) {
-    char* mensaje = malloc(bytesDePayload+1);
-    recv(servidor.socket, mensaje, bytesDePayload,0);
+	char* mensaje = malloc(bytesDePayload+1);
+    recv(servidor.socket, mensaje, bytesDePayload, 0);
     mensaje[bytesDePayload]='\0';
-    logearInfo("Mensaje recibido: %s\n", mensaje);
+    logearInfo("Mensaje recibido: %s\n", mensaje); // En mensaje recibido estaria bueno poner el nombre del que mando el msj TODO
     free(mensaje);
 }
+
+void obtenerInstruccionDeMemoria() {
+	unsigned short instruccionSize;
+	instruccionSize = actualPCB.indiceDeCodigo.size;
+
+	actualInstruccion = malloc(instruccionSize + 1); // +1 por el '\0'
+
+	unsigned short bytesRecibidos = recv(memoria.socket, actualInstruccion, instruccionSize, 0); // Recibo la instruccion
+
+	if(bytesRecibidos <= 0) {
+		// Memoria la re concha tuya TODO
+	}
+
+	actualInstruccion[instruccionSize] = '\0'; // No sé si hara falta, pero por si las moscas lo hago je.
+
+	// Habria que verificar que actualInstruccion contenga info? Re persecuta
+
+}
+*/
 
 /*
  * ↑ Acatar ordenes de algunos de los servidores ↑
  */
 
+
 /*
- * ↓ Parsear ↓
+ * ↓ Comunicarse con los servidores ↓
  */
 
-char *pedirInstruccionAMemoria() {
-	instruccionUtil instruccion;
-	instruccion.numeroDePagina = actualPCB.indiceDeCodigo.instruccion->numeroDePagina;
-	instruccion.offset = actualPCB.indiceDeCodigo.instruccion->offset;
-	instruccion.size = actualPCB.indiceDeCodigo.instruccion->size;
+/*
+char* pedirInstruccionAMemoria() {
+	indiceCodigo instruccion;
+	instruccion.numeroDePagina = actualPCB.indiceDeCodigo.numeroDePagina;
+	instruccion.offset = actualPCB.indiceDeCodigo.offset;
+	instruccion.size = actualPCB.indiceDeCodigo.size;
 
 	char* bufferInstruccion;
 	bufferInstruccion = malloc(sizeof(instruccion));
@@ -421,12 +556,14 @@ char *pedirInstruccionAMemoria() {
 
 	recv(memoria.socket, bufferHeader, headerSize, 0); // Recibo el header
 
-	// Revisar que envio el correcto cod. de op. y que no hubo problemas
+	// Revisar que envio el correcto cod. de op. y que no hubo problemas TODO
 
 	deserializarHeader(&header, bufferHeader);
 
-	instruccionSize = sizeof(header.bytesDePayload);
-	bufferInstruccion = malloc(instruccionSize);
+	free(bufferHeader);
+
+	instruccionSize = header.bytesDePayload;
+	bufferInstruccion = malloc(instruccionSize + 1); // +1 por el '/0'
 
 	recv(memoria.socket, bufferInstruccion, instruccionSize, 0); // Recibo la instruccion
 
@@ -434,18 +571,11 @@ char *pedirInstruccionAMemoria() {
 
 	return bufferInstruccion;
 
-
-	/*
-	 * https://github.com/sisoputnfrba/ansisop-parser/blob/master/parser/parser/metadata_program.h
-	 *
-	 * Serializa y deserializa instrucciones y etiquetas
-	 */
-
-
 }
+*/
 
 /*
- * ↑ Parsear ↑
+ * ↑ Comunicarse con los servidores ↑
  */
 
 /*
@@ -601,6 +731,11 @@ void logearError(char* formato, int terminar , ...) {
  * ↓ Funciones auxiliares del CPU ↓
  */
 
+bool elProgramaEstaASalvo() {
+	// return actualPCB.exitCode > 0; // Esto es medio cheat... En el TP aclaran que no se puede ver el exitcode, pero jej
+	return programaVivitoYColeando;
+}
+
 int existeArchivo(const char *ruta)
 {
     FILE *archivo;
@@ -634,14 +769,116 @@ void deserializarPCB(PCB *miPCB, void *bufferPCB) { // TODO
 	// hora de chinear
 }
 
-void serializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer) { // TODO
+void serializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer) { // TODO
 
 }
 
-void deserializarPosicionInstruccion(instruccionUtil *instruccion, void *buffer) { // TODO
+void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer) { // TODO
 
 }
 
 /*
  * ↑ Funciones auxiliares del CPU ↑
+ */
+
+/*
+ * ↓ Parsear tranqui ↓
+ */
+
+t_puntero definirVariable(t_nombre_variable identificador_variable) { // TODO
+	printf("Se definio una variable con el caracter %c", identificador_variable);
+	return 1;
+}
+
+t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) { // TODO
+	return 1;
+}
+
+t_valor_variable dereferenciar(t_puntero direccion_variable) { // TODO
+	return 1;
+}
+
+void asignar(t_puntero direccion_variable, t_valor_variable valor) { // TODO
+	printf("Se asigno una variable con el valor %i", valor);
+}
+
+t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) { // TODO
+	return 1;
+}
+
+t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor) { // TODO
+	return 1;
+}
+
+void irAlLabel(t_nombre_etiqueta t_nombre_etiqueta) { // TODO
+
+}
+
+void llamarSinRetorno(t_nombre_etiqueta etiqueta) { // TODO
+
+}
+
+void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) { // TODO
+
+}
+
+void finalizar(void) {
+	actualPCB.exitCode = 0;
+	elProgramaNoFinalizo = false;
+}
+
+void retornar(t_valor_variable retorno) { // TODO
+
+}
+
+/*
+ * ↑ Parsear tranqui ↑
+ */
+
+/*
+ * ↓ Parsear Kernel ↓
+ */
+
+void wait(t_nombre_semaforo identificador_semaforo) { // TODO
+
+}
+
+void signal(t_nombre_semaforo identificador_semaforo) { // TODO
+
+}
+
+t_puntero reservar(t_valor_variable espacio) { // TODO
+	return 1;
+}
+
+void liberar(t_puntero puntero) { // TODO
+
+}
+
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
+	return 1;
+}
+
+void borrar(t_descriptor_archivo direccion) { // TODO
+
+}
+
+void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
+
+}
+
+void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
+
+}
+
+void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
+
+}
+
+void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
+
+}
+
+/*
+ * ↑ Parsear Kernel ↑
  */
