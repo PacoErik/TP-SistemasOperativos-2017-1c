@@ -14,16 +14,15 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <pthread.h>
+#include "commons/collections/list.h"
 
 //-----DEFINES-----//
 #define MOSTRAR_LOGS_EN_PANTALLA true
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "memoria.log"
 #define MAX_NUM_CLIENTES 100
-#define ID_CLIENTE(x) ID_CLIENTES[x-1]
-enum CodigoDeOperacion {
-	MENSAJE, CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL
-};
+#define ID_CLIENTE(x) ID_CLIENTES[x]
+enum CodigoDeOperacion {CONSOLA,MEMORIA,FILESYSTEM,CPU,KERNEL,MENSAJE,INICIAR_PROGRAMA,FINALIZAR_PROGRAMA,ERROR_MULTIPROGRAMACION};
 enum estadoDelSectorDeMemoria {
 	LIBRE, HEAP, USADO
 };
@@ -68,10 +67,12 @@ typedef struct runner_parametros {
 	miCliente misClientes[MAX_NUM_CLIENTES];
 	int numCliente;
 } runner_parametros;
+typedef t_list listaCliente;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
+listaCliente *clientes;
 char PUERTO[6];
 unsigned short MARCOS;
 unsigned short MARCO_SIZE;
@@ -122,15 +123,14 @@ void 	size();
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
 
+	clientes = list_create();
+	limpiarClientes(clientes);
 	char *memoria;
 	crearMemoria(&memoria);
 
 	cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 
 	configurar("memoria");
-
-	runner_parametros runner_param;
-	limpiarClientes(runner_param.misClientes);
 
 	int buffersize = sizeof(headerDeLosRipeados);
 	char* buffer = malloc(buffersize);
@@ -204,9 +204,7 @@ int main(void) {
 		nuevoCliente = accept(servidor, (struct sockaddr *) &direccionCliente,
 				&addrlen);
 
-		runner_param.numCliente = nuevoCliente;
-
-		pthread_create(&tid, &atributos, &fHilo, &runner_param);
+		pthread_create(&tid, &atributos, &fHilo, &nuevoCliente);
 
 		char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
 		inet_ntop(AF_INET, get_in_addr((struct sockaddr*) &direccionCliente),
@@ -377,27 +375,28 @@ int posicionSocket(int socketCliente, miCliente *clientes) {
 	return -1;
 }
 
-void* fHilo(void *runner_param) {
+void* fHilo(void *unSocket) {
+
 
 	int buffersize = sizeof(headerDeLosRipeados);
 	char* buffer = malloc(buffersize);
-	runner_parametros *runner = runner_param;
+	int socketCliente = *((int*)unSocket);
 
-	int bytesRecibidos = recv(runner->numCliente, buffer, buffersize, 0);
+	int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
 
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == 0) {
-			cerrarConexion(runner->numCliente, "El socket %d se desconectó\n");
+			cerrarConexion(socketCliente, "El socket %d se desconectó\n");
 		} else {
 			logearError("Error en el recv\n", false);
-			close(runner->numCliente);
+			close(socketCliente);
 		}
-		borrarCliente(runner->numCliente, runner->misClientes);
+		borrarCliente(socketCliente, clientes);
 
 	} else {
 		// llegó info, vamos a ver el header
-		int estado = analizarHeader(runner->numCliente, buffer,
-				runner->misClientes);
+		int estado = analizarHeader(socketCliente, buffer,
+				clientes);
 
 		char *respuesta;
 
@@ -405,7 +404,7 @@ void* fHilo(void *runner_param) {
 
 		case CPU:
 			respuesta = "Header del CPU recibido";
-			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			send(socketCliente, respuesta, strlen(respuesta) + 1, 0);
 			while (1) {
 
 			}
@@ -413,16 +412,16 @@ void* fHilo(void *runner_param) {
 
 		case KERNEL:
 			respuesta = "Header del Kernel recibido";
-			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			send(socketCliente, respuesta, strlen(respuesta) + 1, 0);
 			while (1) {
 
-				recv(runner->numCliente, buffer, buffersize, 0);
+				recv(socketCliente, buffer, buffersize, 0);
 			}
 			break;
 		case -1:
-			send(runner->numCliente, "Error, desconectado", 20, 0);
-			borrarCliente(runner->numCliente, runner->misClientes);
-			cerrarConexion(runner->numCliente,
+			send(socketCliente, "Error, desconectado", 20, 0);
+			borrarCliente(socketCliente, clientes);
+			cerrarConexion(socketCliente,
 					"El socket %d hizo una operación inválida\n"); // Estaría bueno que por cada valor negativo hacer un código de error para decirle al usuario en qué la cagó.
 			break;
 
@@ -457,15 +456,15 @@ void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion,
 	int posicionDelSocket = posicionSocket(socketCliente, clientes);
 	char codigoDelCliente = clientes[posicionDelSocket].identificador;
 	switch (codigoDelCliente) {
-	case KERNEL:
-		// TODO
-		break;
-	case CPU:
-		// TODO
-		break;
-	default:
-		printf("TODO, cod. de operación recibido: %d\n", codigoDeOperacion);
-		// TODO
+		case KERNEL:
+
+			break;
+		case CPU:
+			// TODO
+			break;
+		default:
+			printf("TODO, cod. de operación recibido: %d\n", codigoDeOperacion);
+			// TODO
 	}
 }
 void borrarCliente(int socketCliente, miCliente *clientes) {
@@ -704,7 +703,7 @@ void limpiarCliente(miCliente cliente) {
 void limpiarClientes(miCliente *clientes) { // TODO: no devuelve nada, hay que hacer que devuelva el array modificado
 	int i;
 	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		limpiarCliente(*clientes);
+		limpiarCliente(clientes[i]);
 		/*
 		 clientes[i].socketCliente = -1;
 		 clientes[i].identificador = 255;
