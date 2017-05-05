@@ -100,9 +100,14 @@ AnSISOP_kernel funcionesnucleo = {
 enum CodigoDeOperacion {
 	MENSAJE, // Mensaje a leer
 	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
-	EXCEPCION_DE_SOLICITUD, INSTRUCCION, PCB_INCOMPLETO,// Mensajes provenientes de procesos varios
+	EXCEPCION_DE_SOLICITUD, INSTRUCCION, PCB_INCOMPLETO, PEDIR_MEMORIA, // Mensajes provenientes de procesos varios
 	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO, // Mensajes provenientes de Kernel
-	PCB_COMPLETO // Mensajes provenientes de la CPU
+	PCB_COMPLETO, PCB_EXCEPCION, // Mensajes provenientes de la CPU
+	PEDIR_MEMORIA_OK // Mensajes provenientes de la memoria
+};
+
+enum UtilidadesCPU {
+	VARIABLE
 };
 
 typedef struct headerDeLosRipeados {
@@ -131,9 +136,16 @@ typedef struct posicionDeMemoria { // Esto es del stack
 	char size;
 }__attribute__((packed, aligned(1))) posicionDeMemoria;
 
+typedef struct listaDeVariables {
+	char identificador;
+	t_puntero posicionDeMemoria;
+
+	struct listaDeVariables * sgte;
+}__attribute__((packed, aligned(1))) listaDeVariables_t;
+
 typedef struct indiceStack {
-	t_list listaDeArgumentos;
-	t_list listaDeVariables;
+	t_list listaDeArgumentos; // Esta bien el tipo?
+	listaDeVariables_t listaDeVariables; // Esta bien el tipo?
 	char direccionDeRetorno;
 	posicionDeMemoria posicionDeLaVariableDeRetorno;
 }__attribute__((packed, aligned(1))) indiceStack;
@@ -172,7 +184,7 @@ void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
 void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
-void cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
+t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
 void solicitarPCB();
 void devolverPCB();
 void finalizarPrograma();
@@ -186,6 +198,11 @@ void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer);
 void obtenerInstruccionDeMemoria();
 void solicitarInstruccion();
 bool elProgramaEstaASalvo();
+t_puntero pedirMemoria(char contenido);
+void agregarAlStack(t_nombre_variable identificador_variable, t_puntero posicionEnMemoria);
+t_puntero analizarHeader(servidor servidor, void* bufferHeader);
+t_puntero obtenerPosicionDeMemoria();
+t_puntero pedirMemoria(char contenido);
 
 int main(void) {
 
@@ -290,10 +307,14 @@ void ejecutarInstruccion() {
 void devolverPCB() {
 	char codigo;
 
-	if(elProgramaNoFinalizo) {
-		codigo = PCB_INCOMPLETO;
+	if(elProgramaEstaASalvo()) {
+		if(elProgramaNoFinalizo) {
+			codigo = PCB_INCOMPLETO;
+		} else {
+			codigo = PCB_COMPLETO;
+		}
 	} else {
-		codigo = PCB_COMPLETO;
+		codigo = PCB_EXCEPCION;
 	}
 
 	int PCBSize = sizeof(actualPCB);
@@ -315,6 +336,7 @@ void devolverPCB() {
 
 	// limpiarActualPCB(); No haría realmente falta.. Pero sería más realista
 }
+
 
 /*
  * ↑ Trabajar ↑
@@ -358,7 +380,7 @@ int analizarHeader(servidor servidor) {
 }
 */
 
-int analizarHeader(servidor servidor, void* bufferHeader) {
+t_puntero analizarHeader(servidor servidor, void* bufferHeader) {
 	headerDeLosRipeados header;
 	deserializarHeader(&header, bufferHeader);
 	free(bufferHeader);
@@ -369,7 +391,7 @@ int analizarHeader(servidor servidor, void* bufferHeader) {
 			break;
 
 		case MEMORIA:
-			cumplirDeseosDeMemoria(header.codigoDeOperacion, header.bytesDePayload);
+			return cumplirDeseosDeMemoria(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		default:
@@ -419,7 +441,9 @@ void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload
 	}
 }
 
-void cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
+t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
+	t_puntero posicionEnMemoria;
+
 	switch(codigoDeOperacion) {
 	/*
 	 * No nos va a interesar que nos mande un msj.
@@ -430,21 +454,30 @@ void cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayloa
 	*/
 		case EXCEPCION_DE_SOLICITUD:
 			finalizarPrograma(memoria);
+			return -1;
 			break;
 
 		case INSTRUCCION:
 			obtenerInstruccionDeMemoria();
 			break;
 
+		case PEDIR_MEMORIA_OK:
+			return obtenerPosicionDeMemoria();
+			break;
+
 		default:
 			printf("TODO");
 			// TODO
 	}
+
+	return 2;
 }
+
 
 /*
  * ↑ Llega información de alguno de los servidores ↑
  */
+
 
 /*
  * ↓ Acatar ordenes de algunos de los servidores ↓
@@ -515,6 +548,7 @@ void obtenerInstruccionDeMemoria() {
 }
 */
 
+
 /*
  * ↑ Acatar ordenes de algunos de los servidores ↑
  */
@@ -523,6 +557,8 @@ void obtenerInstruccionDeMemoria() {
 /*
  * ↓ Comunicarse con los servidores ↓
  */
+
+
 
 /*
 char* pedirInstruccionAMemoria() {
@@ -574,9 +610,74 @@ char* pedirInstruccionAMemoria() {
 }
 */
 
+
+t_puntero pedirMemoria(char contenido) {
+	unsigned short tamanioAPedir;
+
+	switch(contenido) { // Esto es por diseño. Si algun día nos piden guardar otro tipo de contenido ya esta resuelto
+		case VARIABLE:
+			tamanioAPedir = 4;
+			break;
+
+		default:
+			printf("Ripeado");
+			// Ripeaste
+			// TODO
+	}
+
+	// Ahora pedimos la memoria correspondiente
+
+	headerDeLosRipeados miHeader;
+	miHeader.codigoDeOperacion = PEDIR_MEMORIA;
+	miHeader.bytesDePayload = tamanioAPedir; // Directamente lo ponemos acá.. No vamos a mandar mensaje al pedo.
+
+	char* bufferHeader;
+	char bufferHeaderSize = sizeof(miHeader);
+	bufferHeader = malloc(bufferHeaderSize);
+
+	serializarHeader(&miHeader, &bufferHeader);
+
+	send(memoria.socket, bufferHeader, bufferHeaderSize, 0);
+
+	// Ahora esperemos el ok
+
+	char bytesRecibidos;
+
+	do {
+		bytesRecibidos = recv(memoria.socket, bufferHeader, bufferHeaderSize, 0);
+	} while(bytesRecibidos <= 0);
+
+	// analizarHeader(memoria, &bufferHeader); // se me complica esto, ya que necesito que retorne un puntero
+
+	t_puntero posicionEnMemoria = analizarHeaderReservaMemoria(&bufferHeader);
+
+	return posicionEnMemoria;
+
+}
+
+t_puntero obtenerPosicionDeMemoria() {
+	t_puntero posicionMemoria;
+
+	char* mensajePosicion;
+	mensajePosicion = malloc(sizeof(t_puntero));
+
+	unsigned int bytesRecibidos;
+
+	recv(memoria.socket, mensajePosicion, sizeof(t_puntero), 0);
+
+	posicionMemoria = atoi(mensajePosicion);
+
+	return posicionMemoria;
+}
+
+void agregarAlStack(t_nombre_variable identificador_variable, t_puntero posicionEnMemoria) {
+//	actualPCB.indiceDeStack.listaDeVariables.add(identificador_variable, posicionEnMemoria);
+}
+
 /*
  * ↑ Comunicarse con los servidores ↑
  */
+
 
 /*
  * ↓ Configuración del CPU y conexión a los servidores ↓
@@ -723,9 +824,12 @@ void logearError(char* formato, int terminar , ...) {
 	if (terminar==true) exit(0);
 }
 
+
 /*
  * ↑ Logeos del CPU ↑
  */
+
+
 
 /*
  * ↓ Funciones auxiliares del CPU ↓
@@ -777,17 +881,31 @@ void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer) { 
 
 }
 
+
 /*
  * ↑ Funciones auxiliares del CPU ↑
  */
+
 
 /*
  * ↓ Parsear tranqui ↓
  */
 
-t_puntero definirVariable(t_nombre_variable identificador_variable) { // TODO
+t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("Se definio una variable con el caracter %c", identificador_variable);
-	return 1;
+
+	t_puntero posicionEnMemoria;
+	posicionEnMemoria = pedirMemoriaYAgregarAlStack(VARIABLE);
+
+	if(posicionEnMemoria <= 0) { // Se rompio en algun lado
+		programaVivitoYColeando = false;
+		actualPCB.exitCode = EXCEPCION_MEMORIA;
+		return posicionEnMemoria;
+	}
+
+	agregarAlStack(identificador_variable, posicionEnMemoria);
+
+	return posicionEnMemoria;
 }
 
 t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) { // TODO
