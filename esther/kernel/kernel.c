@@ -66,6 +66,7 @@ int GRADO_MULTIPROG;
 //SHARED_VARS
 int STACK_SIZE;
 int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
+int memoria; //el socket de la memoria
 
 //-----PROTOTIPOS DE FUNCIONES-----//
 void 	agregarCliente(char, int);
@@ -84,8 +85,6 @@ int 	recibirHandshake(int);
 int 	recibirHeader(int);
 int 	recibirMensaje(int, int);
 int 	tipoCliente(int);
-
-
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -152,12 +151,16 @@ int main(void) {
     FD_ZERO(&conectados);
     FD_ZERO(&read_fds);
 
+    int fdmax;	// valor maximo de los FDs
+
+    conectar(&memoria,IP_MEMORIA,PUERTO_MEMORIA);
+    handshake(memoria,KERNEL); //KERNEL = 4
+
+    fdmax = memoria>servidor?memoria:servidor; //la pajilla mental
+
     FD_SET(servidor, &conectados);
     FD_SET(fileno(stdin), &conectados);
-
-    int fdmax;	// valor maximo de los FDs
-    fdmax = servidor; // Por ahora hay un solo socket, por eso es el maximo
-
+    FD_SET(memoria, &conectados);
 
     for(;;) {
         read_fds = conectados;
