@@ -133,7 +133,8 @@ void *get_in_addr(struct sockaddr *sa) {
 
 int main(void) {
 
-	crearMemoria();
+	char *memoria;
+	crearMemoria(&memoria);
 
 	cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 
@@ -195,15 +196,20 @@ int main(void) {
 	}
 	logearInfo("Estoy escuchando\n");
 
+	//unsigned long int idHilos[10]={0};
+
 //	interaccionMemoria();
 	for (;;) {
 
-		struct sockaddr_in direccionCliente;
+		// Funcion Bloqueante
 
+		// chequear idHilo
+
+		//
+		struct sockaddr_in direccionCliente;
 		pthread_t tid; // Identificador del hilo
 		pthread_attr_t atributos; // Atributos del hilo(pordefecto)
 		pthread_attr_init(&atributos);
-
 		socklen_t addrlen = sizeof direccionCliente;
 		int nuevoCliente; // Socket del nuevo cliente conectado
 		nuevoCliente = accept(servidor, (struct sockaddr *) &direccionCliente,
@@ -218,6 +224,8 @@ int main(void) {
 				direccionIP, INET_ADDRSTRLEN);
 		logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP,
 				nuevoCliente);
+		//
+
 	}
 }
 
@@ -274,7 +282,7 @@ int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
 				if (header.codigoDeOperacion != KERNEL) { // Si es una CPU que se conecte tranqui
 					agregarCliente(header.codigoDeOperacion, socketCliente,
 							clientes);
-					return 0; // es una CPU
+					return CPU;
 				} else { // Verificar si ya se metió un Kernel
 					if (hayAlguienQueSea(KERNEL, clientes)) {
 						logearError(
@@ -284,7 +292,7 @@ int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
 					} else {
 						agregarCliente(header.codigoDeOperacion, socketCliente,
 								clientes);
-						return 1; // es el KERNEL
+						return KERNEL;
 					}
 				}
 			} else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
@@ -435,7 +443,7 @@ void logearError(char* formato, int terminar, ...) {
 
 void establecerConfiguracion() {
 	if (config_has_property(config, "PUERTO")) {
-		strcpy(PUERTO,config_get_string_value(config, "PUERTO"));
+		strcpy(PUERTO, config_get_string_value(config, "PUERTO"));
 		logearInfo("PUERTO: %s \n", PUERTO);
 	} else {
 		logearError("Error al leer el puerto de la memoria", true);
@@ -453,7 +461,7 @@ void establecerConfiguracion() {
 		logearInfo("MARCO_SIZE: %i \n", MARCO_SIZE);
 	} else {
 		logearError("Error al leer los tamaños de los marcos de la memoria",
-				true);
+		true);
 	}
 
 	if (config_has_property(config, "ENTRADAS_CACHE")) {
@@ -510,7 +518,7 @@ void configurar(char* quienSoy) {
 	} else {
 		config = config_create(string_from_format("../%s", RUTA_CONFIG));
 		logger = log_create(string_from_format("../%s", RUTA_LOG), quienSoy,
-				false, LOG_LEVEL_INFO);
+		false, LOG_LEVEL_INFO);
 	}
 
 	//Si la cantidad de valores establecidos en la configuración
@@ -665,9 +673,9 @@ void interaccionMemoria() {
 	}
 }
 
-void crearMemoria() {
+void crearMemoria(char **mem) {
 
-	char *memoria = malloc(MARCOS * MARCO_SIZE);
+	*mem = malloc(MARCOS * MARCO_SIZE);
 
 }
 
@@ -697,13 +705,21 @@ void *fHilo(void *runner_param) {
 
 		switch (estado) {
 
-		case 0:
-			respuesta = "Header recibido";
+		case CPU:
+			respuesta = "Header del CPU recibido";
 			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			while (1) {
+
+			}
 			break;
-		case 1:
-			respuesta = "Header recibido";
+
+		case KERNEL:
+			respuesta = "Header del Kernel recibido";
 			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			while (1) {
+
+				recv(runner->numCliente, buffer, buffersize, 0);
+			}
 			break;
 		case -1:
 			send(runner->numCliente, "Error, desconectado", 20, 0);
@@ -716,5 +732,73 @@ void *fHilo(void *runner_param) {
 
 	}
 
+}
+
+int analizarHeaderMemoria(int socketCliente, void* bufferHeader,
+		miCliente *clientes) {
+	headerDeLosRipeados header;
+	deserializarHeader(&header, bufferHeader);
+	int posicionDelSocket = posicionSocket(socketCliente, clientes);
+
+	switch (header.codigoDeOperacion) {
+	case 32:
+		iniciarPrograma(); // TODO
+		break;
+	case 45:
+		finalizarPrograma(); // TODO
+		break;
+
+	default:
+
+		if (header.codigoDeOperacion == CPU
+				|| header.codigoDeOperacion == KERNEL) {
+			if (hayLugar(clientes) != -1) { // Si hay lugar para alguien más
+				// No estaba antes en el array de clientes
+				if (posicionDelSocket < 0) {
+					if (header.codigoDeOperacion != KERNEL) { // Si es una CPU que se conecte tranqui
+						agregarCliente(header.codigoDeOperacion, socketCliente,
+								clientes);
+						return CPU;
+					} else { // Verificar si ya se metió un Kernel
+						if (hayAlguienQueSea(KERNEL, clientes)) {
+							logearError(
+									"El cliente %i intentó conectarse como Kernel ya habiendo uno\n",
+									false, socketCliente); // Hay que logear acá?
+							return -1;
+						} else {
+							agregarCliente(header.codigoDeOperacion,
+									socketCliente, clientes);
+							return KERNEL;
+						}
+					}
+				} else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
+					return -1; // Otro cacho de código se va a encargar de borrarlo
+				}
+			} else {
+				return -1; // No hay lugar
+			}
+		}
+
+		else if (header.codigoDeOperacion == MENSAJE) {
+			if (header.bytesDePayload <= 0) {
+				logearError(
+						"El cliente %i intentó mandar un mensaje sin contenido\n",
+						false, socketCliente);
+				return -1;
+			} else {
+				leerMensaje(socketCliente, header.bytesDePayload, clientes);
+			}
+		}
+
+		else {
+			if (posicionDelSocket >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
+				analizarCodigosDeOperacion(socketCliente,
+						header.codigoDeOperacion, clientes);
+			} else { //Header no reconocido, chau cliente intruso
+				return -1;
+			}
+		}
+		return 0;
+	}
 }
 
