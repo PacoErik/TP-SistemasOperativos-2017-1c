@@ -34,11 +34,11 @@ void 			desconectarConsola();
 void 			desconectarPrograma();
 void 			eliminarProceso(int);
 void 			enviarHeader(int, char, int);
-void 			enviarMensaje();
+void 			enviarMensaje(char*);
 void 			establecerConfiguracion();
 pthread_t		hiloIDPrograma(int);
 void 			imprimirOpcionesDeConsola();
-static void* 	iniciarPrograma(void*);
+void*		 	iniciarPrograma(void*);
 void 			interaccionConsola();
 void 			limpiarBufferEntrada();
 void 			limpiarPantalla();
@@ -75,13 +75,7 @@ void agregarProceso(int PID, pthread_t hiloID, time_t inicio) {
 	nuevoProceso->cantidadImpresiones = 0;
 	list_add(procesos, nuevoProceso);
 }
-void configurarPrograma() {
-	char* ruta = calloc(64,sizeof(char));
-	//calloc es similar a malloc pero inicializa cada valor a 0
-	printf("Ingresar ruta: ");
-	fgets(ruta, 64, stdin);
-	removerSaltoDeLinea(ruta);
-
+void configurarPrograma(char *ruta) {
 	pthread_attr_t attr;
 	pthread_t hiloPrograma;
 
@@ -154,21 +148,29 @@ void enviarHeader(int socket, char operacion, int bytes) {
 	send(socket, headerComprimido, headerSize, 0);
 	free(headerComprimido);
 }
-void enviarMensaje() {
-	char mensaje[512] = "";
+void enviarMensaje(char *param) {
+	char mensaje[512];
+	memset(mensaje, 0, sizeof mensaje);
 
-	do {
-		printf("\nEscribir mensaje: ");
-		fgets(mensaje, sizeof mensaje, stdin);
-		removerSaltoDeLinea(mensaje);
-		if (strlen(mensaje) == 0) {
-			printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
-		}
-	} while (strlen(mensaje) == 0);
+	if (strlen(param) == 0) {
+		free(param);
+		do {
+			printf("\nEscribir mensaje: ");
+			fgets(mensaje, sizeof mensaje, stdin);
+			removerSaltoDeLinea(mensaje);
+			if (strlen(mensaje) == 0) {
+				printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
+			}
+		} while (strlen(mensaje) == 0);
+	}
+	else {
+		strcpy(mensaje, param);
+		free(param);
+	}
 
 	int bytes = strlen(mensaje);
 
-	enviarHeader(servidor,MENSAJE,bytes);
+	enviarHeader(servidor, MENSAJE, bytes);
 	send(servidor, mensaje, bytes, 0);
 }
 void establecerConfiguracion() {
@@ -195,20 +197,27 @@ pthread_t hiloIDPrograma(int PID) {
 	}
 	return elemento->hiloID;
 }
-void imprimirOpcionesDeConsola() {
-	printf("\n--------------------\n");
-	printf("\n");
-	printf("BIENVENIDO A LA CONSOLA\n");
-	printf("SUS OPCIONES:\n");
-	printf("\n");
-	printf("1. Iniciar programa AnSISOP\n");
-	printf("2. Finalizar programa AnSISOP\n");
-	printf("3. Desconectar consola\n");
-	printf("4. Enviar mensaje\n");
-	printf("5. Limpiar mensajes\n");
-	printf("6. Mostrar opciones nuevamente\n");
-	printf("\n");
-	printf("--------------------\n");
+inline void imprimirOpcionesDeConsola() {
+	printf(
+			"\n--------------------\n"
+			"\n"
+			"BIENVENIDO A LA CONSOLA\n\n"
+			"Lista de comandos: \n\n"
+			"iniciar [RUTA]\n"
+				"\tIniciar programa AnSISOP\n\n"
+			"finalizar [PID]\n"
+				"\tFinalizar programa AnSISOP\n\n"
+			"salir\n"
+				"\tDesconectar consola\n\n"
+			"mensaje\n"
+				"\tEnviar mensaje\n\n"
+			"mensaje [MENSAJE]\n"
+				"\tEnviar mensaje\n\n"
+			"limpiar\n"
+				"\tLimpiar mensajes\n\n"
+			"opciones\n"
+				"\tMostrar opciones\n"
+	);
 }
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
@@ -218,7 +227,7 @@ void* iniciarPrograma(void* arg) {
 
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
-	logearInfo("Ruta ingresada:%s",ruta);
+	logearInfo("Ruta ingresada: %s",ruta);
 	if (!existeArchivo(ruta)) {
 		logearError("No se encontró el archivo %s",false,ruta);
 		return NULL;
@@ -245,9 +254,12 @@ void* iniciarPrograma(void* arg) {
 		agregarProceso(PID,id_hilo,inicio);
 	} else if (bytes == 0) {
 		logearError("Archivo vacio: %s", false, ruta);
+		free(arg);
+		free(codigo); // Hay que ver si codigo no es NULL cuando no se leyo nada
 		return NULL;
 	} else {
 		logearError("No se pudo leer el archivo: %s", false, ruta);
+		free(arg);
 		return NULL;
 	}
 
@@ -259,80 +271,140 @@ void* iniciarPrograma(void* arg) {
 	return NULL;
 }
 void interaccionConsola() {
-	enum OpcionConsola {
-		EJECUTAR_PROGRAMA=1, DESCONECTAR_PROGRAMA, DESCONECTAR_CONSOLA,
-		ENVIAR_MENSAJE, LIMPIAR_PANTALLA, IMPRIMIR_OPCIONES
+	struct comando {
+		char *nombre;
+		void (*funcion) (char *param);
 	};
+
+	void iniciar(char *ruta) {
+		logearInfo("Comando de inicio de programa ejecutado");
+		string_trim(&ruta);
+
+		if (strlen(ruta) == 0) {
+			logearError("El comando \"iniciar\" recibe un parametro [RUTA]", false);
+			free(ruta);
+			return;
+		}
+
+		configurarPrograma(ruta);
+	}
+
+	void finalizar(char *sPID) {
+		logearInfo("Comando de desconexión de programa ejecutado");
+
+		string_trim(&sPID);
+
+		if (strlen(sPID) == 0) {
+			logearError("El comando \"finalizar\" recibe un parametro [PID]", false);
+			free(sPID);
+			return;
+		}
+
+		if (!soloNumeros(sPID)) {
+			logearError("Error: \"%s\" no es un PID valido!", false, sPID);
+			free(sPID);
+			return;
+		}
+
+		int PID = strtol(sPID, NULL, 0);
+		free(sPID);
+
+		desconectarPrograma(PID);
+	}
+
+	void salir(char *param) {
+		logearInfo("Comando de apagado de consola ejecutado");
+		string_trim(&param);
+		if (strlen(param) != 0) {
+			logearError("El comando \"desconectar\" no recibe nungun parametro", false);
+			free(param);
+			return;
+		}
+		free(param);
+		desconectarConsola();
+	}
+
+	void mensaje(char *param) {
+		logearInfo("Comando de envío de mensaje ejecutado");
+		enviarMensaje(param);
+	}
+
+	void limpiar(char *param) {
+		string_trim(&param);
+		if (strlen(param) != 0) {
+			logearError("El comando \"limpiar\" no recibe nungun parametro", false);
+			free(param);
+			return;
+		}
+		free(param);
+		limpiarPantalla();
+	}
+
+	void opciones(char *param) {
+		string_trim(&param);
+		if (strlen(param) != 0) {
+			logearError("El comando \"opciones\" no recibe nungun parametro", false);
+			free(param);
+			return;
+		}
+		free(param);
+		imprimirOpcionesDeConsola();
+	}
+
+	struct comando comandos[] = {
+		{ "iniciar", iniciar },
+		{ "finalizar", finalizar },
+		{ "salir", salir },
+		{ "mensaje", mensaje },
+		{ "limpiar", limpiar },
+		{ "opciones", opciones }
+	};
+
 	imprimirOpcionesDeConsola();
-	char input[3];
+
+	char input[100];
 	while (1) {
 		memset(input, 0, sizeof input);
 		fgets(input, sizeof input, stdin);
+
 		if (strlen(input) == 1) {
 			continue;
 		}
-		removerSaltoDeLinea(input);
 
-		int opcion = input[0] - '0';
-
-		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-		if ((strlen(input) != 1) || EJECUTAR_PROGRAMA > opcion
-				|| opcion > IMPRIMIR_OPCIONES) {
-			printf("Coloque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+		if (input[strlen(input) - 1] != '\n') {
+			logearError("Un comando no puede tener mas de 100 digitos", false);
 			limpiarBufferEntrada();
 			continue;
 		}
 
-		switch (opcion) {
-			case EJECUTAR_PROGRAMA: {
-				logearInfo("Comando de inicio de programa ejecutado");
-				configurarPrograma();
-				break;
-			}
-			case DESCONECTAR_PROGRAMA: {
-				logearInfo("Comando de desconexión de programa ejecutado");
-				char sPID[12]; // String que representa PID
-				printf("Ingresar PID: ");
-				fgets(sPID, sizeof sPID, stdin);
-				if (strlen(sPID) == 1) {
-					logearError("PID invalido", false);
-				}
-				if (sPID[strlen(sPID) - 1] != '\n') {
-					logearError("PID no puede tener mas de 10 digitos", false);
-					limpiarBufferEntrada();
-					break;
-				}
-				removerSaltoDeLinea(sPID);
-				if (!soloNumeros(sPID)) {
-					logearError("PID debe ser un numero", false);
-					break;
-				}
-				int PID = strtoul(sPID, NULL, 0);
-				desconectarPrograma(PID);
-				break;
-			}
-			case DESCONECTAR_CONSOLA: {
-				logearInfo("Comando de apagado de consola ejecutado");
-				desconectarConsola();
-				break;
-			}
-			case ENVIAR_MENSAJE: {
-				logearInfo("Comando de envío de mensaje ejecutado");
-				enviarMensaje();
-				break;
-			}
-			case LIMPIAR_PANTALLA: {
-				limpiarPantalla();
-				break;
-			}
-			case IMPRIMIR_OPCIONES: {
-				imprimirOpcionesDeConsola();
+		removerSaltoDeLinea(input);
+
+		char *inputline = strdup(input); // Si no hago eso, string_trim se rompe
+		string_trim_left(&inputline); // Elimino espacios a la izquierda
+
+		char *cmd = NULL; // Comando
+		char *save = NULL; // Apunta al primer caracter de los siguentes caracteres sin parsear
+		char *delim = " ,"; // Separador
+
+		// strtok_r(3) devuelve un token leido
+		cmd = strtok_r(inputline, delim, &save); // Comando va a ser el primer token
+
+		int i;
+		// La division de los sizeof me calcula la cantidad de comandos
+		for (i = 0; i < (sizeof comandos / sizeof *comandos); i++) {
+			char *_cmd = comandos[i].nombre;
+			if (strcmp(cmd, _cmd) == 0) {
+				char *param = strdup(save); // Para no pasarle save por referencia
+				comandos[i].funcion(param);
 				break;
 			}
 		}
+		if (i == (sizeof comandos / sizeof *comandos)) {
+			logearError("Error: %s no es un comando", false, cmd);
+		}
 	}
 }
-void limpiarBufferEntrada() {
+inline void limpiarBufferEntrada() {
 	int c;
 	while ((c = getchar()) != '\n' && c != EOF);
 }
