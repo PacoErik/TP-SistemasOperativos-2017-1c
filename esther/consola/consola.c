@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include "qepd/qepd.h"
 #include <string.h>
+#include <signal.h>
 
 //-----DEFINES-----//
 #define DURACION(INICIO) ((double)(clock() - INICIO) / CLOCKS_PER_SEC)
@@ -41,6 +42,7 @@ static void* 	iniciarPrograma(void*);
 void 			interaccionConsola();
 void 			limpiarBufferEntrada();
 void 			limpiarPantalla();
+void 			manejarSignalApagado(int);
 void 			procesarOperacion(char, int);
 void* 			recibirHeaders(void*);
 char*			removerSaltoDeLinea(char*);
@@ -48,6 +50,9 @@ int				soloNumeros(char*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
+
+	signal(SIGINT, manejarSignalApagado);
+	signal(SIGTERM, manejarSignalApagado);
 
 	procesos = list_create();
 	configurar("consola");
@@ -109,7 +114,6 @@ void desconectarPrograma(int PID) {
 	send(servidor, &PID, sizeof PID, 0);
 
 	pthread_cancel(TID);
-	pthread_join(TID, NULL);
 
 	_Bool mismoPID(void* elemento) {
 			return PID == ((proceso *) elemento)->PID;
@@ -334,6 +338,9 @@ void limpiarBufferEntrada() {
 }
 void limpiarPantalla() {
 	printf("\033[H\033[J");
+}
+void manejarSignalApagado(int sig) {
+   desconectarConsola();
 }
 void procesarOperacion(char operacion, int bytes) {
 	switch (operacion) {
