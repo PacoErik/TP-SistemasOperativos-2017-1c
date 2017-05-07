@@ -241,13 +241,13 @@ int main(void) {
 					int bytesDePayload = header.bytesDePayload;
 					int codigoDeOperacion = header.codigoDeOperacion;
 
+					//Confirmación del header (algún día vamos a sacar esto..)
+					//char *respuesta = "Header recibido";
+					//enviarHeader(i, MENSAJE, strlen(respuesta));
+					//send(i, respuesta, strlen(respuesta), 0);
+
 					//Procesar operación del header
 					procesarMensaje(i,codigoDeOperacion,bytesDePayload);
-
-					//Confirmación de mensaje (algún día vamos a sacar esto..)
-					char *respuesta = "Header recibido y procesado :)";
-					enviarHeader(i, MENSAJE, strlen(respuesta));
-					send(i, respuesta, strlen(respuesta), 0);
 				}
 			}
         }
