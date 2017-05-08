@@ -231,6 +231,9 @@ void* iniciarPrograma(void* arg) {
 	if (!existeArchivo(ruta)) {
 		logearError("No se encontró el archivo %s",false,ruta);
 		return NULL;
+	} else if (!string_ends_with(ruta,".ansisop")) {
+		logearError("El archivo %s no es un programa válido",false,ruta);
+		return NULL;
 	}
 
 	//Lectura y envío del programa
@@ -250,8 +253,9 @@ void* iniciarPrograma(void* arg) {
 
 	if (bytes > 0) {
 		enviarHeader(servidor, INICIAR_PROGRAMA, bytes);
-		send(servidor, codigo, bytes, 0);
 		agregarProceso(PID,id_hilo,inicio);
+		logearInfo("[Programa] Petición de inicio de %s enviada",ruta);
+		send(servidor, codigo, bytes, 0);
 	} else if (bytes == 0) {
 		logearError("Archivo vacio: %s", false, ruta);
 		free(arg);
