@@ -1,5 +1,6 @@
 #include "qepd.h"
 #include <string.h>
+#include <errno.h>
 
 void conectar(int* servidor,char* IP,int PUERTO) {
 	struct sockaddr_in direccionServidor;
@@ -52,15 +53,18 @@ void enviarHeader(int socket, char operacion, int bytes) {
 	send(socket, headerComprimido, headerSize, 0);
 	free(headerComprimido);
 }
-int existeArchivo(const char *ruta)
-{
-    FILE *archivo;
-    if ((archivo = fopen(ruta, "r")))
-    {
-        fclose(archivo);
-        return true;
+int existeArchivo(const char *ruta) {
+    FILE *archivo = fopen(ruta, "r+");
+
+    if (archivo == NULL) {
+    	if (errno == EISDIR) {
+    		logearError("Error: \"%s\" es un directorio", false, ruta);
+    	}
+		return false;
     }
-    return false;
+
+    fclose(archivo);
+    return true;
 }
 void handshake(int socket, char operacion) {
 	logearInfo("Enviando saludo al servidor");
