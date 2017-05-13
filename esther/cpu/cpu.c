@@ -100,14 +100,10 @@ AnSISOP_kernel funcionesnucleo = {
 enum CodigoDeOperacion {
 	MENSAJE, // Mensaje a leer
 	CONSOLA, MEMORIA, FILESYSTEM, CPU, KERNEL, // Identificador de un proceso
-	EXCEPCION_DE_SOLICITUD, INSTRUCCION, PCB_INCOMPLETO, PEDIR_MEMORIA, // Mensajes provenientes de procesos varios
+	EXCEPCION_DE_SOLICITUD, INSTRUCCION, PCB_INCOMPLETO, PEDIR_MEMORIA_VARIABLE, // Mensajes provenientes de procesos varios
 	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO, CERRAR_ARCHIVO, // Mensajes provenientes de Kernel
 	PCB_COMPLETO, PCB_EXCEPCION, // Mensajes provenientes de la CPU
 	PEDIR_MEMORIA_OK // Mensajes provenientes de la memoria
-};
-
-enum UtilidadesCPU {
-	VARIABLE
 };
 
 typedef struct headerDeLosRipeados {
@@ -136,18 +132,32 @@ typedef struct posicionDeMemoria { // Esto es del stack
 	char size;
 }__attribute__((packed, aligned(1))) posicionDeMemoria;
 
-typedef struct listaDeVariables {
+typedef struct argumento {
 	char identificador;
+	/*
+	char numeroDePagina;
+	char offset;
+	char size;
+	*/
 	t_puntero posicionDeMemoria;
+}__attribute__((packed, aligned(1))) argumento;
 
-	struct listaDeVariables * sgte;
-}__attribute__((packed, aligned(1))) listaDeVariables_t;
+typedef struct variable {
+	char identificador;
+	/*
+	char numeroDePagina;
+	char offset;
+	char size;
+	*/
+	t_puntero posicionDeMemoria;
+}__attribute__((packed, aligned(1))) variable;
 
 typedef struct indiceStack {
 	t_list listaDeArgumentos; // Esta bien el tipo?
-	listaDeVariables_t listaDeVariables; // Esta bien el tipo?
+	t_list listaDeVariables; // Esta bien el tipo?
 	char direccionDeRetorno;
-	posicionDeMemoria posicionDeLaVariableDeRetorno;
+	t_puntero posicionDeLaVariableDeRetorno;
+	// posicionDeMemoria posicionDeLaVariableDeRetorno;
 }__attribute__((packed, aligned(1))) indiceStack;
 
 typedef struct PCB {
@@ -159,6 +169,13 @@ typedef struct PCB {
 	indiceStack indiceDeStack;
 	int8_t exitCode;
 }__attribute__((packed, aligned(1))) PCB;
+
+typedef struct instruccionAPedir {
+	char processID;
+	char numeroDePagina;
+	char offset;
+	char size;
+}__attribute__((packed, aligned(1))) instruccionAPedir;
 
 typedef struct servidor { // Esto es más que nada una cheteada para poder usar al socket/identificador como constante en los switch
 	int socket;
@@ -183,7 +200,7 @@ void deserializarHeader(headerDeLosRipeados *, void *);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
-void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
+t_puntero cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
 t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
 void solicitarPCB();
 void devolverPCB();
@@ -193,16 +210,18 @@ void comenzarTrabajo();
 void serializarPCB(PCB *miPCB, void *bufferPCB);
 void deserializarPCB(PCB *miPCB, void *bufferPCB);
 void ejecutarInstruccion();
-void serializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer);
+void serializarPosicionInstruccion(instruccionAPedir *instruccion, void *buffer);
 void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer);
 void obtenerInstruccionDeMemoria();
 void solicitarInstruccion();
 bool elProgramaEstaASalvo();
-t_puntero pedirMemoria(char contenido);
+t_puntero pedirMemoria();
 void agregarAlStack(t_nombre_variable identificador_variable, t_puntero posicionEnMemoria);
 t_puntero analizarHeader(servidor servidor, void* bufferHeader);
 t_puntero obtenerPosicionDeMemoria();
-t_puntero pedirMemoria(char contenido);
+t_puntero recibirAlgoDe(servidor servidor);
+void leerMensaje(servidor servidor, unsigned short bytesDePayload);
+
 
 int main(void) {
 
@@ -235,15 +254,7 @@ void comenzarTrabajo() {
 }
 
 void solicitarPCB() {
-	int bufferHeaderSize = sizeof(headerDeLosRipeados);
-	void *bufferHeader = malloc(bufferHeaderSize);
-	int bytesRecibidos;
-
-	do {
-		bytesRecibidos = recv(kernel.socket, bufferHeader, bufferHeaderSize, 0);
-	} while(bytesRecibidos <= 0);
-
-	analizarHeader(kernel, bufferHeader);
+	recibirAlgoDe(kernel);
 }
 
 void solicitarInstruccion() {
@@ -251,7 +262,8 @@ void solicitarInstruccion() {
 		return;
 	}
 
-	indiceCodigo instruccion;
+	instruccionAPedir instruccion;
+	instruccion.processID = actualPCB.processID;
 	instruccion.numeroDePagina = actualPCB.indiceDeCodigo.numeroDePagina;
 	instruccion.offset = actualPCB.indiceDeCodigo.offset;
 	instruccion.size = actualPCB.indiceDeCodigo.size;
@@ -279,13 +291,7 @@ void solicitarInstruccion() {
 
 	// Ahora esperamos la instruccion
 
-	int bytesRecibidos;
-
-	do {
-		bytesRecibidos = recv(memoria.socket, bufferHeader, bufferHeaderSize, 0);
-	} while(bytesRecibidos <= 0);
-
-	analizarHeader(memoria, bufferHeader);
+	recibirAlgoDe(memoria);
 
 }
 
@@ -337,7 +343,6 @@ void devolverPCB() {
 	// limpiarActualPCB(); No haría realmente falta.. Pero sería más realista
 }
 
-
 /*
  * ↑ Trabajar ↑
  */
@@ -380,6 +385,26 @@ int analizarHeader(servidor servidor) {
 }
 */
 
+t_puntero recibirAlgoDe(servidor servidor) {
+	int bufferHeaderSize = sizeof(headerDeLosRipeados);
+	void *bufferHeader = malloc(bufferHeaderSize);
+	unsigned int bytesRecibidos;
+
+	t_puntero respuesta;
+
+	do {
+
+		do {
+			bytesRecibidos = recv(servidor.socket, bufferHeader, bufferHeaderSize, 0);
+		} while(bytesRecibidos <= 0); // Algo anda mal, segui esperando el mensaje
+
+		respuesta = analizarHeader(servidor, bufferHeader);
+
+	} while(respuesta == 2); // Quiere decir que es un mensaje, hay que volver a iterar
+
+	return respuesta;
+}
+
 t_puntero analizarHeader(servidor servidor, void* bufferHeader) {
 	headerDeLosRipeados header;
 	deserializarHeader(&header, bufferHeader);
@@ -387,7 +412,7 @@ t_puntero analizarHeader(servidor servidor, void* bufferHeader) {
 
 	switch(servidor.identificador) {
 		case KERNEL:
-			cumplirDeseosDeKernel(header.codigoDeOperacion, header.bytesDePayload);
+			return cumplirDeseosDeKernel(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		case MEMORIA:
@@ -399,18 +424,15 @@ t_puntero analizarHeader(servidor servidor, void* bufferHeader) {
 			exit(EXIT_FAILURE);
 	}
 
-	return 1;
+	return 0; // Hubo un problema
 }
 
-void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload) {
+t_puntero cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload) {
 	switch(codigoDeOperacion) {
-		/*
-		 * No nos va a interesar que nos mande un msj.
-		 *
 		case MENSAJE:
 			leerMensaje(kernel, bytesDePayload);
+			return 2;
 			break;
-		*/
 		case EXCEPCION_DE_SOLICITUD:
 			finalizarPrograma(kernel);
 			break;
@@ -439,6 +461,8 @@ void cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload
 			printf("TODO");
 			// TODO
 	}
+
+	return 1;
 }
 
 t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
@@ -454,7 +478,7 @@ t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDeP
 	*/
 		case EXCEPCION_DE_SOLICITUD:
 			finalizarPrograma(memoria);
-			return -1;
+			return 0;
 			break;
 
 		case INSTRUCCION:
@@ -470,14 +494,12 @@ t_puntero cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDeP
 			// TODO
 	}
 
-	return 2;
+	return 1;
 }
-
 
 /*
  * ↑ Llega información de alguno de los servidores ↑
  */
-
 
 /*
  * ↓ Acatar ordenes de algunos de los servidores ↓
@@ -516,7 +538,6 @@ void finalizarPrograma(servidor servidor) {
 
 }
 
-/*
 void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
     if(bytesDePayload <= 0) {
     	// Concha tuya. TODO
@@ -546,19 +567,14 @@ void obtenerInstruccionDeMemoria() {
 	// Habria que verificar que actualInstruccion contenga info? Re persecuta
 
 }
-*/
-
 
 /*
  * ↑ Acatar ordenes de algunos de los servidores ↑
  */
 
-
 /*
  * ↓ Comunicarse con los servidores ↓
  */
-
-
 
 /*
 char* pedirInstruccionAMemoria() {
@@ -610,26 +626,11 @@ char* pedirInstruccionAMemoria() {
 }
 */
 
-
-t_puntero pedirMemoria(char contenido) {
-	unsigned short tamanioAPedir;
-
-	switch(contenido) { // Esto es por diseño. Si algun día nos piden guardar otro tipo de contenido ya esta resuelto
-		case VARIABLE:
-			tamanioAPedir = 4;
-			break;
-
-		default:
-			printf("Ripeado");
-			// Ripeaste
-			// TODO
-	}
-
-	// Ahora pedimos la memoria correspondiente
+t_puntero pedirMemoria() {
 
 	headerDeLosRipeados miHeader;
-	miHeader.codigoDeOperacion = PEDIR_MEMORIA;
-	miHeader.bytesDePayload = tamanioAPedir; // Directamente lo ponemos acá.. No vamos a mandar mensaje al pedo.
+	miHeader.codigoDeOperacion = PEDIR_MEMORIA_VARIABLE;
+	miHeader.bytesDePayload = actualPCB.processID; // Acá pongo el ID del proceso que pide memoria
 
 	char* bufferHeader;
 	char bufferHeaderSize = sizeof(miHeader);
@@ -641,15 +642,7 @@ t_puntero pedirMemoria(char contenido) {
 
 	// Ahora esperemos el ok
 
-	char bytesRecibidos;
-
-	do {
-		bytesRecibidos = recv(memoria.socket, bufferHeader, bufferHeaderSize, 0);
-	} while(bytesRecibidos <= 0);
-
-	// analizarHeader(memoria, &bufferHeader); // se me complica esto, ya que necesito que retorne un puntero
-
-	t_puntero posicionEnMemoria = analizarHeaderReservaMemoria(&bufferHeader);
+	t_puntero posicionEnMemoria = recibirAlgoDe(memoria);
 
 	return posicionEnMemoria;
 
@@ -663,7 +656,11 @@ t_puntero obtenerPosicionDeMemoria() {
 
 	unsigned int bytesRecibidos;
 
-	recv(memoria.socket, mensajePosicion, sizeof(t_puntero), 0);
+	bytesRecibidos = recv(memoria.socket, mensajePosicion, sizeof(t_puntero), 0);
+
+	if(bytesRecibidos <= 0) {
+		// TODO memoria del ort
+	}
 
 	posicionMemoria = atoi(mensajePosicion);
 
@@ -671,7 +668,12 @@ t_puntero obtenerPosicionDeMemoria() {
 }
 
 void agregarAlStack(t_nombre_variable identificador_variable, t_puntero posicionEnMemoria) {
-//	actualPCB.indiceDeStack.listaDeVariables.add(identificador_variable, posicionEnMemoria);
+	variable nuevaVariable;
+
+	nuevaVariable.identificador = identificador_variable;
+	nuevaVariable.posicionDeMemoria = posicionEnMemoria;
+
+	list_add(&actualPCB.indiceDeStack.listaDeVariables, &nuevaVariable);
 }
 
 /*
@@ -824,12 +826,9 @@ void logearError(char* formato, int terminar , ...) {
 	if (terminar==true) exit(0);
 }
 
-
 /*
  * ↑ Logeos del CPU ↑
  */
-
-
 
 /*
  * ↓ Funciones auxiliares del CPU ↓
@@ -873,7 +872,7 @@ void deserializarPCB(PCB *miPCB, void *bufferPCB) { // TODO
 	// hora de chinear
 }
 
-void serializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer) { // TODO
+void serializarPosicionInstruccion(instruccionAPedir *instruccion, void *buffer) { // TODO
 
 }
 
@@ -881,11 +880,9 @@ void deserializarPosicionInstruccion(indiceCodigo *instruccion, void *buffer) { 
 
 }
 
-
 /*
  * ↑ Funciones auxiliares del CPU ↑
  */
-
 
 /*
  * ↓ Parsear tranqui ↓
@@ -895,9 +892,9 @@ t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("Se definio una variable con el caracter %c", identificador_variable);
 
 	t_puntero posicionEnMemoria;
-	posicionEnMemoria = pedirMemoriaYAgregarAlStack(VARIABLE);
+	posicionEnMemoria = pedirMemoria();
 
-	if(posicionEnMemoria <= 0) { // Se rompio en algun lado
+	if(posicionEnMemoria == 0) { // Se rompio en algun lado
 		programaVivitoYColeando = false;
 		actualPCB.exitCode = EXCEPCION_MEMORIA;
 		return posicionEnMemoria;
@@ -918,6 +915,11 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) { // TODO
 
 void asignar(t_puntero direccion_variable, t_valor_variable valor) { // TODO
 	printf("Se asigno una variable con el valor %i", valor);
+
+	// Segun lo que tengo entendido, direccion_variable es la direccion en el proceso memoria.
+	// Muy automagico.
+
+
 }
 
 t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) { // TODO
