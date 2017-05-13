@@ -1,3 +1,5 @@
+CC=gcc
+
 PROG=filesystem
 LIB=../QEPDLibrary
 LIBBIN=$(LIB)/build
@@ -5,10 +7,13 @@ LIBBIN=$(LIB)/build
 all: compile
 
 compile: $(LIB)/build
-	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG)
+	$(CC) $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG)
 
 $(LIB)/build:
 	cd $(LIB); make
+
+debug: CC += -DDEBUG -g
+debug: all
 
 clean:
 	rm -f filesystem
