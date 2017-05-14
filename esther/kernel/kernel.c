@@ -16,6 +16,11 @@
 		}
 
 //-----ESTRUCTURAS-----//
+typedef struct datosMemoria{  // mem?
+	int pid;
+	char *code;
+	short int codeSize;
+} datosMemoria;
 typedef struct miCliente {
     short socketCliente;
     char identificador;
@@ -69,6 +74,7 @@ int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
 int memoria; //el socket de la memoria
 
 //-----PROTOTIPOS DE FUNCIONES-----//
+void 	hacerPedidoMemoria(datosMemoria);
 void 	agregarCliente(char, int);
 void 	agregarProceso(int, int, int);
 void 	borrarCliente(int);
@@ -258,6 +264,35 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----//
+void hacerPedidoMemoria(datosMemoria datosMem) {
+	//Segun entendemos, en el main ya se conecta no se por que, dejamos eso por las dudas cmentado, el send lo hago de una
+
+
+
+	// Primer send
+
+	headerDeLosRipeados headerDeMiMensaje;
+	headerDeMiMensaje.bytesDePayload = datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize);
+	headerDeMiMensaje.codigoDeOperacion = INICIAR_PROGRAMA;
+
+	int headerSize = sizeof(headerDeMiMensaje);
+	void *headerComprimido = malloc(headerSize);
+	serializarHeader(&headerDeMiMensaje, headerComprimido);
+	send(memoria, headerComprimido, headerSize,0);
+	free(headerComprimido);
+
+	// Segundo send
+	char *buffer = malloc(datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize)); // tamanio del codigo + 4 bytes del pid + tamanio del (datosMem.codeSize) esto ultimo lo uso en memoria para saber cuanto codigo leer del buffer
+	memcpy(buffer,&datosMem.pid,sizeof(int)); // Como no tengo puntero del pid (de code si), lo paso con &
+	memcpy(buffer+sizeof(int),&datosMem.codeSize,sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
+	memcpy(buffer+sizeof(int)+sizeof(datosMem.codeSize),&datosMem.code,datosMem.codeSize);
+	send(memoria,buffer,datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize),0);
+	free(buffer);
+	free(datosMem.code);
+	//
+}
+
+
 void agregarCliente(char identificador, int socketCliente) {
 	if (existeCliente(socketCliente)) {
 		logearError("No se puede agregar 2 veces mismo socket", false);
@@ -382,6 +417,14 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					//Quizás haya un error al alocarlo, por lo que el proceso
 					//puede terminar luego de la petición a la memoria.
 					nuevo_PID = PID_GLOBAL;
+					datosMemoria datosMem;
+					datosMem.codeSize = sizeof(codigo);
+					datosMem.pid=nuevo_PID;
+					datosMem.code = malloc(sizeof(codigo));
+					strcpy(datosMem.code,codigo); //Como codigo es un string, estoy copiandolo a un array de chars, que es otro string. Por eso no uso &
+					hacerPedidoMemoria(datosMem);
+					free(datosMem.code);
+					///////// hasta acá memoria
 					agregarProceso(nuevo_PID,0,1);
 					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
 					// Le envia el PID a la consola
