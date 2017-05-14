@@ -1,24 +1,29 @@
+MAKE=make
+
 all:
 	@echo "Compilando consola"
 	@echo "======================"
-	cd consola; make
+	cd consola; $(MAKE)
 	@echo " "
 	@echo "Compilando cpu"
 	@echo "======================"
-	cd cpu; make
+	cd cpu; $(MAKE)
 	@echo " "
 	@echo "Compilando filesystem"
 	@echo "======================"
-	cd filesystem; make
+	cd filesystem; $(MAKE)
 	@echo " "
 	@echo "Compilando kernel"
 	@echo "======================"
-	cd kernel; make
+	cd kernel; $(MAKE)
 	@echo " "
 	@echo "Compilando memoria"
 	@echo "======================"
-	cd memoria; make
+	cd memoria; $(MAKE)
 	@echo " "
+
+debug: MAKE += debug
+debug: all
 
 clean:
 	cd QEPDLibrary; make clean

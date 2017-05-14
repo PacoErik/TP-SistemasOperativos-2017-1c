@@ -1,12 +1,21 @@
+CC=gcc
+MAKE=make
+
 PROG=memoria
 LIB=../QEPDLibrary
 LIBBIN=$(LIB)/build
 
 all: compile
 
-compile:
-	gcc $(PROG).c  -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG) -pthread
+compile: $(LIB)/build
+	$(CC) $(PROG).c -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -lpthread -Wl,-rpath=$(LIBBIN) -o $(PROG)
 	
+$(LIB)/build:
+	cd $(LIB); $(MAKE)
+
+debug: CC += -DDEBUG -g
+debug: MAKE += debug
+debug: all
 
 clean:
 	rm -f memoria

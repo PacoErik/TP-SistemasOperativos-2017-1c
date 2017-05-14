@@ -114,7 +114,7 @@
 					<folderInfo id="cdt.managedbuild.config.gnu.cross.exe.debug.928010811.1027715978." name="/" resourcePath="">
 						<toolChain id="cdt.managedbuild.toolchain.gnu.base.1702645729" name="Linux GCC" superClass="cdt.managedbuild.toolchain.gnu.base">
 							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="cdt.managedbuild.target.gnu.platform.base.398828864" name="Debug Platform" osList="linux,hpux,aix,qnx" superClass="cdt.managedbuild.target.gnu.platform.base"/>
-							<builder arguments="debug" buildPath="${workspace_loc:/filesystem}" command="make" id="cdt.managedbuild.target.gnu.builder.base.1335341746" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="cdt.managedbuild.target.gnu.builder.base"/>
+							<builder buildPath="${workspace_loc:/filesystem}" id="cdt.managedbuild.target.gnu.builder.base.1335341746" incrementalBuildTarget="debug" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="cdt.managedbuild.target.gnu.builder.base"/>
 							<tool id="cdt.managedbuild.tool.gnu.archiver.base.1269108047" name="GCC Archiver" superClass="cdt.managedbuild.tool.gnu.archiver.base"/>
 							<tool id="cdt.managedbuild.tool.gnu.cpp.compiler.base.827217228" name="GCC C++ Compiler" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.base">
 								<option id="gnu.cpp.compiler.option.optimization.level.1200869366" name="Optimization Level" superClass="gnu.cpp.compiler.option.optimization.level" value="gnu.cpp.compiler.optimization.level.none" valueType="enumerated"/>
@@ -158,6 +158,7 @@
 		<configuration configurationName="Release">
 			<resource resourceType="PROJECT" workspacePath="/filesystem"/>
 		</configuration>
+		<configuration configurationName="Dibag"/>
 		<configuration configurationName="Debug">
 			<resource resourceType="PROJECT" workspacePath="/filesystem"/>
 		</configuration>
