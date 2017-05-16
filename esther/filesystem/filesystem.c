@@ -33,13 +33,34 @@ typedef struct {
 	int *bloques;
 } FileMetadata;
 
+typedef enum {
+	FS_VALIDAR = 0,
+	FS_CREAR,
+	FS_ELIMINAR,
+	FS_LEER,
+	FS_ESCRIBIR
+} FS_Operacion;
+
+typedef struct {
+	char *nombre;
+	FS_Operacion op;
+} comando;
+
+comando comandos[] = {
+		{ "validar",	FS_VALIDAR	},
+		{ "crear",		FS_CREAR	},
+		{ "eliminar",	FS_ELIMINAR	},
+		{ "leer",		FS_LEER		},
+		{ "escribir",	FS_ESCRIBIR	}
+};
+
 /* Operaciones del File System */
 
 bool		existe_archivo				(char*);
 bool		crear_archivo				(char*);
 bool		eliminar_archivo			(char*);
 char*		leer_archivo				(char*, off_t, size_t);
-void		escribir_archivo			(char*, off_t, size_t, char*);
+bool		escribir_archivo			(char*, off_t, size_t, char*);
 
 
 /* Operaciones del Bitmap */
@@ -56,34 +77,103 @@ void			destruir_bitmap				(void);
 void		leer_mensaje					(void);
 void		leer_metadata					(void);
 void		establecerConfiguracion		(void);
+void		interaccion_FS					(void);
 
 
 /* Funciones auxiliares */
 
-int*			_asignar_bloques					(int, int*);
+int*			_asignar_bloques					(int, int**);
 bool			_actualizar_metadata_bitmap		(char*, FileMetadata*);
 char*			_ruta_desde_punto_montaje			(char*);
 char*			_ruta_desde_archivos				(char*);
 FileMetadata*	_leer_metadata_archivo			(char*);
 void			_destruir_metadata_archivo		(FileMetadata*);
 void			_liberar_bloques					(FileMetadata*);
+FILE*			_archivo_bloque_r					(int);
+FILE*			_archivo_bloque_w					(int);
 
 int main(void) {
-
 	configurar("filesystem");
 	leer_metadata();
-	//conectar(&servidor, FSConfig.IP_KERNEL, FSConfig.PUERTO_KERNEL);
-	//handshake(servidor, FILESYSTEM);
 
 	bitmap = leer_bitmap();
+	//limpiar_bitmap();
 
-	_leer_metadata_archivo("unarchivo.txt");
-
-	crear_archivo("otroarchivo.txt");
+	interaccion_FS();
 
 	destruir_bitmap();
 
 	return 0;
+}
+
+/*
+ * Esta hecho asi no mas para testear
+ */
+void interaccion_FS(void) {
+	char input_comando[10];
+	char input_ruta[100];
+	int input_offset;
+	int input_size;
+	char input_buffer[1000];
+
+	printf("--------------------------\n"
+			"Comandos:\n"
+			"validar [RUTA_ARCHIVO]\n"
+			"crear [RUTA_ARCHIVO]\n"
+			"eliminar [RUTA_ARCHIVO]\n"
+			"leer [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO]\n"
+			"escribir [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO] [CONTENIDO]\n");
+	fflush(stdout);
+
+	while (1) {
+		scanf("%s", input_comando);
+
+		int i;
+		for (i = 0; i < (sizeof comandos / sizeof *comandos); i++) {
+			if (strcmp(comandos[i].nombre, input_comando) == 0) {
+				scanf("%s", input_ruta);
+				switch (comandos[i].op) {
+				case FS_VALIDAR:
+					printf("%s\n", existe_archivo(input_ruta) ? "True" : "False");
+					break;
+
+				case FS_CREAR:
+					printf("%s\n", crear_archivo(input_ruta) ? "Archivo creado" : "Error");
+					break;
+
+				case FS_ELIMINAR:
+					printf("%s\n", eliminar_archivo(input_ruta) ? "Archivo eliminado" : "Error");
+					break;
+
+				case FS_LEER:
+					scanf("%d", &input_offset);
+					scanf("%d", &input_size);
+					char *contenido = leer_archivo(input_ruta, input_offset, input_size);
+					printf("Contenido archivo: \"%s\"\n", contenido);
+					free(contenido);
+
+					break;
+
+				case FS_ESCRIBIR:
+					scanf("%d", &input_offset);
+					scanf("%d", &input_size);
+					scanf("%s", input_buffer);
+					printf("%s\n",
+							escribir_archivo(input_ruta, input_offset,
+									input_size, input_buffer) ?
+									"Archivo actualizado" : "Error");
+					break;
+				}
+
+				goto continue_outer; // for
+			}
+		}
+
+		printf("\"%s\" no es un comando!!\n", input_comando);
+
+		continue_outer:
+		;
+	}
 }
 
 void leer_mensaje(void) {
@@ -169,9 +259,10 @@ bool existe_archivo(char *ruta) {
  * Crea un archivo vacio dentro de la ruta solicitada.
  */
 bool crear_archivo(char *ruta) {
-	int *bloques;
+	/* TODO: Crear los directorios que contiene al archivo */
+	int *bloques = malloc(sizeof(int));
 
-	_asignar_bloques(1, bloques);
+	_asignar_bloques(1, &bloques);
 	if (bloques == NULL) {
 		logearError("No se pudo crear el archivo: Espacio insuficiente", false);
 		return 0;
@@ -215,6 +306,8 @@ bool _actualizar_metadata_bitmap(char *ruta, FileMetadata *file_md) {
 	}
 
 	fclose(archivo);
+
+	actualizar_archivo_bitmap();
 
 	return 1;
 }
@@ -321,38 +414,199 @@ char *leer_archivo(char *ruta, off_t offset, size_t size) {
 		return NULL;
 	}
 
-	if (offset < 0 || size < 0) {
-		return NULL;
+	if (offset < 0 || size <= 0) {
+		goto cleanup_1;
+	}
+
+	if (offset + size > file_md->tamanio) {
+		goto cleanup_1;
 	}
 
 	FILE *archivo_bloque;
 
-	size_t bytes_read;
-	char *data = NULL;
+	int i_bloque;			// Indice de bloque
+	off_t offset_bloque;	// Desplazamiento dentro del bloque
 
-	int num_bloque;
-	off_t offset_bloque; // Desplazamiento dentro del bloque
-
-	for (num_bloque = 0, offset_bloque = offset; ; num_bloque++, offset_bloque -= FSMetadata.TAMANIO_BLOQUES) {
+	// Abre el .bin del primer bloque a leer y setea el desplazamiento
+	for (i_bloque = 0, offset_bloque = offset; ;
+			i_bloque++, offset_bloque -= FSMetadata.TAMANIO_BLOQUES) {
 		if (offset_bloque < FSMetadata.TAMANIO_BLOQUES) {
-			char *ruta_bloque;
-			asprintf(ruta_bloque, ".%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, file_md->bloques[num_bloque]);
-			archivo_bloque = fopen(ruta_bloque, "r");
-
-			free(ruta_bloque);
-
+			archivo_bloque = _archivo_bloque_r(file_md->bloques[i_bloque]);
 			fseek(archivo_bloque, offset_bloque, SEEK_SET);
+
+			break;
 		}
 	}
 
-	/* TODO */
+	size_t bytes;				// Bytes leidos en cada iteracion
+	size_t bytes_a_leer;		// Cantidad de bytes a leer en la siguiente iteracion
+	size_t bytes_leidos;		// Cantidad total de bytes leidos
+	char *data;					// Almacena todos los bytes leidos
+
+	bytes_a_leer = ((FSMetadata.TAMANIO_BLOQUES - offset_bloque) > size)
+						? size
+						: FSMetadata.TAMANIO_BLOQUES - offset_bloque;
+	bytes_leidos = 0;
+	data = calloc(size, sizeof(char));
+
+	while (1) {
+		bytes = fread(&data[bytes_leidos], sizeof(char), bytes_a_leer, archivo_bloque);
+
+		if (archivo_bloque == NULL) {
+			goto cleanup_2;
+		}
+
+		fclose(archivo_bloque);
+
+		if (bytes != bytes_a_leer) {
+			goto cleanup_2;
+		}
+
+		bytes_leidos += bytes;
+
+		if (bytes_leidos == size) {
+			_destruir_metadata_archivo(file_md);
+
+			return data;
+		}
+
+		i_bloque++;
+
+		archivo_bloque = _archivo_bloque_r(file_md->bloques[i_bloque]);
+
+		bytes_a_leer = ((size - bytes_leidos) > FSMetadata.TAMANIO_BLOQUES)
+						? FSMetadata.TAMANIO_BLOQUES
+						: (size - bytes_leidos);
+	}
+
+cleanup_2:
+	free(data);
+cleanup_1:
+	_destruir_metadata_archivo(file_md);
+
+	return NULL;
 }
 
-void escribir_archivo(char *ruta, off_t offset, size_t size, char *buffer) {
-	// int fseek ( FILE * stream, long int offset, int origin );
-	// size_t fwrite ( const void * ptr, size_t size, size_t count, FILE * stream );
-	// char*   string_substring(char* text, int start, int length)
+FILE *_archivo_bloque_r(int bloque_numero) {
+	char *ruta_bloque;
+	asprintf(&ruta_bloque, ".%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
 
+	FILE *archivo_bloque = fopen(ruta_bloque, "r");
+
+	free(ruta_bloque);
+
+	return archivo_bloque;
+}
+
+FILE *_archivo_bloque_w(int bloque_numero) {
+	char *ruta_bloque;
+	asprintf(&ruta_bloque, ".%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
+
+	FILE *archivo_bloque = fopen(ruta_bloque, "r+");
+	if (archivo_bloque == NULL) {
+		archivo_bloque = fopen(ruta_bloque, "w");
+	}
+
+	free(ruta_bloque);
+
+	return archivo_bloque;
+}
+
+bool escribir_archivo(char *ruta, off_t offset, size_t size, char *buffer) {
+	FileMetadata *file_md = _leer_metadata_archivo(ruta);
+
+	if (file_md == NULL) {
+		return 0;
+	}
+
+	if (offset < 0 || size <= 0) {
+		_destruir_metadata_archivo(file_md);
+		return 0;
+	}
+
+	/* Debe actualizar el tamanio */
+	if (offset + size > file_md->tamanio) {
+		// Cantidad de bloques actual
+		int old_block_n = CANTIDAD_BLOQUES_ARCHIVO(file_md->tamanio, FSMetadata.TAMANIO_BLOQUES);
+
+		// Cantidad de bloques que se necesita para contener los datos
+		int block_n_needed = CANTIDAD_BLOQUES_ARCHIVO(offset + size, FSMetadata.TAMANIO_BLOQUES);
+
+		/* Asignar mas bloques */
+		if (block_n_needed > old_block_n) {
+
+			file_md->bloques = realloc(file_md->bloques, block_n_needed);
+
+			int *bloques_nuevos = file_md->bloques + old_block_n;
+			_asignar_bloques(block_n_needed - old_block_n, &bloques_nuevos);
+
+			if (bloques_nuevos == NULL) {
+				/* Espacio Insuficiente */
+				_destruir_metadata_archivo(file_md);
+				return 0;
+			}
+		}
+
+		file_md->tamanio = offset + size;
+		_actualizar_metadata_bitmap(ruta, file_md);
+	}
+
+	FILE *archivo_bloque;
+
+	int i_bloque;			// Indice de bloque
+	off_t offset_bloque;	// Desplazamiento dentro del bloque
+
+	// Abre el .bin del primer bloque a escribir y setea el desplazamiento
+	for (i_bloque = 0, offset_bloque = offset; ;
+			i_bloque++, offset_bloque -= FSMetadata.TAMANIO_BLOQUES) {
+		if (offset_bloque < FSMetadata.TAMANIO_BLOQUES) {
+			archivo_bloque = _archivo_bloque_w(file_md->bloques[i_bloque]);
+			fseek(archivo_bloque, offset_bloque, SEEK_SET);
+
+			break;
+		}
+	}
+
+	size_t bytes;				// Bytes escritos en cada iteracion
+	size_t bytes_a_escribir;	// Cantidad de bytes a escribir en la siguiente iteracion
+	size_t bytes_escritos;		// Cantidad total de bytes escritos
+
+	bytes_a_escribir = ((FSMetadata.TAMANIO_BLOQUES - offset_bloque) > size)
+						? size
+						: FSMetadata.TAMANIO_BLOQUES - offset_bloque;
+	bytes_escritos = 0;
+
+	while (1) {
+		bytes = fwrite(&buffer[bytes_escritos], sizeof(char), bytes_a_escribir, archivo_bloque);
+		fflush(archivo_bloque);
+
+		if (archivo_bloque == NULL) {
+			_destruir_metadata_archivo(file_md);
+			return 0;
+		}
+
+		fclose(archivo_bloque);
+
+		if (bytes != bytes_a_escribir) {
+			_destruir_metadata_archivo(file_md);
+			return 0;
+		}
+
+		bytes_escritos += bytes;
+
+		if (bytes_escritos == size) {
+			_destruir_metadata_archivo(file_md);
+			return 1;
+		}
+
+		i_bloque++;
+
+		archivo_bloque = _archivo_bloque_w(file_md->bloques[i_bloque]);
+
+		bytes_a_escribir = ((size - bytes_escritos) > FSMetadata.TAMANIO_BLOQUES)
+						? FSMetadata.TAMANIO_BLOQUES
+						: (size - bytes_escritos);
+	}
 }
 
 t_bitarray *leer_bitmap(void) {
@@ -385,6 +639,7 @@ t_bitarray *leer_bitmap(void) {
 
 t_bitarray *limpiar_bitmap(void) {
 	memset(bitmap->bitarray, 0, bitmap->size);
+	actualizar_archivo_bitmap();
 	return bitmap;
 }
 
@@ -425,7 +680,7 @@ bool actualizar_archivo_bitmap(void) {
 /**
  * Devuelve n bloques libres.
  */
-int *_asignar_bloques(int n, int *bloques) {
+int *_asignar_bloques(int n, int **bloques) {
 	int *tmp = malloc(sizeof(int[n]));
 
 	int i;
@@ -445,14 +700,10 @@ int *_asignar_bloques(int n, int *bloques) {
 		return NULL;
 	}
 
-	bloques = tmp;
-	for (i = 0; i < found_n; i++) {
-		bitarray_set_bit(bitmap, bloques[i] - 1);
-	}
+	//*bloques = tmp;
+	memcpy(*bloques, tmp, n * sizeof(int));
 
-	actualizar_archivo_bitmap();
-
-	return bloques;
+	return *bloques;
 }
 
 void establecerConfiguracion(void) {
