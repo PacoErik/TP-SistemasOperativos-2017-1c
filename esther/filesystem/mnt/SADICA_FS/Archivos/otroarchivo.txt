@@ -1,2 +1,0 @@
-TAMANIO=0
-BLOQUES=[0]
