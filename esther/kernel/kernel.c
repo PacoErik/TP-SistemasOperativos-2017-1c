@@ -410,8 +410,8 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					agregarProceso(nuevo_PID,0,1);
 					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
 					// Le envia el PID a la consola
-					//enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
-					//send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
+					enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
+					send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
 				} else {
 					printf("No se pudo añadir proceso\n");
 					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
@@ -424,8 +424,7 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				logearInfo("Pedido de finalizacion de PID %d", PID);
 				if (existeProceso(PID)) {
 					eliminarProceso(PID);
-					if (!existeProceso(PID))
-						logearInfo("PID %d Eliminado", PID);
+					logearInfo("PID %d Eliminado", PID);
 				}
 				else {
 					logearError("No existe PID %d", false, PID);
@@ -450,17 +449,6 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			logearError("Operación inválida de %s", false, ID_CLIENTE(tipo));
 			break;
 	}
-}
-
-int recibirHeader(int socket, headerDeLosRipeados *header) {
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-	int bytesRecibidos = recv(socket, buffer, buffersize, 0);
-
-	deserializarHeader(header, buffer);
-	free(buffer);
-
-	return bytesRecibidos;
 }
 
 int recibirHandshake(int socketCliente) {
