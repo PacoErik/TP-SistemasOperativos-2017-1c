@@ -26,6 +26,7 @@ enum CodigoDeOperacion {CONSOLA,MEMORIA,FILESYSTEM,CPU,KERNEL,MENSAJE,INICIAR_PR
 enum estadoDelSectorDeMemoria {
 	LIBRE, HEAP, USADO
 };
+#define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 
 //..........ESTRUCTURAS..........//
 typedef struct datosMemoria{
@@ -91,7 +92,7 @@ unsigned short CACHE_X_PROC;
 char REEMPLAZO_CACHE[8]; // ?
 unsigned short RETARDO;
 static const char *ID_CLIENTES[] = { "Consola", "Memoria", "File System", "CPU","Kernel" };
-estructuraAdministrativa tablaAdministrativa[1]; //Marcos representa el total de frames, ver config.cfg TODO
+estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de frames, ver config.cfg TODO
 
 //.......... PROTOTIPOS DE FUNCIONES..........//
 void serializarHeader(headerDeLosRipeados *, void *);
@@ -125,15 +126,19 @@ void flush();
 void imprimirOpcionesDeMemoria();
 void size();
 void limpiarPantalla();
+void inicializarTabla();
+void actualizar(datosMemoria);
+int frameLibre();
 
 //........PROCEDIMIENTO PRINCIPAL..........//
 int main(void) {
 
-
-
 	crearMemoria(&memoria); // Creacion de la memoria general.
 	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 	configurar("memoria");
+
+	tablaAdministrativa = malloc(sizeof(estructuraAdministrativa) * MARCOS);
+	inicializarTabla();
 
 	runner_parametros runner_param;
 	limpiarClientes(runner_param.misClientes);
@@ -231,6 +236,28 @@ void crearMemoria(char **mem) {
 	*mem = malloc(MARCOS * MARCO_SIZE);
 
 }
+
+
+
+void inicializarTabla() { //Aca inicializamos los pid en -2 (usado) y marcamos en la tabla los frames usados por la misma (pid -1)
+	int i;
+	int framesOcupadosPorTabla;
+	int tamanioTotalTabla;
+
+	for (i = 0; i < MARCOS; i++) {
+		tablaAdministrativa[i].pid = -2;
+	}
+
+	tamanioTotalTabla = sizeof(estructuraAdministrativa) * MARCOS;
+	framesOcupadosPorTabla = DIVIDE_ROUNDUP(framesOcupadosPorTabla, MARCO_SIZE);
+
+	for (i = 0; i < framesOcupadosPorTabla; i++) {
+		tablaAdministrativa[i].pid = -1;
+
+	}
+
+}
+
 
 //Analiza el contenido del header, y respecto a ello realiza distintas acciones
 //devuelve -1 si el socket causa problemas
@@ -385,6 +412,26 @@ void *fHilo(void *runner_param) {
 
 }
 
+int frameLibre(){
+	int i=0;
+
+	while(tablaAdministrativa[i].pid!=2){
+		i++;
+	}
+	return i;
+}
+
+
+void actualizar(datosMemoria datosMem){
+
+memcpy(memoria+(frameLibre()*MARCO_SIZE),datosMem.code,datosMem.codeSize);
+
+tablaAdministrativa[frameLibre()].frame = frameLibre();
+tablaAdministrativa[frameLibre()].pag = 0;
+tablaAdministrativa[frameLibre()].pid = datosMem.pid;
+
+}
+
 void iniciarPrograma(int numCliente,unsigned short payload){
 
 	// payload "identificador del programa + codigo + tamanio del codigo".
@@ -399,6 +446,9 @@ void iniciarPrograma(int numCliente,unsigned short payload){
 	datosMem.code = malloc(datosMem.codeSize);
 	memcpy(datosMem.code, buffer + sizeof(int) + sizeof(short int),datosMem.codeSize);
 
+	printf("Codigo del Kernel:\n %s \n",datosMem.code);
+
+	actualizar(datosMem);
 }
 
 void finalizarPrograma(int numCliente,unsigned short payload){
