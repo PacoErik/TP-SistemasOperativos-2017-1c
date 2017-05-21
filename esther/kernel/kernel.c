@@ -398,7 +398,7 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					datosMem.codeSize = strlen(codigo);
 					datosMem.pid=nuevo_PID;
 					datosMem.code = malloc(datosMem.codeSize);
-					strcpy(datosMem.code,codigo); //Como codigo es un string, estoy copiandolo a un array de chars, que es otro string. Por eso no uso &
+					strncpy(datosMem.code, codigo, datosMem.codeSize); //Como codigo es un string, estoy copiandolo a un array de chars, que es otro string. Por eso no uso &
 					hacerPedidoMemoria(datosMem);
 					free(datosMem.code);
 					///////// hasta acá memoria
