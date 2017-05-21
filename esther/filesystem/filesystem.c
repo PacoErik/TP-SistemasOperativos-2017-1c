@@ -122,11 +122,16 @@ void interaccion_FS(void) {
 			"crear [RUTA_ARCHIVO]\n"
 			"eliminar [RUTA_ARCHIVO]\n"
 			"leer [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO]\n"
-			"escribir [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO] [CONTENIDO]\n");
+			"escribir [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO] [CONTENIDO]\n"
+			"salir\n");
 	fflush(stdout);
 
 	while (1) {
 		scanf("%s", input_comando);
+
+		if (strcmp(input_comando, "salir") == 0) {
+			break;
+		}
 
 		int i;
 		for (i = 0; i < (sizeof comandos / sizeof *comandos); i++) {
@@ -274,6 +279,8 @@ bool crear_archivo(char *ruta) {
 
 	bool result = _actualizar_metadata_bitmap(ruta, file_md);
 	
+	_destruir_metadata_archivo(file_md);
+
 	return result;
 }
 
@@ -360,7 +367,7 @@ FileMetadata *_leer_metadata_archivo(char *ruta) {
 
 	int i;
 	for (i = 0; tmp[i] != NULL; i++) {
-		file_md->bloques = realloc(file_md->bloques, i + 1);
+		file_md->bloques = realloc(file_md->bloques, (i + 1) * sizeof(int));
 		file_md->bloques[i] = atoi(tmp[i]);
 		free(tmp[i]);
 	}
@@ -447,7 +454,7 @@ char *leer_archivo(char *ruta, off_t offset, size_t size) {
 						? size
 						: FSMetadata.TAMANIO_BLOQUES - offset_bloque;
 	bytes_leidos = 0;
-	data = calloc(size, sizeof(char));
+	data = calloc(size + 1, sizeof(char));
 
 	while (1) {
 		bytes = fread(&data[bytes_leidos], sizeof(char), bytes_a_leer, archivo_bloque);
@@ -535,7 +542,7 @@ bool escribir_archivo(char *ruta, off_t offset, size_t size, char *buffer) {
 		/* Asignar mas bloques */
 		if (block_n_needed > old_block_n) {
 
-			file_md->bloques = realloc(file_md->bloques, block_n_needed);
+			file_md->bloques = realloc(file_md->bloques, block_n_needed * sizeof(int));
 
 			int *bloques_nuevos = file_md->bloques + old_block_n;
 			_asignar_bloques(block_n_needed - old_block_n, &bloques_nuevos);
