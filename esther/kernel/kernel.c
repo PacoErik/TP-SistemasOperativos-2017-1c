@@ -96,9 +96,6 @@ int main(void) {
 	clientes = list_create();
 	procesos = list_create();
 
-    int buffersize = sizeof(headerDeLosRipeados);
-    void* buffer = malloc(buffersize);
-
     struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // IPv4
@@ -234,7 +231,6 @@ int main(void) {
 							cerrarConexion(i, "El socket %d se desconectó\n");
 						}
 						FD_CLR(i, &conectados);
-						free(buffer);
 						continue;
 					}
 
@@ -247,7 +243,6 @@ int main(void) {
 			}
         }
     }
-    free(buffer);
     list_destroy_and_destroy_elements(clientes, free);
     return 0;
 }
