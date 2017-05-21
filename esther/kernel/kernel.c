@@ -20,7 +20,7 @@ typedef struct datosMemoria{  // mem?
 	int pid;
 	char *code;
 	short int codeSize;
-} datosMemoria;
+}__attribute__((packed, aligned(1))) datosMemoria;
 typedef struct miCliente {
     short socketCliente;
     char identificador;
@@ -158,6 +158,7 @@ int main(void) {
 
     conectar(&memoria,IP_MEMORIA,PUERTO_MEMORIA);
     handshake(memoria,KERNEL); //KERNEL = 4
+    agregarCliente(MEMORIA, memoria);
 
     fdmax = memoria>servidor?memoria:servidor; //la pajilla mental
 
@@ -267,7 +268,8 @@ void hacerPedidoMemoria(datosMemoria datosMem) {
 	memcpy(buffer,&datosMem.pid,sizeof(int)); // Como no tengo puntero del pid (de code si), lo paso con &
 	memcpy(buffer+sizeof(int),&datosMem.codeSize,sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
 	memcpy(buffer+sizeof(int)+sizeof(datosMem.codeSize),datosMem.code,datosMem.codeSize);
-	send(memoria,buffer,datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize),0);
+	send(memoria, buffer, tamanioTotal, 0);
+
 	free(buffer);
 	//
 }
@@ -408,8 +410,8 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					agregarProceso(nuevo_PID,0,1);
 					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
 					// Le envia el PID a la consola
-					enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
-					send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
+					//enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
+					//send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
 				} else {
 					printf("No se pudo añadir proceso\n");
 					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
