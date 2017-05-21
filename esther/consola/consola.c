@@ -75,6 +75,7 @@ void agregarProceso(int PID, pthread_t hiloID, time_t inicio) {
 	nuevoProceso->cantidadImpresiones = 0;
 	list_add(procesos, nuevoProceso);
 }
+
 void configurarPrograma(char *ruta) {
 	pthread_attr_t attr;
 	pthread_t hiloPrograma;
@@ -84,6 +85,7 @@ void configurarPrograma(char *ruta) {
 	pthread_create(&hiloPrograma, &attr, &iniciarPrograma, ruta);
 	pthread_attr_destroy(&attr);
 }
+
 void desconectarConsola() {
 	void _finalizar(void *element) {
 		proceso *proc = (proceso*) element;
@@ -97,6 +99,7 @@ void desconectarConsola() {
 
 	exit(0);
 }
+
 void desconectarPrograma(int PID) {
 	logearInfo("[PID:%d] Finalizando...", PID);
 	pthread_t TID = hiloIDPrograma(PID);
