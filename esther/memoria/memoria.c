@@ -21,7 +21,11 @@
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "memoria.log"
 #define MAX_NUM_CLIENTES 100
-#define ID_CLIENTE(x) ID_CLIENTES[x-1]
+#define ID_CLIENTE(x) ID_CLIENTES[x]
+#define DEF_MISMO_SOCKET(SOCKET)										\
+		_Bool mismoSocket(void* elemento) {								\
+			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
+		}
 enum CodigoDeOperacion {CONSOLA,MEMORIA,FILESYSTEM,CPU,KERNEL,MENSAJE,INICIAR_PROGRAMA,FINALIZAR_PROGRAMA,ERROR_MULTIPROGRAMACION};
 enum estadoDelSectorDeMemoria {
 	LIBRE, HEAP, USADO
@@ -33,15 +37,18 @@ typedef struct datosMemoria{
 	int pid;
 	char *code;
 	short int codeSize;
-} datosMemoria;
+}__attribute__((packed, aligned(1))) datosMemoria;
+
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
 	char codigoDeOperacion;
 }__attribute__((packed, aligned(1))) headerDeLosRipeados;
+
 typedef struct miCliente {
 	short socketCliente;
 	char identificador;
 } miCliente;
+
 typedef struct informacion {
 /*
  * DATA
@@ -49,40 +56,44 @@ typedef struct informacion {
  * y se sabe a que posicion de pagina colocar un Heap.
  */
 } informacion;
+
 typedef struct contenido {
 	char PID;
 	informacion data;
 } contenido;
+
 typedef struct heapMetaData {
 	uint32_t tamanio;
 	bool estaLibre;
 } heapMetaData;
+
 typedef struct pagina {
 	char quienLaUsa; // LIBRE, HEAP, USADO
 	heapMetaData heap; // quienLoUsa = HEAP
 	contenido contenido; // quienLoUsa = USADO
 } pagina;
+
 typedef struct frame {
 	bool enUso;
 	pagina *posicion; // Hacer malloc(MARCO_SIZE)
 } frame;
+
 typedef struct frameDeCache {
 	pagina *posicion; // Hacer malloc(MARCO_SIZE de Cache)
 } cache;
-typedef struct runner_parametros {
-	miCliente misClientes[MAX_NUM_CLIENTES];
-	int numCliente;
-} runner_parametros;
+
 typedef struct estructuraAdministrativa {
 	int frame;
 	int pid;
 	int pag;
-}estructuraAdministrativa ;
+} estructuraAdministrativa;
+
 typedef t_list listaCliente;
 
 //.....VARIABLES GLOBALES.....//
 t_log* logger;
 t_config* config;
+listaCliente *clientes;
 char *memoria;
 char PUERTO[6];
 unsigned short MARCOS;
@@ -98,27 +109,21 @@ estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de f
 void serializarHeader(headerDeLosRipeados *, void *);
 void deserializarHeader(headerDeLosRipeados *, void *);
 void crearMemoria(char **mem);
-int analizarHeader(int, void*, miCliente *);
-void analizarHeaderMemoria(int, void*, miCliente *);
-int hayAlguienQueSea(char identificacion, miCliente *clientes);
+int hayAlguienQueSea(char identificacion);
 void *fHilo(void *numCliente);
 void *get_in_addr(struct sockaddr *);
-void limpiarClientes(miCliente *);
 void analizarCodigosDeOperacion(int, char, miCliente *);
-void leerMensaje(int, short, miCliente *);
+void leerMensaje(int, int);
 void establecerConfiguracion();
 void configurar(char*);
 void cerrarConexion(int, char*);
-int posicionSocket(int, miCliente *);
-void agregarCliente(char, int, miCliente *);
-void borrarCliente(int, miCliente *);
+void agregarCliente(char, int);
+void borrarCliente(int);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
 void interaccionMemoria();
-void iniciarPrograma(int numCliente,unsigned short payload);
+void iniciarPrograma(int numCliente,unsigned short bytesDePayload);
 void finalizarPrograma(int numCliente,unsigned short payload);
-int hayLugar(miCliente *);
-void limpiarCliente(miCliente);
 int existeArchivo(const char *ruta);
 void configurarRetardo();
 void dump();
@@ -137,14 +142,10 @@ int main(void) {
 	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 	configurar("memoria");
 
+	clientes = list_create();
+
 	tablaAdministrativa = malloc(sizeof(estructuraAdministrativa) * MARCOS);
 	inicializarTabla();
-
-	runner_parametros runner_param;
-	limpiarClientes(runner_param.misClientes);
-
-	int buffersize = sizeof(headerDeLosRipeados);
-	char* buffer = malloc(buffersize);
 
 	struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
 	memset(&hints, 0, sizeof hints);
@@ -215,9 +216,10 @@ int main(void) {
 		nuevoCliente = accept(servidor, (struct sockaddr *) &direccionCliente,
 				&addrlen);
 
-		runner_param.numCliente = nuevoCliente;
+		int *param = malloc(sizeof(int));
+		*param = nuevoCliente;
 
-		pthread_create(&tid, &atributos, &fHilo, &runner_param);
+		pthread_create(&tid, &atributos, &fHilo, param);
 
 		char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
 		inet_ntop(AF_INET, get_in_addr((struct sockaddr*) &direccionCliente),
@@ -258,69 +260,69 @@ void inicializarTabla() { //Aca inicializamos los pid en -2 (usado) y marcamos e
 
 }
 
-
-//Analiza el contenido del header, y respecto a ello realiza distintas acciones
-//devuelve -1 si el socket causa problemas
-int analizarHeader(int socketCliente, void* bufferHeader, miCliente *clientes) {
-	headerDeLosRipeados header;
-	deserializarHeader(&header, bufferHeader);
-	int posicionDelSocket = posicionSocket(socketCliente, clientes);
-
-	if (header.codigoDeOperacion == CPU || header.codigoDeOperacion == KERNEL) {
-		if (hayLugar(clientes) != -1) { // Si hay lugar para alguien más
-			// No estaba antes en el array de clientes
-			if (posicionDelSocket < 0) {
-				if (header.codigoDeOperacion != KERNEL) { // Si es una CPU que se conecte tranqui
-					agregarCliente(header.codigoDeOperacion, socketCliente,
-							clientes);
-					return CPU;
-				} else { // Verificar si ya se metió un Kernel
-					if (hayAlguienQueSea(KERNEL, clientes)) {
-						logearError(
-								"El cliente %i intentó conectarse como Kernel ya habiendo uno\n",
-								false, socketCliente); // Hay que logear acá?
-						return -1;
-					} else {
-						agregarCliente(header.codigoDeOperacion, socketCliente,
-								clientes);
-						return KERNEL;
-					}
-				}
-			} else { //No se puede enviar un handshake 2 veces (el cliente ya estaba en el array de clientes)
-				return -1; // Otro cacho de código se va a encargar de borrarlo
-			}
-		} else {
-			return -1; // No hay lugar
+int recibirHandshake(int socket) {
+	int buffersize = sizeof(headerDeLosRipeados);
+	void *buffer = malloc(buffersize);
+    int bytesRecibidos = recv(socket, buffer, buffersize, 0);
+	if (bytesRecibidos <= 0) {
+		if (bytesRecibidos == -1) {
+			cerrarConexion(socket, "El socket %d se desconectó");
 		}
-	}
-
-	else if (header.codigoDeOperacion == MENSAJE) {
-		if (header.bytesDePayload <= 0) {
-			logearError(
-					"El cliente %i intentó mandar un mensaje sin contenido\n",
-					false, socketCliente);
-			return -1;
-		} else {
-			leerMensaje(socketCliente, header.bytesDePayload, clientes);
+		else {
+			cerrarConexion(socket, "Socket %d: Error en el recv");
 		}
+		return -1;
 	}
-
-	else {
-		if (posicionDelSocket >= 0) { //Si se encontró el cliente en la estructura de clientes (osea ya hizo handshake)
-			analizarCodigosDeOperacion(socketCliente, header.codigoDeOperacion,
-					clientes);
-		} else { //Header no reconocido, chau cliente intruso
-			return -1;
-		}
-	}
-	return 0;
+	headerDeLosRipeados handy;
+	deserializarHeader(&handy, buffer);
+	free(buffer);
+	char codOp = handy.codigoDeOperacion;
+	return (codOp == KERNEL || codOp == CPU) ? codOp : -1;
 }
 
-void analizarHeaderMemoria(int socketCliente, void* bufferHeader,miCliente *clientes) {
+void leerMensaje(int socket, int bytes) {
+	char* mensaje = calloc(bytes+1, sizeof(char));
+	recv(socket, mensaje, bytes, 0);
+	logearInfo("Mensaje recibido: %s\n",mensaje);
+	free(mensaje);
+}
+
+void atenderKernel(int socketKernel) {
+	int buffersize = sizeof(headerDeLosRipeados);
+	void *buffer = malloc(buffersize);
+	int bytes;
+	headerDeLosRipeados header;
+	while (bytes = recv(socketKernel, buffer, buffersize, 0)) {
+		deserializarHeader(&header, buffer);
+		switch(header.codigoDeOperacion) {
+			case MENSAJE:
+				leerMensaje(socketKernel, header.bytesDePayload);
+				break;
+			case INICIAR_PROGRAMA:
+				iniciarPrograma(socketKernel,header.bytesDePayload);
+				break;
+			case FINALIZAR_PROGRAMA:
+				finalizarPrograma(socketKernel,header.bytesDePayload);
+				break;
+			default:
+				printf("TODO\n");
+				break;
+		}
+	}
+	if (bytes == -1) {
+		cerrarConexion(socketKernel, "Socket %d: Error en el recv");
+	}
+	else {
+		cerrarConexion(socketKernel, "El socket %d se desconectó");
+	}
+	free(buffer);
+}
+
+/*
+void atenderKernel(int socketCliente, void* bufferHeader) {
 
 	headerDeLosRipeados header;
 	deserializarHeader(&header, bufferHeader);
-	int posicionDelSocket = posicionSocket(socketCliente, clientes);
 
 	switch (header.codigoDeOperacion) {
 	case INICIAR_PROGRAMA:
@@ -332,28 +334,53 @@ void analizarHeaderMemoria(int socketCliente, void* bufferHeader,miCliente *clie
 	}
 
 }
+*/
 
+void *fHilo(void* param) {
+	int socketCliente = (int)*((int*)param);
+	int tipoCliente = recibirHandshake(socketCliente);
+	if (tipoCliente == -1) {
+		// La memoria no conoce otro tipo de clientes ni permite hacer operaciones sin haber hecho handshake
+		cerrarConexion(socketCliente, "Socket %d: Operacion Invalida");
+		return NULL;
+	}
+	if (tipoCliente == KERNEL) {
+		printf("Kernel\n");
+		if (hayAlguienQueSea(KERNEL)) {
+			cerrarConexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
+			return NULL;
+		}
+		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
+		agregarCliente(KERNEL, socketCliente);
+		atenderKernel(socketCliente);
+	}
+	else {
+		agregarCliente(CPU, socketCliente);
+		//atenderCPU(socketCliente);
+	}
+	return NULL;
+}
+
+/*
 void *fHilo(void *runner_param) {
-
 	int buffersize = sizeof(headerDeLosRipeados);
 	char* buffer = malloc(buffersize);
-	runner_parametros *runner = runner_param;
+	int socket = *(int*)runner_param;
 
-	int bytesRecibidos = recv(runner->numCliente, buffer, buffersize, 0);
+	int bytesRecibidos = recv(socket, buffer, buffersize, 0);
 
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == 0) {
-			cerrarConexion(runner->numCliente, "El socket %d se desconectó\n");
+			cerrarConexion(socket, "El socket %d se desconectó\n");
 		} else {
 			logearError("Error en el recv\n", false);
-			close(runner->numCliente);
+			close(socket);
 		}
-		borrarCliente(runner->numCliente, runner->misClientes);
+		borrarCliente(socket);
 
 	} else {
 		// llegó info, vamos a ver el header
-		int estado = analizarHeader(runner->numCliente, buffer,
-				runner->misClientes);
+		int estado = analizarHeader(socket, buffer);
 
 		char *respuesta;
 
@@ -361,61 +388,58 @@ void *fHilo(void *runner_param) {
 
 		case CPU:
 			respuesta = "Header del CPU recibido";
-			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			send(socket, respuesta, strlen(respuesta) + 1, 0);
 			while (1) {
-				int bytesRecibidos = recv(runner->numCliente, buffer, buffersize, 0);
+				int bytesRecibidos = recv(socket, buffer, buffersize, 0);
 
 				if (bytesRecibidos <= 0) {
 					if (bytesRecibidos == 0) {
-						cerrarConexion(runner->numCliente, "El socket %d se desconectó\n");
+						cerrarConexion(socket, "El socket %d se desconectó\n");
 					} else {
 						logearError("Error en el recv\n", false);
-						close(runner->numCliente);
+						close(socket);
 					}
 				} else {
-				analizarHeaderMemoria(runner->numCliente, buffer,runner->misClientes);
+					analizarHeaderMemoria(socket, buffer);
 				}
 			}
 			break;
 
 		case KERNEL:
 			respuesta = "Header del Kernel recibido";
-			send(runner->numCliente, respuesta, strlen(respuesta) + 1, 0);
+			send(socket, respuesta, strlen(respuesta) + 1, 0);
 
 			while (1) {
 
-				int bytesRecibidos = recv(runner->numCliente, buffer, buffersize, 0); //Este recv toma el header para saber que operacion ejecutar
+				int bytesRecibidos = recv(socket, buffer, buffersize, 0); //Este recv toma el header para saber que operacion ejecutar
 
 				if (bytesRecibidos <= 0) {
 					if (bytesRecibidos == 0) {
-						cerrarConexion(runner->numCliente, "El socket %d se desconectó\n");
+						cerrarConexion(socket, "El socket %d se desconectó\n");
 					} else {
 							logearError("Error en el recv\n", false);
-							close(runner->numCliente);
+							close(socket);
 						}
 				} else {
-					analizarHeaderMemoria(runner->numCliente, buffer,runner->misClientes); //Este analizador recibe el codigo de op y ejecuta su funcion correspondiente.
+					analizarHeaderMemoria(socket, buffer); //Este analizador recibe el codigo de op y ejecuta su funcion correspondiente.
 				}
 
 			}
 			break;
 		case -1:
-			send(runner->numCliente, "Error, desconectado", 20, 0);
-			borrarCliente(runner->numCliente, runner->misClientes);
-			cerrarConexion(runner->numCliente,
-					"El socket %d hizo una operación inválida\n"); // Estaría bueno que por cada valor negativo hacer un código de error para decirle al usuario en qué la cagó.
+			send(socket, "Error, desconectado", 20, 0);
+			borrarCliente(socket);
+			cerrarConexion(socket, "El socket %d hizo una operación inválida\n"); // Estaría bueno que por cada valor negativo hacer un código de error para decirle al usuario en qué la cagó.
 			break;
-
 		}
-
 	}
-
 }
+*/
 
 int frameLibre(){
 	int i=0;
 
-	while(tablaAdministrativa[i].pid!=2){
+	while(tablaAdministrativa[i].pid!=-2){
 		i++;
 	}
 	return i;
@@ -424,18 +448,20 @@ int frameLibre(){
 
 void actualizar(datosMemoria datosMem){
 
-memcpy(memoria+(frameLibre()*MARCO_SIZE),datosMem.code,datosMem.codeSize);
+	memcpy(memoria+(frameLibre()*MARCO_SIZE),datosMem.code,datosMem.codeSize);
 
-tablaAdministrativa[frameLibre()].frame = frameLibre();
-tablaAdministrativa[frameLibre()].pag = 0;
-tablaAdministrativa[frameLibre()].pid = datosMem.pid;
+	tablaAdministrativa[frameLibre()].frame = frameLibre();
+	tablaAdministrativa[frameLibre()].pag = 0;
+	tablaAdministrativa[frameLibre()].pid = datosMem.pid;
+
+	free(datosMem.code);
 
 }
 
-void iniciarPrograma(int numCliente,unsigned short payload){
+void iniciarPrograma(int numCliente,unsigned short bytesDePayload){
 
 	// payload "identificador del programa + codigo + tamanio del codigo".
-	int buffersize = sizeof(payload);
+	int buffersize = bytesDePayload;
 	char* buffer = malloc(buffersize);
 	int bytesRecibidos = recv(numCliente, buffer, buffersize, 0); //Recibo la informacion del programa a iniciar
 
@@ -449,6 +475,8 @@ void iniciarPrograma(int numCliente,unsigned short payload){
 	printf("Codigo del Kernel:\n %s \n",datosMem.code);
 
 	actualizar(datosMem);
+
+	printf("Llegue\n");
 }
 
 void finalizarPrograma(int numCliente,unsigned short payload){
@@ -469,38 +497,11 @@ int existeArchivo(const char *ruta) {
 	return false;
 }
 
-int hayAlguienQueSea(char identificacion, miCliente *clientes) {
-	int i;
-	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		if (clientes[i].identificador == identificacion) {
-			return i; // Por las dudas le das la posición
-		}
+int hayAlguienQueSea(char identificacion) {
+	bool mismoID(void* elemento) {
+		return identificacion == ((miCliente*) elemento)->identificador;
 	}
-	return 0; // No lo encontró
-}
-
-// Dado el array de clientes, te dice en que posición hay un espacio libre.
-// Si no la hay, retorna -1.
-int hayLugar(miCliente *clientes) {
-	int i;
-	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		if (clientes[i].socketCliente == -1) { //woohoo, encontramos un espacio libre
-			return i;
-		}
-	}
-
-	return -1;
-}
-
-//Dado un Socket, te dice en que posición se encuentra en el array de Sockets
-int posicionSocket(int socketCliente, miCliente *clientes) {
-	int i;
-	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		if (clientes[i].socketCliente == socketCliente) {
-			return i;
-		}
-	}
-	return -1;
+	return list_any_satisfy(clientes, mismoID);
 }
 
 void *get_in_addr(struct sockaddr *sa) {
@@ -511,47 +512,41 @@ void *get_in_addr(struct sockaddr *sa) {
 	return &(((struct sockaddr_in6*) sa)->sin6_addr);
 }
 
-void agregarCliente(char identificador, int socketCliente, miCliente *clientes) {
-	int i;
-	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		if (clientes[i].socketCliente == -1) { //woohoo, encontramos un espacio libre
-			clientes[i].socketCliente = socketCliente;
-			clientes[i].identificador = identificador;
-			logearInfo("El nuevo cliente fue identificado como: %s\n",
-					ID_CLIENTE(identificador));
-			break;
-		}
+void agregarCliente(char identificador, int socketCliente) {
+	if (existeCliente(socketCliente)) {
+		logearError("No se puede agregar 2 veces mismo socket", false);
+		return;
 	}
 
+	miCliente *cliente = malloc(sizeof (miCliente));
+	cliente->identificador = identificador;
+	cliente->socketCliente = socketCliente;
+
+	list_add(clientes, cliente);
 }
 
-void borrarCliente(int socketCliente, miCliente *clientes) {
-	int posicion = posicionSocket(socketCliente, clientes);
-	if (posicion >= 0) {
-		clientes[posicion].socketCliente = -1;
-		clientes[posicion].identificador = 255;
-	}
+void borrarCliente(int socketCliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
 }
 
-void analizarCodigosDeOperacion(int socketCliente, char codigoDeOperacion,
-		miCliente *clientes) {
-	int posicionDelSocket = posicionSocket(socketCliente, clientes);
-	char codigoDelCliente = clientes[posicionDelSocket].identificador;
-	switch (codigoDelCliente) {
-	case KERNEL:
-		// TODO
-		break;
-	case CPU:
-		// TODO
-		break;
-	default:
-		printf("TODO, cod. de operación recibido: %d\n", codigoDeOperacion);
-		// TODO
+int existeCliente(int socketCliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	return list_any_satisfy(clientes, mismoSocket);
+}
+
+int tipoCliente(int socketCliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	miCliente *found = (miCliente*)(list_find(clientes, mismoSocket));
+	if (found == NULL) {
+		return -1;
 	}
+	return found->identificador;
 }
 
 void cerrarConexion(int socketCliente, char* motivo) {
 	logearInfo(motivo, socketCliente);
+	borrarCliente(socketCliente); // Si el cliente no esta en la lista no hace nada
 	close(socketCliente);
 }
 
@@ -618,37 +613,6 @@ void configurarRetardo() {
 				break;
 			}
 		}
-	}
-}
-
-void leerMensaje(int socketCliente, short bytesDePayload, miCliente *clientes) {
-	char* mensaje = malloc(bytesDePayload + 1);
-	recv(socketCliente, mensaje, bytesDePayload, 0);
-	mensaje[bytesDePayload] = '\0';
-	logearInfo("Mensaje recibido: %s\n", mensaje);
-	/*
-	 int cantidad = enviarMensajeATodos(socketCliente,mensaje, clientes);
-	 logearInfo("Mensaje retransmitido a %i clientes\n",cantidad);
-	 */
-	free(mensaje);
-}
-
-/*
- * limpiarCliente(); esta copado porque te permite usarlo en distintas circunstancias
- */
-void limpiarCliente(miCliente cliente) {
-	cliente.socketCliente = -1;
-	cliente.identificador = 255;
-}
-
-void limpiarClientes(miCliente *clientes) { // TODO: no devuelve nada, hay que hacer que devuelva el array modificado
-	int i;
-	for (i = 0; i < MAX_NUM_CLIENTES; i++) {
-		limpiarCliente(*clientes);
-		/*
-		 clientes[i].socketCliente = -1;
-		 clientes[i].identificador = 255;
-		 */
 	}
 }
 
