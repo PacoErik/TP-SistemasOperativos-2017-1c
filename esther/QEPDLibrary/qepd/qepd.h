@@ -30,12 +30,12 @@ extern t_config* config;
 
 void 	conectar(int *,char *,int);
 void 	configurar(char*);
-void 	deserializarHeader(headerDeLosRipeados *, void *);
 void 	enviarHeader(int, char, int);
 int 	existeArchivo(const char *);
 void 	handshake(int,char);
 void 	logearError(char*, int,...);
 void 	logearInfo(char*,...);
+int 	recibirHeader(int, headerDeLosRipeados *);
 void 	serializarHeader(headerDeLosRipeados *, void *);
 
 #endif /* QEPD_H_ */

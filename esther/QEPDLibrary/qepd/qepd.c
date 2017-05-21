@@ -35,23 +35,13 @@ void configurar(char* quienSoy) {
 	}
 	config_destroy(config);
 }
-void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	header->bytesDePayload = *pBytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	header->codigoDeOperacion = *pCodigoDeOperacion;
-}
 void enviarHeader(int socket, char operacion, int bytes) {
 	headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = bytes;
 	headerDeMiMensaje.codigoDeOperacion = operacion;
-
+	void* header = &headerDeMiMensaje;
 	int headerSize = sizeof(headerDeMiMensaje);
-	void *headerComprimido = malloc(headerSize);
-	serializarHeader(&headerDeMiMensaje, headerComprimido);
-
-	send(socket, headerComprimido, headerSize, 0);
-	free(headerComprimido);
+	send(socket, header, headerSize, 0);
 }
 int existeArchivo(const char *ruta) {
     FILE *archivo = fopen(ruta, "r+");
@@ -104,9 +94,9 @@ void logearInfo(char* formato, ...) {
 	va_end(args);
 	free(mensaje);
 }
-void serializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	*pBytesDePayload = header->bytesDePayload;
-	char *pCodigoDeOperacion = (char*)(pBytesDePayload + 1);
-	*pCodigoDeOperacion = header->codigoDeOperacion;
+int recibirHeader(int socket, headerDeLosRipeados *header) {
+	int bytesARecibir = sizeof(headerDeLosRipeados);
+	int bytesRecibidos = recv(socket, header, bytesARecibir, 0);
+
+	return bytesRecibidos;
 }
