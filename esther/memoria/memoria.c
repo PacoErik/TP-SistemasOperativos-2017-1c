@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <pthread.h>
 #include "commons/collections/list.h"
+#include "qepd/qepd.h"
 
 /*----------DEFINES----------*/
 #define MOSTRAR_LOGS_EN_PANTALLA true
@@ -26,7 +27,6 @@
 		_Bool mismoSocket(void* elemento) {								\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
 		}
-enum CodigoDeOperacion {CONSOLA,MEMORIA,FILESYSTEM,CPU,KERNEL,MENSAJE,INICIAR_PROGRAMA,FINALIZAR_PROGRAMA,ERROR_MULTIPROGRAMACION};
 enum estadoDelSectorDeMemoria {
 	LIBRE, HEAP, USADO
 };
@@ -38,11 +38,6 @@ typedef struct datosMemoria{
 	char *code;
 	short int codeSize;
 }__attribute__((packed, aligned(1))) datosMemoria;
-
-typedef struct headerDeLosRipeados {
-	unsigned short bytesDePayload;
-	char codigoDeOperacion;
-}__attribute__((packed, aligned(1))) headerDeLosRipeados;
 
 typedef struct miCliente {
 	short socketCliente;
@@ -91,9 +86,9 @@ typedef struct estructuraAdministrativa {
 typedef t_list listaCliente;
 
 /*-----VARIABLES GLOBALES-----*/
+listaCliente *clientes;
 t_log* logger;
 t_config* config;
-listaCliente *clientes;
 char *memoria;
 char PUERTO[6];
 unsigned short MARCOS;
@@ -108,40 +103,34 @@ estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de f
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
 void		actualizar							(datosMemoria);
-void		atenderKernel						(int socketKernel);
+void		atenderKernel						(int);
 void		agregarCliente						(char, int);
 void		borrarCliente						(int);
 void		cerrarConexion						(int, char*);
-void		configurar							(char*);
 void		configurarRetardo					();
-void		crearMemoria						(char **mem);
-void		deserializarHeader					(headerDeLosRipeados *, void *);
+void		crearMemoria						(char *);
 void		dump								();
 void		establecerConfiguracion				();
-int			existeArchivo						(const char *ruta);
-int			existeCliente						(int socketCliente);
-void*		fHilo								(void *numCliente);
-void		finalizarPrograma					(int numCliente,unsigned short payload);
+int			existeCliente						(int);
+void*		fHilo								(void *);
+void		finalizarPrograma					(int, unsigned short);
 void		flush								();
 int			frameLibre							();
 void*		get_in_addr							(struct sockaddr *);
-int			hayAlguienQueSea					(char identificacion);
+int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
-void		iniciarPrograma						(int numCliente,unsigned short bytesDePayload);
+void		iniciarPrograma						(int, unsigned short);
 void		interaccionMemoria					();
 void		leerMensaje							(int, int);
 void		limpiarPantalla						();
-void		logearError							(char *, int, ...);
-void		logearInfo							(char *, ...);
-void		serializarHeader					(headerDeLosRipeados *, void *);
 void		size								();
-int			tipoCliente							(int socketCliente);
+int			tipoCliente							(int);
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
 int main(void) {
 
-	crearMemoria(&memoria); // Creacion de la memoria general.
+	crearMemoria(memoria); // Creacion de la memoria general.
 	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 	configurar("memoria");
 
@@ -249,12 +238,9 @@ void actualizar(datosMemoria datosMem){
 }
 
 void atenderKernel(int socketKernel) {
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-	int bytes;
 	headerDeLosRipeados header;
-	while (bytes = recv(socketKernel, buffer, buffersize, 0)) {
-		deserializarHeader(&header, buffer);
+	int bytes;
+	while (bytes = recibirHeader(socketKernel, &header)) {
 		switch(header.codigoDeOperacion) {
 			case MENSAJE:
 				leerMensaje(socketKernel, header.bytesDePayload);
@@ -276,7 +262,6 @@ void atenderKernel(int socketKernel) {
 	else {
 		cerrarConexion(socketKernel, "El socket %d se desconectó");
 	}
-	free(buffer);
 }
 
 void agregarCliente(char identificador, int socketCliente) {
@@ -301,35 +286,6 @@ void cerrarConexion(int socketCliente, char* motivo) {
 	logearInfo(motivo, socketCliente);
 	borrarCliente(socketCliente); // Si el cliente no esta en la lista no hace nada
 	close(socketCliente);
-}
-
-void configurar(char* quienSoy) {
-
-	//Esto es por una cosa rara del Eclipse que ejecuta la aplicación
-	//como si estuviese en la carpeta esther/consola/
-	//En cambio, en la terminal se ejecuta desde esther/consola/Debug
-	//pero en ese caso no existiria el archivo config ni el log
-	//y es por eso que tenemos que leerlo desde el directorio anterior
-
-	if (existeArchivo(RUTA_CONFIG)) {
-		config = config_create(RUTA_CONFIG);
-		logger = log_create(RUTA_LOG, quienSoy, false, LOG_LEVEL_INFO);
-	} else {
-		config = config_create(string_from_format("../%s", RUTA_CONFIG));
-		logger = log_create(string_from_format("../%s", RUTA_LOG), quienSoy,
-		false, LOG_LEVEL_INFO);
-	}
-
-	//Si la cantidad de valores establecidos en la configuración
-	//es mayor a 0, entonces configurar la ip y el puerto,
-	//sino, estaría mal hecho el config.cfg
-
-	if (config_keys_amount(config) > 0) {
-		establecerConfiguracion();
-	} else {
-		logearError("Error al leer archivo de configuración", true);
-	}
-	config_destroy(config);
 }
 
 void configurarRetardo() {
@@ -369,17 +325,10 @@ void configurarRetardo() {
 	}
 }
 
-void crearMemoria(char **mem) {
+void crearMemoria(char *mem) {
 
-	*mem = malloc(MARCOS * MARCO_SIZE);
+	mem = malloc(MARCOS * MARCO_SIZE);
 
-}
-
-void deserializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	header->bytesDePayload = *pBytesDePayload;
-	char *pCodigoDeOperacion = (char*) (pBytesDePayload + 1);
-	header->codigoDeOperacion = *pCodigoDeOperacion;
 }
 
 void dump() {
@@ -440,15 +389,6 @@ void establecerConfiguracion() {
 
 }
 
-int existeArchivo(const char *ruta) {
-	FILE *archivo;
-	if ((archivo = fopen(ruta, "r"))) {
-		fclose(archivo);
-		return true;
-	}
-	return false;
-}
-
 int existeCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	return list_any_satisfy(clientes, mismoSocket);
@@ -481,9 +421,8 @@ void *fHilo(void* param) {
 
 void finalizarPrograma(int numCliente,unsigned short payload){
 	// payload "identificador del programa".
-	int buffersize = sizeof(payload);
-	char* buffer = malloc(buffersize);
-	int bytesRecibidos = recv(numCliente, buffer, buffersize, 0);
+	int PID;
+	recv(numCliente, &PID, sizeof(PID), 0);
 	// eliminar entradas en la estructura.
 
 }
@@ -625,16 +564,16 @@ void interaccionMemoria() {
 }
 
 void leerMensaje(int socket, int bytes) {
-	char* mensaje = calloc(bytes+1, sizeof(char));
-	recv(socket, mensaje, bytes, 0);
-	logearInfo("Mensaje recibido: %s\n",mensaje);
+	char* mensaje = malloc(bytes+1);
+	int bytesRecibidos = recv(socket, mensaje, bytes, 0);
+	mensaje[bytes] = '\0';
+	logearInfo("Mensaje recibido: %s",mensaje);
 	free(mensaje);
 }
 
 int recibirHandshake(int socket) {
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-    int bytesRecibidos = recv(socket, buffer, buffersize, 0);
+	headerDeLosRipeados header;
+	int bytesRecibidos = recibirHeader(socket, &header);
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == -1) {
 			cerrarConexion(socket, "El socket %d se desconectó");
@@ -644,45 +583,12 @@ int recibirHandshake(int socket) {
 		}
 		return -1;
 	}
-	headerDeLosRipeados handy;
-	deserializarHeader(&handy, buffer);
-	free(buffer);
-	char codOp = handy.codigoDeOperacion;
+	char codOp = header.codigoDeOperacion;
 	return (codOp == KERNEL || codOp == CPU) ? codOp : -1;
 }
 
 void limpiarPantalla() {
 	printf("\033[H\033[J");
-}
-
-void logearError(char* formato, int terminar, ...) {
-	char* mensaje;
-	va_list args;
-	va_start(args, terminar);
-	mensaje = string_from_vformat(formato, args);
-	log_error(logger, mensaje);
-	printf("%s", mensaje);
-	va_end(args);
-	if (terminar == true) {
-		exit(EXIT_FAILURE);
-	}
-}
-
-void logearInfo(char* formato, ...) {
-	char* mensaje;
-	va_list args;
-	va_start(args, formato);
-	mensaje = string_from_vformat(formato, args);
-	log_info(logger, mensaje);
-	printf("%s", mensaje);
-	va_end(args);
-}
-
-void serializarHeader(headerDeLosRipeados *header, void *buffer) {
-	short *pBytesDePayload = (short*) buffer;
-	*pBytesDePayload = header->bytesDePayload;
-	char *pCodigoDeOperacion = (char*) (pBytesDePayload + 1);
-	*pCodigoDeOperacion = header->codigoDeOperacion;
 }
 
 void size() {
