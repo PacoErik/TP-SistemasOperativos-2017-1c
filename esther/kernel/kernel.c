@@ -36,10 +36,7 @@ typedef struct PCB {
 //Un choclazo de struct para llevar la estadística de los procesos y tener
 //un control más agrupado.. o algo así :v
 typedef struct Proceso {
-	int socketPadre; //nada que ver con hilos, es solo el socket de la consola que mandó a iniciar este proceso
-	//pongo esto para abarcar el caso en el que una consola se desconecte de una,
-	//por lo que habría que matar todos los procesos que estaban relacionados a ella
-
+	int consola; //Socket la consola que envio este proceso
 	int cantRafagas;
 	int cantOperacionesPriv;
 	int cantPaginasHeap;
@@ -88,7 +85,7 @@ int		existeProceso(int PID);
 void* 	get_in_addr(struct sockaddr *);
 void 	procesarMensaje(int, char, int);
 int 	recibirHandshake(int);
-int 	recibirHeader(int);
+int 	recibirHeader(int, headerDeLosRipeados*);
 int 	recibirMensaje(int, int);
 int 	tipoCliente(int);
 
@@ -224,9 +221,8 @@ int main(void) {
 				}
 				else {
 					//Recibir header
-					int buffersize = sizeof(headerDeLosRipeados);
-					void *buffer = malloc(buffersize);
-					int bytesRecibidos = recv(i, buffer, buffersize, 0);
+					headerDeLosRipeados header;
+					int bytesRecibidos = recibirHeader(i, &header);
 					if (bytesRecibidos <= 0) {
 						int tipo = tipoCliente(i);
 						if (tipo >= 0) {
@@ -240,17 +236,9 @@ int main(void) {
 						free(buffer);
 						continue;
 					}
-					headerDeLosRipeados header;
-					deserializarHeader(&header, buffer);
-					free(buffer);
 
 					int bytesDePayload = header.bytesDePayload;
 					int codigoDeOperacion = header.codigoDeOperacion;
-
-					//Confirmación del header (algún día vamos a sacar esto..)
-					//char *respuesta = "Header recibido";
-					//enviarHeader(i, MENSAJE, strlen(respuesta));
-					//send(i, respuesta, strlen(respuesta), 0);
 
 					//Procesar operación del header
 					procesarMensaje(i,codigoDeOperacion,bytesDePayload);
@@ -271,24 +259,16 @@ void hacerPedidoMemoria(datosMemoria datosMem) {
 
 	// Primer send
 
-	headerDeLosRipeados headerDeMiMensaje;
-	headerDeMiMensaje.bytesDePayload = datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize);
-	headerDeMiMensaje.codigoDeOperacion = INICIAR_PROGRAMA;
+	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
 
-	int headerSize = sizeof(headerDeMiMensaje);
-	void *headerComprimido = malloc(headerSize);
-	serializarHeader(&headerDeMiMensaje, headerComprimido);
-	send(memoria, headerComprimido, headerSize,0);
-	free(headerComprimido);
-
+	enviarHeader(memoria, INICIAR_PROGRAMA, tamanioTotal);
 	// Segundo send
-	char *buffer = malloc(datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize)); // tamanio del codigo + 4 bytes del pid + tamanio del (datosMem.codeSize) esto ultimo lo uso en memoria para saber cuanto codigo leer del buffer
+	char *buffer = malloc(tamanioTotal); // tamanio del codigo + 4 bytes del pid + tamanio del (datosMem.codeSize) esto ultimo lo uso en memoria para saber cuanto codigo leer del buffer
 	memcpy(buffer,&datosMem.pid,sizeof(int)); // Como no tengo puntero del pid (de code si), lo paso con &
 	memcpy(buffer+sizeof(int),&datosMem.codeSize,sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
-	memcpy(buffer+sizeof(int)+sizeof(datosMem.codeSize),&datosMem.code,datosMem.codeSize);
+	memcpy(buffer+sizeof(int)+sizeof(datosMem.codeSize),datosMem.code,datosMem.codeSize);
 	send(memoria,buffer,datosMem.codeSize+sizeof(int)+sizeof(datosMem.codeSize),0);
 	free(buffer);
-	free(datosMem.code);
 	//
 }
 
@@ -418,9 +398,9 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 					//puede terminar luego de la petición a la memoria.
 					nuevo_PID = PID_GLOBAL;
 					datosMemoria datosMem;
-					datosMem.codeSize = sizeof(codigo);
+					datosMem.codeSize = strlen(codigo);
 					datosMem.pid=nuevo_PID;
-					datosMem.code = malloc(sizeof(codigo));
+					datosMem.code = malloc(datosMem.codeSize);
 					strcpy(datosMem.code,codigo); //Como codigo es un string, estoy copiandolo a un array de chars, que es otro string. Por eso no uso &
 					hacerPedidoMemoria(datosMem);
 					free(datosMem.code);
@@ -469,53 +449,33 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			break;
 	}
 }
-int recibirHandshake(int socketCliente) {
+
+int recibirHeader(int socket, headerDeLosRipeados *header) {
 	int buffersize = sizeof(headerDeLosRipeados);
 	void *buffer = malloc(buffersize);
-    int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
-	if (bytesRecibidos <= 0) {
-		if (bytesRecibidos == -1) {
-			logearError("El socket %d se desconectó", false, socketCliente);
-		}
-		else {
-			logearError("Error en el recv",false);
-		}
-		return 0;
-	}
-	headerDeLosRipeados handy;
-	deserializarHeader(&handy, buffer);
+	int bytesRecibidos = recv(socket, buffer, buffersize, 0);
+
+	deserializarHeader(header, buffer);
 	free(buffer);
 
-	int bytesDePayload = handy.bytesDePayload;
-	int codigoDeOperacion = handy.codigoDeOperacion;
+	return bytesRecibidos;
+}
 
-	if (CONSOLA <= codigoDeOperacion && codigoDeOperacion <= CPU && bytesDePayload == 0) {
-		logearInfo("El nuevo cliente fue identificado como: %s", ID_CLIENTE(codigoDeOperacion));
-		agregarCliente(codigoDeOperacion, socketCliente);
+int recibirHandshake(int socketCliente) {
+	headerDeLosRipeados handy;
+
+	recibirHeader(socketCliente, &handy);
+
+	if (CONSOLA <= handy.codigoDeOperacion
+			&& handy.codigoDeOperacion <= CPU
+			&& handy.bytesDePayload == 0) {
+		logearInfo("El nuevo cliente fue identificado como: %s", ID_CLIENTE(handy.codigoDeOperacion));
+		agregarCliente(handy.codigoDeOperacion, socketCliente);
 		return 1;
 	}
 	return 0;
 }
-int recibirHeader(int socketCliente) {
-	int buffersize = sizeof(headerDeLosRipeados);
-	void *buffer = malloc(buffersize);
-    int bytesRecibidos = recv(socketCliente, buffer, buffersize, 0);
-	if (bytesRecibidos <= 0) {
-		return -1;
-	}
-	headerDeLosRipeados header;
-	deserializarHeader(&header, buffer);
-	free(buffer);
 
-	int bytesDePayload = header.bytesDePayload;
-	int codigoDeOperacion = header.codigoDeOperacion;
-
-	if (codigoDeOperacion == MENSAJE) { // Si o si tiene que ser un mensaje
-		return bytesDePayload;
-	}
-	logearInfo("Socket %d: Codigo de operacion invalida", socketCliente);
-	return -1;
-}
 int recibirMensaje(int socketCliente, int bytesDePayload) {
     char* mensaje = malloc(bytesDePayload+1);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
