@@ -139,18 +139,6 @@ void eliminarProceso(int PID) {
 	}
 	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
 }
-void enviarHeader(int socket, char operacion, int bytes) {
-	headerDeLosRipeados headerDeMiMensaje;
-	headerDeMiMensaje.bytesDePayload = bytes;
-	headerDeMiMensaje.codigoDeOperacion = operacion;
-
-	int headerSize = sizeof(headerDeMiMensaje);
-	void *headerComprimido = malloc(headerSize);
-	serializarHeader(&headerDeMiMensaje, headerComprimido);
-
-	send(socket, headerComprimido, headerSize, 0);
-	free(headerComprimido);
-}
 void enviarMensaje(char *param) {
 	char mensaje[512];
 	memset(mensaje, 0, sizeof mensaje);
@@ -458,25 +446,18 @@ void procesarOperacion(char operacion, int bytes) {
 }
 void* recibirHeaders(void* arg) {
 	while (1) {
-		//Recibir header
 		int buffersize = sizeof(headerDeLosRipeados);
 		void *buffer = malloc(buffersize);
-		int bytesRecibidos = recv(servidor, buffer, buffersize, 0);
+
+		headerDeLosRipeados header;
+
+		int bytesRecibidos = recibirHeader(servidor, &header);
 		if (bytesRecibidos <= 0) {
 			free(buffer);
 			logearError("Se desconectó el Kernel",true);
 		}
-		headerDeLosRipeados header;
-		deserializarHeader(&header, buffer);
-		free(buffer);
 
-		int bytesDePayload = header.bytesDePayload;
-		int codigoDeOperacion = header.codigoDeOperacion;
-
-		//printf("Op:%d Bytes:%d\n",codigoDeOperacion, bytesDePayload); //Rico debug
-
-		//Procesar operación del header
-		procesarOperacion(codigoDeOperacion,bytesDePayload);
+		procesarOperacion(header.codigoDeOperacion,header.bytesDePayload);
 	}
 	return NULL;
 }
