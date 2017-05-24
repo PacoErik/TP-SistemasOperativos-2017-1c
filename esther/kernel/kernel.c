@@ -16,17 +16,20 @@
 		}
 
 //-----ESTRUCTURAS-----//
-typedef struct datosMemoria{  // mem?
+typedef struct datosMemoria {
 	int pid;
-	char *code;
 	short int codeSize;
+	char *code;
 }__attribute__((packed, aligned(1))) datosMemoria;
+
 typedef struct miCliente {
     short socketCliente;
     char identificador;
 } miCliente;
+
 typedef t_list listaCliente;
 typedef t_list listaProcesos;
+
 typedef struct PCB {
 	int PID;
 	int PC;
@@ -82,7 +85,6 @@ int 	enviarMensajeATodos(int, char*);
 void 	establecerConfiguracion();
 int 	existeCliente(int);
 int		existeProceso(int PID);
-void* 	get_in_addr(struct sockaddr *);
 void 	procesarMensaje(int, char, int);
 int 	recibirHandshake(int);
 int 	recibirHeader(int, headerDeLosRipeados*);
@@ -230,24 +232,19 @@ int main(void) {
 
 //-----DEFINICIÓN DE FUNCIONES-----//
 void hacerPedidoMemoria(datosMemoria datosMem) {
-	//Segun entendemos, en el main ya se conecta no se por que, dejamos eso por las dudas cmentado, el send lo hago de una
-
-
-
-	// Primer send
-
 	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
 
 	enviarHeader(memoria, INICIAR_PROGRAMA, tamanioTotal);
-	// Segundo send
-	char *buffer = malloc(tamanioTotal); // tamanio del codigo + 4 bytes del pid + tamanio del (datosMem.codeSize) esto ultimo lo uso en memoria para saber cuanto codigo leer del buffer
-	memcpy(buffer,&datosMem.pid,sizeof(int)); // Como no tengo puntero del pid (de code si), lo paso con &
-	memcpy(buffer+sizeof(int),&datosMem.codeSize,sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
-	memcpy(buffer+sizeof(int)+sizeof(datosMem.codeSize),datosMem.code,datosMem.codeSize);
+
+	char *buffer = malloc(tamanioTotal);				// Tamanio del codigo
+
+	memcpy(buffer, &datosMem.pid, sizeof(int));		// Como no tengo puntero del pid (de code si), lo paso con &
+	memcpy(buffer + sizeof(int), &datosMem.codeSize, sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
+	memcpy(buffer + sizeof(int) + sizeof(datosMem.codeSize), datosMem.code, datosMem.codeSize);
+
 	send(memoria, buffer, tamanioTotal, 0);
 
 	free(buffer);
-	//
 }
 
 
@@ -346,13 +343,6 @@ int existeProceso(int PID) {
 		return PID == ((PCB*) elemento)->PID;
 	}
 	return list_any_satisfy(procesos, mismoPID);
-}
-void* get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 void procesarMensaje(int socketCliente, char operacion, int bytes) {
 

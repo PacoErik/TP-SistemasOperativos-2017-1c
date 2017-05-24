@@ -22,7 +22,7 @@
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "memoria.log"
 #define MAX_NUM_CLIENTES 100
-#define ID_CLIENTE(x) ID_CLIENTES[x]
+//#define ID_CLIENTE(x) ID_CLIENTES[x]
 #define DEF_MISMO_SOCKET(SOCKET)										\
 		_Bool mismoSocket(void* elemento) {								\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
@@ -32,11 +32,14 @@ enum estadoDelSectorDeMemoria {
 };
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 
+#define FRAME_ADMIN -1
+#define FRAME_LIBRE -2
+
 /*----------ESTRUCTURAS----------*/
-typedef struct datosMemoria{
+typedef struct datosMemoria {
 	int pid;
-	char *code;
 	short int codeSize;
+	char *code;
 }__attribute__((packed, aligned(1))) datosMemoria;
 
 typedef struct miCliente {
@@ -81,62 +84,70 @@ typedef struct estructuraAdministrativa {
 	int frame;
 	int pid;
 	int pag;
-} estructuraAdministrativa;
+}__attribute__((packed, aligned(1))) estructuraAdministrativa;
 
 typedef t_list listaCliente;
 
 /*-----VARIABLES GLOBALES-----*/
-listaCliente *clientes;
+
+/* Configs */
+char				PUERTO[6];
+unsigned short		MARCOS;
+unsigned short		MARCO_SIZE;
+unsigned short		ENTRADAS_CACHE;
+unsigned short		CACHE_X_PROC;
+char				REEMPLAZO_CACHE[8]; // ?
+unsigned short		RETARDO;
+
 t_log* logger;
 t_config* config;
+
+listaCliente *clientes;
+
 char *memoria;
-char PUERTO[6];
-unsigned short MARCOS;
-unsigned short MARCO_SIZE;
-unsigned short ENTRADAS_CACHE;
-unsigned short CACHE_X_PROC;
-char REEMPLAZO_CACHE[8]; // ?
-unsigned short RETARDO;
-static const char *ID_CLIENTES[] = { "Consola", "Memoria", "File System", "CPU","Kernel" };
 estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de frames, ver config.cfg TODO
+
+//static const char *ID_CLIENTES[] = { "Consola", "Memoria", "File System", "CPU","Kernel" };
 
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
-void		actualizar							(datosMemoria);
+//void		actualizar							(datosMemoria);
+int			asignarFramesContiguos			(datosMemoria*);
 void		atenderKernel						(int);
 void		agregarCliente						(char, int);
 void		borrarCliente						(int);
 void		cerrarConexion						(int, char*);
 void		configurarRetardo					();
-void		crearMemoria						(char *);
+void		crearMemoria						(void);
 void		dump								();
-void		establecerConfiguracion				();
+void		establecerConfiguracion			();
 int			existeCliente						(int);
 void*		fHilo								(void *);
 void		finalizarPrograma					(int, unsigned short);
 void		flush								();
-int			frameLibre							();
-void*		get_in_addr							(struct sockaddr *);
+//int			frameLibre							();
+void*		get_in_addr						(struct sockaddr *);
 int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
-void		iniciarPrograma						(int, unsigned short);
-void		interaccionMemoria					();
-void		leerMensaje							(int, int);
-void		limpiarPantalla						();
+void		iniciarPrograma					(int, unsigned short);
+void		interaccionMemoria				();
+char*		irAFrame							(int);
+void		leerMensaje						(int, int);
+void		limpiarPantalla					();
+int			recibirHandshake					(int);
 void		size								();
-int			tipoCliente							(int);
+int			tipoCliente						(int);
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
 int main(void) {
-
-	crearMemoria(memoria); // Creacion de la memoria general.
-	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 	configurar("memoria");
+
+	crearMemoria(); // Creacion de la memoria general.
+	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
 
 	clientes = list_create();
 
-	tablaAdministrativa = malloc(sizeof(estructuraAdministrativa) * MARCOS);
 	inicializarTabla();
 
 	struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
@@ -225,16 +236,64 @@ int main(void) {
 
 /*------------DEFINICION DE FUNCIONES----------------*/
 
-void actualizar(datosMemoria datosMem){
-
-	memcpy(memoria+(frameLibre()*MARCO_SIZE),datosMem.code,datosMem.codeSize);
+/*
+void actualizar(datosMemoria datosMem) {
+	memcpy(memoria + (frameLibre() * MARCO_SIZE), datosMem.code, datosMem.codeSize);
 
 	tablaAdministrativa[frameLibre()].frame = frameLibre();
 	tablaAdministrativa[frameLibre()].pag = 0;
 	tablaAdministrativa[frameLibre()].pid = datosMem.pid;
 
 	free(datosMem.code);
+}
+*/
 
+/*
+ * Asigna frames contiguos para un proceso.
+ */
+int asignarFramesContiguos(datosMemoria *datosMem) {
+	int cantidadFrames = DIVIDE_ROUNDUP(datosMem->codeSize, MARCO_SIZE);
+
+	char *pFrame = NULL;		// Puntero a la posicion de frame en memoria
+
+	int i;
+	int framesEncontrados;		// Contador frames libres encontrados
+
+	for (i = 0, framesEncontrados = 0;
+			i < MARCOS && framesEncontrados < cantidadFrames; i++) {
+		if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+			framesEncontrados++;
+		}
+		else {
+			framesEncontrados = 0;
+		}
+	}
+
+	/* No hay frames disponibles */
+	if (framesEncontrados != cantidadFrames) {
+		return 0;
+	}
+
+	/* Asignar frames al proceso */
+	for (i -= framesEncontrados; i < framesEncontrados; i++) {
+		tablaAdministrativa[i].pid = datosMem->pid;
+		tablaAdministrativa[i].pag = i - framesEncontrados;
+	}
+
+	/* Escribir datos a la memoria */
+	memcpy(irAFrame(i - framesEncontrados), datosMem->code, sizeof(char) * datosMem->codeSize);
+
+	return 1;
+}
+
+/*
+ * Devuelve puntero al frame en la posicion indicada.
+ */
+char *irAFrame(int indice) {
+	if (indice >= MARCOS) {
+		return NULL;
+	}
+	return ((char (*) [MARCO_SIZE]) memoria) [indice];
 }
 
 void atenderKernel(int socketKernel) {
@@ -242,18 +301,18 @@ void atenderKernel(int socketKernel) {
 	int bytes;
 	while (bytes = recibirHeader(socketKernel, &header)) {
 		switch(header.codigoDeOperacion) {
-			case MENSAJE:
-				leerMensaje(socketKernel, header.bytesDePayload);
-				break;
-			case INICIAR_PROGRAMA:
-				iniciarPrograma(socketKernel,header.bytesDePayload);
-				break;
-			case FINALIZAR_PROGRAMA:
-				finalizarPrograma(socketKernel,header.bytesDePayload);
-				break;
-			default:
-				printf("TODO\n");
-				break;
+		case MENSAJE:
+			leerMensaje(socketKernel, header.bytesDePayload);
+			break;
+		case INICIAR_PROGRAMA:
+			iniciarPrograma(socketKernel, header.bytesDePayload);
+			break;
+		case FINALIZAR_PROGRAMA:
+			finalizarPrograma(socketKernel, header.bytesDePayload);
+			break;
+		default:
+			printf("TODO\n");
+			break;
 		}
 	}
 	if (bytes == -1) {
@@ -325,10 +384,8 @@ void configurarRetardo() {
 	}
 }
 
-void crearMemoria(char *mem) {
-
-	mem = malloc(MARCOS * MARCO_SIZE);
-
+void crearMemoria(void) {
+	memoria = malloc(MARCOS * MARCO_SIZE);
 }
 
 void dump() {
@@ -338,55 +395,61 @@ void dump() {
 void establecerConfiguracion() {
 	if (config_has_property(config, "PUERTO")) {
 		strcpy(PUERTO, config_get_string_value(config, "PUERTO"));
-		logearInfo("PUERTO: %s \n", PUERTO);
-	} else {
+		logearInfo("PUERTO: %s", PUERTO);
+	}
+	else {
 		logearError("Error al leer el puerto de la memoria", true);
 	}
 
 	if (config_has_property(config, "MARCOS")) {
 		MARCOS = config_get_int_value(config, "MARCOS");
-		logearInfo("MARCOS: %i \n", MARCOS);
-	} else {
+		logearInfo("MARCOS: %i", MARCOS);
+	}
+	else {
 		logearError("Error al leer los marcos de la memoria", true);
 	}
 
 	if (config_has_property(config, "MARCO_SIZE")) {
 		MARCO_SIZE = config_get_int_value(config, "MARCO_SIZE");
-		logearInfo("MARCO_SIZE: %i \n", MARCO_SIZE);
-	} else {
+		logearInfo("MARCO_SIZE: %i", MARCO_SIZE);
+	}
+	else {
 		logearError("Error al leer los tamaños de los marcos de la memoria",
 		true);
 	}
 
 	if (config_has_property(config, "ENTRADAS_CACHE")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "ENTRADAS_CACHE");
-		logearInfo("ENTRADAS_CACHE: %i \n", ENTRADAS_CACHE);
-	} else {
+		logearInfo("ENTRADAS_CACHE: %i", ENTRADAS_CACHE);
+	}
+	else {
 		logearError("Error al leer las entradas cache de la memoria", true);
 	}
 
 	if (config_has_property(config, "CACHE_X_PROC")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "CACHE_X_PROC");
-		logearInfo("CACHE_X_PROC: %i \n", CACHE_X_PROC);
-	} else {
+		logearInfo("CACHE_X_PROC: %i", CACHE_X_PROC);
+	}
+	else {
 		logearError("Error al leer los cache por proceso de la memoria", true);
 	}
 
 	if (config_has_property(config, "REEMPLAZO_CACHE")) {
 		strcpy(REEMPLAZO_CACHE,
 				config_get_string_value(config, "REEMPLAZO_CACHE"));
-		logearInfo("REEMPLAZO_CACHE: %s \n", REEMPLAZO_CACHE);
-	} else {
+		logearInfo("REEMPLAZO_CACHE: %s", REEMPLAZO_CACHE);
+	}
+	else {
 		logearError("Error al leer los reemplazo cache de la memoria", true);
 	}
 
 	if (config_has_property(config, "RETARDO")) {
 		RETARDO = config_get_int_value(config, "RETARDO");
-		logearInfo("RETARDO: %i \n", RETARDO);
-	} else {
+		logearInfo("RETARDO: %i", RETARDO);
+	}
+	else {
 		logearError("Error al leer el retardo de la memoria", true);
 	}
-
 }
 
 int existeCliente(int socketCliente) {
@@ -419,7 +482,7 @@ void *fHilo(void* param) {
 	return NULL;
 }
 
-void finalizarPrograma(int numCliente,unsigned short payload){
+void finalizarPrograma(int numCliente, unsigned short payload) {
 	// payload "identificador del programa".
 	int PID;
 	recv(numCliente, &PID, sizeof(PID), 0);
@@ -431,14 +494,14 @@ void flush() {
 	// TODO
 }
 
-int frameLibre(){
-	int i=0;
+/*
+int frameLibre() {
+	int i;
+	for (i = 0; i < MARCOS && tablaAdministrativa[i].pid != -2; i++);
 
-	while(tablaAdministrativa[i].pid!=-2){
-		i++;
-	}
-	return i;
+	return (i < MARCOS) ? i : -1;
 }
+*/
 
 void *get_in_addr(struct sockaddr *sa) {
 	if (sa->sa_family == AF_INET) {
@@ -471,44 +534,53 @@ void imprimirOpcionesDeMemoria() {
 	printf("--------------------\n");
 }
 
-void inicializarTabla() { //Aca inicializamos los pid en -2 (usado) y marcamos en la tabla los frames usados por la misma (pid -1)
+/*
+ * Aca inicializamos los pid en -2 (usado) y marcamos en la tabla los frames usados por la misma (pid -1)
+ */
+void inicializarTabla(void) {
+	// Aca no necesita ningun malloc, se guarda directamente en memoria
+	tablaAdministrativa = (estructuraAdministrativa *) memoria;
+
+	int tamanioTotalTabla = sizeof(estructuraAdministrativa[MARCOS]);
+	int framesOcupadosPorTabla = DIVIDE_ROUNDUP(tamanioTotalTabla, MARCO_SIZE);
+
 	int i;
-	int framesOcupadosPorTabla;
-	int tamanioTotalTabla;
-
-	for (i = 0; i < MARCOS; i++) {
-		tablaAdministrativa[i].pid = -2;
+	for (i = 0 ; i < framesOcupadosPorTabla; i++) {
+		tablaAdministrativa[i].pid = FRAME_ADMIN;
 	}
 
-	tamanioTotalTabla = sizeof(estructuraAdministrativa) * MARCOS;
-	framesOcupadosPorTabla = DIVIDE_ROUNDUP(framesOcupadosPorTabla, MARCO_SIZE);
-
-	for (i = 0; i < framesOcupadosPorTabla; i++) {
-		tablaAdministrativa[i].pid = -1;
-
+	for ( ; i < MARCOS; i++) {
+		tablaAdministrativa[i].pid = FRAME_LIBRE;
 	}
-
 }
 
-void iniciarPrograma(int numCliente,unsigned short bytesDePayload){
+void iniciarPrograma(int socketKernel, unsigned short bytesDePayload) {
+	datosMemoria *datosMem = malloc(sizeof(datosMemoria));
 
-	// payload "identificador del programa + codigo + tamanio del codigo".
-	int buffersize = bytesDePayload;
-	char* buffer = malloc(buffersize);
-	int bytesRecibidos = recv(numCliente, buffer, buffersize, 0); //Recibo la informacion del programa a iniciar
+	int ret = recv(socketKernel, datosMem, sizeof(datosMem->pid) + sizeof(datosMem->codeSize), 0);
+	if (ret <= 0) {
+		logearError("No se pudo recibir el programa.", false);
+		return;
+	}
 
-	//"desserializo" lo que recibi en el buffer
-	datosMemoria datosMem;
-	memcpy(&datosMem.pid, buffer, sizeof(int));
-	memcpy(&datosMem.codeSize, buffer + sizeof(int), sizeof(datosMem.codeSize));
-	datosMem.code = malloc(datosMem.codeSize);
-	memcpy(datosMem.code, buffer + sizeof(int) + sizeof(short int),datosMem.codeSize);
+	datosMem->code = malloc(datosMem->codeSize);
 
-	printf("Codigo del Kernel:\n %s \n",datosMem.code);
+	ret = recv(socketKernel, datosMem->code, datosMem->codeSize, 0);
+	if (ret <= 0) {
+		logearError("No se pudo recibir el codigo de programa.", false);
+		return;
+	}
 
-	actualizar(datosMem);
+	printf("[PID %d] Codigo del Proceso:%s \n", datosMem->pid, datosMem->code);
 
-	printf("Llegue\n");
+	ret = asignarFramesContiguos(datosMem);
+	if (ret == 0) {
+		logearError("[PID %d] No hay frames disponibles.", false, datosMem->pid);
+	}
+
+	logearInfo("[PID %d] Listo.", datosMem->pid);
+
+	free(datosMem);
 }
 
 void interaccionMemoria() {
@@ -521,8 +593,7 @@ void interaccionMemoria() {
 		// limpiar buffer de entrada
 
 		int c;
-		while ((c = getchar()) != '\n' && c != EOF)
-			;
+		while ((c = getchar()) != '\n' && c != EOF);
 
 		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
 
