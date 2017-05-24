@@ -91,7 +91,7 @@ typedef t_list listaCliente;
 /*-----VARIABLES GLOBALES-----*/
 
 /* Configs */
-char				PUERTO[6];
+int					PUERTO;
 unsigned short		MARCOS;
 unsigned short		MARCO_SIZE;
 unsigned short		ENTRADAS_CACHE;
@@ -150,87 +150,57 @@ int main(void) {
 
 	inicializarTabla();
 
-	struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_INET; // IPv4
-	hints.ai_socktype = SOCK_STREAM; // TCP
-	hints.ai_flags = AI_PASSIVE;
+	int servidor = socket(AF_INET, SOCK_STREAM, 0);	// Socket de escucha
 
-	/* getaddrinfo() retorna una lista de posibles direcciones para el bind */
-
-	struct addrinfo *direcciones; // lista de posibles direcciones para el bind
-	int rv = getaddrinfo(NULL, PUERTO, &hints, &direcciones); // si devuelve 0 hay un error
-	if (rv != 0) {
-		// gai_strerror() devuelve el mensaje de error segun el codigo de error
-		logearError("No se pudo abrir la memoria\n", true);
+	if (servidor == -1) {
+		logearError("No se pudo crear el socket", true);
 	}
 
-	int servidor; // socket de escucha
+	int activado = 1;
+	setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
 
-	struct addrinfo *p; // Puntero para recorrer la lista de direcciones
+	struct sockaddr_in servidor_info;
 
-	// Recorrer la lista hasta encontrar una direccion disponible para el bind
-	for (p = direcciones; p != NULL; p = p->ai_next) {
+	servidor_info.sin_family = AF_INET;
+	servidor_info.sin_port = htons(PUERTO);
+	servidor_info.sin_addr.s_addr = INADDR_ANY;
+	bzero(&(servidor_info.sin_zero), 8);
 
-		servidor = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-		if (servidor == -1) {	// Devuelve 0 si hubo error
-			continue;
-		}
-
-		// Para no tener que esperar al volver a usar el mismo puerto o socket
-		int activado = 1;
-		setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado,
-				sizeof(activado));
-
-		if (bind(servidor, p->ai_addr, p->ai_addrlen) == 0) {
-			break; // Se encontro una direccion disponible
-		}
-
-		close(servidor);
+	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
+		logearError("Fallo al bindear el puerto", true);
 	}
 
-	if (p == NULL) {
-		logearError("Fallo al bindear el puerto\n", true);
-	}
+    if (listen(servidor, 10) == -1) {
+		logearError("Fallo al escuchar", true);
+    }
 
-	freeaddrinfo(direcciones); // No necesito mas la lista de direcciones
+	logearInfo("Estoy escuchando");
 
-	if (listen(servidor, 10) == -1) {
-		logearError("Fallo al escuchar\n", true);
-	}
-	logearInfo("Estoy escuchando\n");
-
-	//unsigned long int idHilos[10]={0};
-
-//	interaccionMemoria();
 	for(;;) {
+		int nuevoCliente;					// Socket del nuevo cliente conectado
 
-		// Funcion Bloqueante
+		struct sockaddr_in clienteInfo;
+		socklen_t addrlen = sizeof clienteInfo;
 
-		// chequear idHilo
+		nuevoCliente = accept(servidor, (struct sockaddr *) &clienteInfo, &addrlen);
 
-		//
-		struct sockaddr_in direccionCliente;
-		pthread_t tid; // Identificador del hilo
-		pthread_attr_t atributos; // Atributos del hilo(pordefecto)
-		pthread_attr_init(&atributos);
-		socklen_t addrlen = sizeof direccionCliente;
-		int nuevoCliente; // Socket del nuevo cliente conectado
-		nuevoCliente = accept(servidor, (struct sockaddr *) &direccionCliente,
-				&addrlen);
+		if (nuevoCliente == -1) {
+			logearError("Fallo en el accept", false);
+		}
 
 		int *param = malloc(sizeof(int));
 		*param = nuevoCliente;
 
+		pthread_t tid;						// Identificador del hilo
+		pthread_attr_t atributos;			// Atributos del hilo
+
+		pthread_attr_init(&atributos);
+		pthread_attr_setdetachstate(&atributos, PTHREAD_CREATE_DETACHED);	// Detachable
+
 		pthread_create(&tid, &atributos, &fHilo, param);
 
-		char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
-		inet_ntop(AF_INET, get_in_addr((struct sockaddr*) &direccionCliente),
-				direccionIP, INET_ADDRSTRLEN);
-		logearInfo("Nueva conexión desde %s en el socket %d\n", direccionIP,
-				nuevoCliente);
-		//
-
+		logearInfo("Nueva conexión desde %s en el socket %d",
+				inet_ntoa(clienteInfo.sin_addr), nuevoCliente);
 	}
 }
 
@@ -394,8 +364,8 @@ void dump() {
 
 void establecerConfiguracion() {
 	if (config_has_property(config, "PUERTO")) {
-		strcpy(PUERTO, config_get_string_value(config, "PUERTO"));
-		logearInfo("PUERTO: %s", PUERTO);
+		PUERTO = config_get_int_value(config, "PUERTO");
+		logearInfo("PUERTO: %i", PUERTO);
 	}
 	else {
 		logearError("Error al leer el puerto de la memoria", true);
