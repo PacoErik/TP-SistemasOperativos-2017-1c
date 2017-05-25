@@ -67,7 +67,7 @@ listaProcesos *procesos; //Dentro van a estar los procesos en estado READY/EXEC/
 t_list* lista_EXIT;
 
 static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
-char PUERTO_KERNEL[6];
+int PUERTO_KERNEL;
 char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 char IP_FS[16];
@@ -112,118 +112,105 @@ int main(void) {
 	procesos = list_create();
 	lista_EXIT = list_create();
 
-    struct addrinfo hints; // Le da una idea al getaddrinfo() el tipo de info que debe retornar
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET; // IPv4
-    hints.ai_socktype = SOCK_STREAM; // TCP
-    hints.ai_flags = AI_PASSIVE;
+	int servidor = socket(AF_INET, SOCK_STREAM, 0);
 
+	if (servidor == -1) {
+		logearError("No se pudo crear el socket", true);
+	}
 
-    /* getaddrinfo() retorna una lista de posibles direcciones para el bind */
+	int activado = 1;
+	setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
 
-	struct addrinfo *direcciones; // lista de posibles direcciones para el bind
-    int rv = getaddrinfo(NULL, PUERTO_KERNEL, &hints, &direcciones); // si devuelve 0 hay un error
-    if (rv != 0) {
-    	// gai_strerror() devuelve el mensaje de error segun el codigo de error
-        logearError("No se pudo abrir el server",true);
-    }
+	struct sockaddr_in servidor_info;
 
-    int servidor; // socket de escucha
+	servidor_info.sin_family = AF_INET;
+	servidor_info.sin_port = htons(PUERTO_KERNEL);
+	servidor_info.sin_addr.s_addr = INADDR_ANY;
+	bzero(&(servidor_info.sin_zero), 8);
 
-    struct addrinfo *p; // Puntero para recorrer la lista de direcciones
-
-    // Recorrer la lista hasta encontrar una direccion disponible para el bind
-    for (p = direcciones; p != NULL; p = p->ai_next) {
-
-    	servidor = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (servidor == -1) {	// Devuelve 0 si hubo error
-            continue;
-        }
-
-        int activado = 1;
-        setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
-
-        if (bind(servidor, p->ai_addr, p->ai_addrlen) == 0) {
-            break; // Se encontro una direccion disponible
-        }
-
-        close(servidor);
-    }
-
-    if (p == NULL) {
-        logearError("Fallo al bindear el puerto",true);
-    }
-
-    freeaddrinfo(direcciones); // No necesito mas la lista de direcciones
+	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
+		logearError("Fallo al bindear el puerto", true);
+	}
 
     if (listen(servidor, 10) == -1) {
-        logearError("Fallo al escuchar",true);
+		logearError("Fallo al escuchar", true);
     }
+
     logearInfo("Estoy escuchando");
 
-    fd_set conectados; // Set de FDs conectados
-    fd_set read_fds; // sockets de lectura
+    fd_set conectados;		// Set de FDs conectados
+    fd_set read_fds;		// sockets de lectura
 
     FD_ZERO(&conectados);
     FD_ZERO(&read_fds);
 
     int fdmax;	// valor maximo de los FDs
 
-    conectar(&memoria,IP_MEMORIA,PUERTO_MEMORIA);
-    handshake(memoria,KERNEL); //KERNEL = 4
-    agregarCliente(MEMORIA, memoria);
+	conectar(&memoria, IP_MEMORIA, PUERTO_MEMORIA);
+	handshake(memoria, KERNEL);
+	agregarCliente(MEMORIA, memoria);
 
-    fdmax = memoria>servidor?memoria:servidor; //la pajilla mental
+	fdmax = (memoria > servidor) ? memoria : servidor; // Maximo entre fd de memoria y kernel
 
     FD_SET(servidor, &conectados);
-    FD_SET(fileno(stdin), &conectados);
     FD_SET(memoria, &conectados);
+    FD_SET(fileno(stdin), &conectados);
 
     for(;;) {
         read_fds = conectados;
-        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
-            logearError("Error en el select",true);
+
+		if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
+			logearError("Error en el select", true);
         }
 
-        // Se detecta algun cambio en alguno de los sockets
-
-        struct sockaddr_in direccionCliente;
+        struct sockaddr_in cliente_info;
 
         int i;
         for(i = 0; i <= fdmax; i++) {
         	if (FD_ISSET(i, &read_fds) == 0) { // No hubo cambios en este socket
         		continue;
         	}
+
         	// Se detecta un cambio en el socket de escucha => hay un nuevo cliente
 			if (i == servidor) {
-		        socklen_t addrlen = sizeof direccionCliente;
-		        int nuevoCliente; // Socket del nuevo cliente conectado
-				nuevoCliente = accept(servidor, (struct sockaddr *)&direccionCliente, &addrlen);
+		        int nuevoCliente;			// Socket del nuevo cliente conectado
+
+		        socklen_t addrlen = sizeof cliente_info;
+				nuevoCliente = accept(servidor, (struct sockaddr*) &cliente_info, &addrlen);
 
 				if (nuevoCliente == -1) {
-					logearError("Fallo en el accept",false);
+					logearError("Fallo en el accept", false);
 				}
 				else {
-					FD_SET(nuevoCliente, &conectados); // Agregarlo al set
+					FD_SET(nuevoCliente, &conectados);		// Agregarlo al set
 					if (nuevoCliente > fdmax) {
-						fdmax = nuevoCliente; // Cambia el maximo
+						fdmax = nuevoCliente;				// Cambia el maximo
 					}
-				    char direccionIP[INET_ADDRSTRLEN]; // string que contiene la direccion IP del cliente
-					inet_ntop(AF_INET,	get_in_addr((struct sockaddr*) &direccionCliente), direccionIP, INET_ADDRSTRLEN);
-					logearInfo("Nueva conexión desde %s en el socket %d", direccionIP, nuevoCliente);
+					logearInfo("Nueva conexión desde %s en el socket %d",
+							inet_ntoa(cliente_info.sin_addr), nuevoCliente);
 				}
 			}
-			//Mensaje por interfaz del Kernel
+			// Mensaje por interfaz del Kernel
 			else if (i == fileno(stdin)) {
 				//Esto es solo testeo, para probar que efectivamente se puede
 				//tener input a la vez de recibir clientes y toda esa wea
+<<<<<<< HEAD
 				char str[16];
 				scanf("%s",str);
 				printf("%s\n",str);
+=======
+				char input[16];
+				fgets(input, sizeof input, stdin);
+				int len = strlen(input) - 1;
+				if (len > 0 && input[len] == '\n') {
+					input[len] = '\0';
+				}
+				printf("%s\n", input);
+>>>>>>> 693ba5dc88f0ffde128ba63cde2083bbc205879f
 			}
 			// Un cliente mando un mensaje
 			else {
-				if (existeCliente(i) == 0) { // Nuevo cliente, debe enviar un handshake
+				if (existeCliente(i) == 0) {			// Nuevo cliente, debe enviar un handshake
 					if (recibirHandshake(i) == 0) {
 						cerrarConexion(i, "El socket %d se desconectó\n");
 						FD_CLR(i, &conectados);
@@ -240,7 +227,7 @@ int main(void) {
 					if (bytesRecibidos <= 0) {
 						int tipo = tipoCliente(i);
 						if (tipo >= 0) {
-							logearInfo("Cliente [%s] desconectado",ID_CLIENTE(tipo));
+							logearInfo("Cliente [%s] desconectado", ID_CLIENTE(tipo));
 							borrarCliente(i);
 							close(i);
 						} else {
@@ -348,8 +335,8 @@ int enviarMensajeATodos(int socketCliente, char* mensaje) {
 	return list_size(clientesFiltrados);
 }
 void establecerConfiguracion() {
-	strcpy(PUERTO_KERNEL,config_get_string_value(config, "PUERTO_KERNEL"));
-	logearInfo("Puerto Kernel: %s",PUERTO_KERNEL);
+	PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
+	logearInfo("Puerto Kernel: %d",PUERTO_KERNEL);
 
 	strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
 	logearInfo("IP Memoria: %s",IP_MEMORIA);
