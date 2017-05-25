@@ -28,7 +28,7 @@ int PUERTO_KERNEL;
 listaProceso *procesos;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregarProceso(int, pthread_t, time_t);
+void 			agregarProceso(int, pthread_t);
 void 			configurarPrograma();
 void 			desconectarConsola();
 void 			desconectarPrograma();
@@ -67,15 +67,14 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregarProceso(int PID, pthread_t hiloID, time_t inicio) {
+void agregarProceso(int PID, pthread_t hiloID) {
 	proceso *nuevoProceso = malloc(sizeof(proceso));
 	nuevoProceso->PID = PID;
 	nuevoProceso->hiloID = hiloID;
-	nuevoProceso->inicio = inicio;
+	nuevoProceso->inicio = time(NULL); //tiempo actual en segundos
 	nuevoProceso->cantidadImpresiones = 0;
 	list_add(procesos, nuevoProceso);
 }
-
 void configurarPrograma(char *ruta) {
 	pthread_attr_t attr;
 	pthread_t hiloPrograma;
@@ -85,7 +84,6 @@ void configurarPrograma(char *ruta) {
 	pthread_create(&hiloPrograma, &attr, &iniciarPrograma, ruta);
 	pthread_attr_destroy(&attr);
 }
-
 void desconectarConsola() {
 	void _finalizar(void *element) {
 		proceso *proc = (proceso*) element;
@@ -99,7 +97,6 @@ void desconectarConsola() {
 
 	exit(0);
 }
-
 void desconectarPrograma(int PID) {
 	logearInfo("[PID:%d] Finalizando...", PID);
 	pthread_t TID = hiloIDPrograma(PID);
@@ -212,7 +209,6 @@ inline void imprimirOpcionesDeConsola() {
 }
 void* iniciarPrograma(void* arg) {
 	//Inicio del programa
-	time_t inicio = time(NULL); //Obtiene el tiempo actual
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_t id_hilo = pthread_self();
 
@@ -244,7 +240,7 @@ void* iniciarPrograma(void* arg) {
 
 	if (bytes > 0) {
 		enviarHeader(servidor, INICIAR_PROGRAMA, bytes);
-		agregarProceso(PID,id_hilo,inicio);
+		agregarProceso(PID,id_hilo);
 		logearInfo("[Programa] Petición de inicio de %s enviada",ruta);
 		send(servidor, codigo, bytes, 0);
 	} else if (bytes == 0) {
@@ -433,12 +429,6 @@ void procesarOperacion(char operacion, int bytes) {
 
 			logearInfo("[PID:%d] Programa iniciado",PID);
 			break;
-		case ERROR_MULTIPROGRAMACION:
-			logearInfo("No se pudo crear el programa");
-			//Borramos el proceso que habíamos creado y seteado
-			//con PID = -1
-			eliminarProceso(-1);
-			break;
 		default:
 			logearError("Operación inválida", false);
 			break;
@@ -446,14 +436,11 @@ void procesarOperacion(char operacion, int bytes) {
 }
 void* recibirHeaders(void* arg) {
 	while (1) {
-		int buffersize = sizeof(headerDeLosRipeados);
-		void *buffer = malloc(buffersize);
-
 		headerDeLosRipeados header;
 
 		int bytesRecibidos = recibirHeader(servidor, &header);
+
 		if (bytesRecibidos <= 0) {
-			free(buffer);
 			logearError("Se desconectó el Kernel",true);
 		}
 
