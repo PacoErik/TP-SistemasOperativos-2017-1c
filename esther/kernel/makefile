@@ -8,7 +8,7 @@ LIBBIN=$(LIB)/build
 all: compile
 
 compile: $(LIB)/build
-	$(CC) $(PROG).c -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -Wl,-rpath=$(LIBBIN) -o $(PROG)
+	$(CC) $(PROG).c -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -lparser-ansisop -Wl,-rpath=$(LIBBIN) -o $(PROG)
 
 $(LIB)/build:
 	cd $(LIB); $(MAKE)
