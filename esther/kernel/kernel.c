@@ -194,11 +194,7 @@ int main(void) {
 			else if (i == fileno(stdin)) {
 				//Esto es solo testeo, para probar que efectivamente se puede
 				//tener input a la vez de recibir clientes y toda esa wea
-<<<<<<< HEAD
-				char str[16];
-				scanf("%s",str);
-				printf("%s\n",str);
-=======
+
 				char input[16];
 				fgets(input, sizeof input, stdin);
 				int len = strlen(input) - 1;
@@ -206,7 +202,6 @@ int main(void) {
 					input[len] = '\0';
 				}
 				printf("%s\n", input);
->>>>>>> 693ba5dc88f0ffde128ba63cde2083bbc205879f
 			}
 			// Un cliente mando un mensaje
 			else {
