@@ -102,7 +102,5 @@ int mem_finalizar_programa(int PID) {
 
 	send(socket_memoria, &paquete, sizeof paquete, 0);
 
-	/* TODO: Recibir confirmacion */
-
 	return 1;
 }

@@ -112,9 +112,9 @@ int kernel_finalizar_programa(int socket) {
 		return -1;
 	}
 
-	printf("TODO: Liberar los frames que pertenecen al PID %d\n", paquete.PID);
+	liberar_frames(paquete.PID);
 
-	/* TODO: Enviar confirmacion */
+	logearInfo("[PID %d] Eliminado.", paquete.PID);
 
 	return 1;
 }

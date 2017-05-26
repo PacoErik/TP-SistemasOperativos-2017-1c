@@ -17,6 +17,8 @@
 #include "commons/collections/list.h"
 #include "qepd/qepd.h"
 
+#include "op_kernel.h"
+
 /*----------DEFINES----------*/
 #define MOSTRAR_LOGS_EN_PANTALLA true
 #define RUTA_CONFIG "config.cfg"
@@ -223,10 +225,10 @@ int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
 
 	/* Asignar frames al proceso */
 
-	int frame_inicial = i - frame;		// Indice primer frame
+	int frame_inicial = i - frames;		// Indice primer frame
 	int frame_final = i;				// Indice ultimo frame
 
-	for (i -= frames; i < frame_final; i++) {
+	for (i = frame_inicial; i < frame_final; i++) {
 		tablaAdministrativa[i].pid = PID;
 		tablaAdministrativa[i].pag = i - frame_inicial;
 	}
@@ -245,6 +247,15 @@ char *ir_a_frame(int indice) {
 		return NULL;
 	}
 	return ((char (*) [MARCO_SIZE]) memoria) [indice];
+}
+
+void liberar_frames(int PID) {
+	int i;
+	for (i = 0; i < MARCOS; i++) {
+		if (tablaAdministrativa[i].pid == PID) {
+			tablaAdministrativa[i].pid = FRAME_LIBRE;
+		}
+	}
 }
 
 void atenderKernel(int socketKernel) {
