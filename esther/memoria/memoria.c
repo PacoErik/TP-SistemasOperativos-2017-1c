@@ -222,13 +222,17 @@ int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
 	}
 
 	/* Asignar frames al proceso */
-	for (i -= frames; i - frames <= frames; i++) {
+
+	int frame_inicial = i - frame;		// Indice primer frame
+	int frame_final = i;				// Indice ultimo frame
+
+	for (i -= frames; i < frame_final; i++) {
 		tablaAdministrativa[i].pid = PID;
-		//tablaAdministrativa[i].pag = i - frames - 1; MAL
+		tablaAdministrativa[i].pag = i - frame_inicial;
 	}
 
 	/* Escribir datos a la memoria */
-	memcpy(ir_a_frame(i - frames_encontrados), datos, sizeof(char) * bytes);
+	memcpy(ir_a_frame(frame_inicial), datos, sizeof(char) * bytes);
 
 	return 1;
 }
