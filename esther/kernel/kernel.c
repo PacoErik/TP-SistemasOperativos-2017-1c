@@ -4,12 +4,15 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include "commons/collections/list.h"
 #include <string.h>
+
+#include "commons/collections/list.h"
+
+#include "op_memoria.h"
 
 //-----DEFINES-----//
 #define MAX_NUM_CLIENTES 100
-#define ID_CLIENTE(x) ID_CLIENTES[x]
+#define ID_CLIENTE(x) ID_CLIENTES[x-CONSOLA]
 #define DEF_MISMO_SOCKET(SOCKET)										\
 		_Bool mismoSocket(void* elemento) {							\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
@@ -58,8 +61,6 @@ listaCliente *clientes;
 listaProcesos *procesos;
 static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
 int PUERTO_KERNEL;
-char IP_MEMORIA[16];
-int PUERTO_MEMORIA;
 char IP_FS[16];
 int PUERTO_FS;
 int QUANTUM;
@@ -71,7 +72,12 @@ int GRADO_MULTIPROG;
 //SHARED_VARS
 int STACK_SIZE;
 int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
-int memoria; //el socket de la memoria
+
+/* op_memoria.h */
+int socket_memoria;
+int tamanio_pagina;
+char IP_MEMORIA[16];
+int PUERTO_MEMORIA;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
 void 	hacerPedidoMemoria(datosMemoria);
@@ -130,16 +136,18 @@ int main(void) {
     FD_ZERO(&conectados);
     FD_ZERO(&read_fds);
 
-    int fdmax;	// valor maximo de los FDs
+    int fdmax;				// valor maximo de los FDs
 
-	conectar(&memoria, IP_MEMORIA, PUERTO_MEMORIA);
-	handshake(memoria, KERNEL);
-	agregarCliente(MEMORIA, memoria);
+    if (mem_conectar() == 0) {
+    	logearError("No se pudo conectar a la memoria.", false);
+    }
 
-	fdmax = (memoria > servidor) ? memoria : servidor; // Maximo entre fd de memoria y kernel
+	agregarCliente(MEMORIA, socket_memoria);
+
+	fdmax = (socket_memoria > servidor) ? socket_memoria : servidor; // Maximo entre fd de memoria y kernel
 
     FD_SET(servidor, &conectados);
-    FD_SET(memoria, &conectados);
+    FD_SET(socket_memoria, &conectados);
     FD_SET(fileno(stdin), &conectados);
 
     for(;;) {
@@ -234,7 +242,7 @@ int main(void) {
 void hacerPedidoMemoria(datosMemoria datosMem) {
 	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
 
-	enviarHeader(memoria, INICIAR_PROGRAMA, tamanioTotal);
+	enviarHeader(socket_memoria, INICIAR_PROGRAMA, tamanioTotal);
 
 	char *buffer = malloc(tamanioTotal);				// Tamanio del codigo
 
@@ -242,7 +250,7 @@ void hacerPedidoMemoria(datosMemoria datosMem) {
 	memcpy(buffer + sizeof(int), &datosMem.codeSize, sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
 	memcpy(buffer + sizeof(int) + sizeof(datosMem.codeSize), datosMem.code, datosMem.codeSize);
 
-	send(memoria, buffer, tamanioTotal, 0);
+	send(socket_memoria, buffer, tamanioTotal, 0);
 
 	free(buffer);
 }
@@ -295,8 +303,14 @@ int enviarMensajeATodos(int socketCliente, char* mensaje) {
 
 	void enviarMensaje(void* elemento) {
 		miCliente *cliente = (miCliente*)elemento;
+		if (cliente->identificador == MEMORIA) {
+			mem_mensaje(mensaje);
+			return;
+		}
+
 		enviarHeader(cliente->socketCliente, MENSAJE, strlen(mensaje));
 		send(cliente->socketCliente, mensaje, strlen(mensaje), 0);
+
 	}
 
 	list_iterate(clientesFiltrados, enviarMensaje);
@@ -354,30 +368,29 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				recibirMensaje(socketCliente,bytes);
 			}
 			else if (operacion == INICIAR_PROGRAMA) {
-				char* codigo = malloc(bytes+1);
+				char* codigo = malloc(bytes + 1);
 				recv(socketCliente, codigo, bytes, 0);
 				codigo[bytes]='\0';
 
 				int nuevo_PID;
 				if (list_size(procesos) < GRADO_MULTIPROG) {
 					PID_GLOBAL++;
-					//TODO: delegar a la memoria el agregado de nuestro proceso
-					//Quizás haya un error al alocarlo, por lo que el proceso
-					//puede terminar luego de la petición a la memoria.
 					nuevo_PID = PID_GLOBAL;
-					datosMemoria datosMem;
-					datosMem.codeSize = strlen(codigo);
-					datosMem.pid=nuevo_PID;
-					datosMem.code = malloc(datosMem.codeSize);
-					strncpy(datosMem.code, codigo, datosMem.codeSize); //Como codigo es un string, estoy copiandolo a un array de chars, que es otro string. Por eso no uso &
-					hacerPedidoMemoria(datosMem);
-					free(datosMem.code);
-					///////// hasta acá memoria
-					agregarProceso(nuevo_PID,0,1);
-					printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
-					// Le envia el PID a la consola
-					enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
-					send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
+
+					int ret = mem_inicializar_programa(nuevo_PID, strlen(codigo), codigo);
+					if (ret == -1) {
+						logearError("Error de conexion con la memoria.", true);
+					}
+					else if (ret == 0) {
+						logearError("Espacio de memoria suficiente.", false);
+					}
+					else {
+						agregarProceso(nuevo_PID,0,1);
+						printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
+						// Le envia el PID a la consola
+						enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
+						send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
+					}
 				} else {
 					printf("No se pudo añadir proceso\n");
 					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
@@ -390,6 +403,7 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				logearInfo("Pedido de finalizacion de PID %d", PID);
 				if (existeProceso(PID)) {
 					eliminarProceso(PID);
+					mem_finalizar_programa(PID);
 					logearInfo("PID %d Eliminado", PID);
 				}
 				else {

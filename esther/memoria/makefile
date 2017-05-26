@@ -1,17 +1,20 @@
 CC=gcc
 MAKE=make
 
-PROG=memoria
-LIB=../QEPDLibrary
-LIBBIN=$(LIB)/build
+LIBS = -lcommons -lqepd -lpthread
+LIBPATH=../QEPDLibrary
+LIBBINPATH=$(LIBPATH)/build
 
-all: compile
+SRCS=$(wildcard *.c)
+OBJS=$(SRCS:.c=.o)
 
-compile: $(LIB)/build
-	$(CC) $(PROG).c -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -lpthread -Wl,-rpath=$(LIBBIN) -o $(PROG)
+all: memoria
+
+memoria: $(SRCS) $(LIBPATH)/build/libqepd.so
+	$(CC) -o $@ $^ -I$(LIBPATH) -L$(LIBBINPATH) $(LIBS) -Wl,-rpath=$(LIBBINPATH)
 	
-$(LIB)/build:
-	cd $(LIB); $(MAKE)
+$(LIBPATH)/build/libqepd.so:
+	cd $(LIBPATH); $(MAKE)
 
 debug: CC += -DDEBUG -g
 debug: MAKE += debug

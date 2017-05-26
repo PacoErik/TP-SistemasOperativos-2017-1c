@@ -92,10 +92,10 @@ typedef t_list listaCliente;
 
 /* Configs */
 int					PUERTO;
-unsigned short		MARCOS;
-unsigned short		MARCO_SIZE;
-unsigned short		ENTRADAS_CACHE;
-unsigned short		CACHE_X_PROC;
+int					MARCOS;
+int					MARCO_SIZE;
+int					ENTRADAS_CACHE;
+int					CACHE_X_PROC;
 char				REEMPLAZO_CACHE[8]; // ?
 unsigned short		RETARDO;
 
@@ -107,12 +107,9 @@ listaCliente *clientes;
 char *memoria;
 estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de frames, ver config.cfg TODO
 
-//static const char *ID_CLIENTES[] = { "Consola", "Memoria", "File System", "CPU","Kernel" };
-
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
-//void		actualizar							(datosMemoria);
-int			asignarFramesContiguos			(datosMemoria*);
+int			asignar_frames_contiguos			(int, int, size_t, void*);
 void		atenderKernel						(int);
 void		agregarCliente						(char, int);
 void		borrarCliente						(int);
@@ -125,14 +122,13 @@ int			existeCliente						(int);
 void*		fHilo								(void *);
 void		finalizarPrograma					(int, unsigned short);
 void		flush								();
-//int			frameLibre							();
 void*		get_in_addr						(struct sockaddr *);
 int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
 void		iniciarPrograma					(int, unsigned short);
 void		interaccionMemoria				();
-char*		irAFrame							(int);
+char*		ir_a_frame							(int);
 void		leerMensaje						(int, int);
 void		limpiarPantalla					();
 int			recibirHandshake					(int);
@@ -207,51 +203,35 @@ int main(void) {
 /*------------DEFINICION DE FUNCIONES----------------*/
 
 /*
-void actualizar(datosMemoria datosMem) {
-	memcpy(memoria + (frameLibre() * MARCO_SIZE), datosMem.code, datosMem.codeSize);
-
-	tablaAdministrativa[frameLibre()].frame = frameLibre();
-	tablaAdministrativa[frameLibre()].pag = 0;
-	tablaAdministrativa[frameLibre()].pid = datosMem.pid;
-
-	free(datosMem.code);
-}
-*/
-
-/*
  * Asigna frames contiguos para un proceso.
  */
-int asignarFramesContiguos(datosMemoria *datosMem) {
-	int cantidadFrames = DIVIDE_ROUNDUP(datosMem->codeSize, MARCO_SIZE);
-
-	char *pFrame = NULL;		// Puntero a la posicion de frame en memoria
-
+int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
 	int i;
-	int framesEncontrados;		// Contador frames libres encontrados
+	int frames_encontrados;		// Contador frames libres encontrados
 
-	for (i = 0, framesEncontrados = 0;
-			i < MARCOS && framesEncontrados < cantidadFrames; i++) {
+	for (i = 0, frames_encontrados = 0;
+			i < MARCOS && frames_encontrados < frames; i++) {
 		if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
-			framesEncontrados++;
+			frames_encontrados++;
 		}
 		else {
-			framesEncontrados = 0;
+			frames_encontrados = 0;
 		}
 	}
 
 	/* No hay frames disponibles */
-	if (framesEncontrados != cantidadFrames) {
+	if (frames_encontrados != frames) {
 		return 0;
 	}
 
 	/* Asignar frames al proceso */
-	for (i -= framesEncontrados; i < framesEncontrados; i++) {
-		tablaAdministrativa[i].pid = datosMem->pid;
-		tablaAdministrativa[i].pag = i - framesEncontrados;
+	for (i -= frames_encontrados; i < frames_encontrados; i++) {
+		tablaAdministrativa[i].pid = PID;
+		tablaAdministrativa[i].pag = i - frames_encontrados;
 	}
 
 	/* Escribir datos a la memoria */
-	memcpy(irAFrame(i - framesEncontrados), datosMem->code, sizeof(char) * datosMem->codeSize);
+	memcpy(ir_a_frame(i - frames_encontrados), datos, sizeof(char) * bytes);
 
 	return 1;
 }
@@ -259,7 +239,7 @@ int asignarFramesContiguos(datosMemoria *datosMem) {
 /*
  * Devuelve puntero al frame en la posicion indicada.
  */
-char *irAFrame(int indice) {
+char *ir_a_frame(int indice) {
 	if (indice >= MARCOS) {
 		return NULL;
 	}
@@ -267,29 +247,19 @@ char *irAFrame(int indice) {
 }
 
 void atenderKernel(int socketKernel) {
-	headerDeLosRipeados header;
-	int bytes;
-	while (bytes = recibirHeader(socketKernel, &header)) {
-		switch(header.codigoDeOperacion) {
-		case MENSAJE:
-			leerMensaje(socketKernel, header.bytesDePayload);
-			break;
-		case INICIAR_PROGRAMA:
-			iniciarPrograma(socketKernel, header.bytesDePayload);
-			break;
-		case FINALIZAR_PROGRAMA:
-			finalizarPrograma(socketKernel, header.bytesDePayload);
-			break;
-		default:
-			printf("TODO\n");
+	int ret;
+	while (1) {
+		ret = kernel_processar_operacion(socketKernel);
+
+		if (ret == -1) {
+			cerrarConexion(socketKernel, "Error de conexion con el Kernel (socket %d)");
 			break;
 		}
-	}
-	if (bytes == -1) {
-		cerrarConexion(socketKernel, "Socket %d: Error en el recv");
-	}
-	else {
-		cerrarConexion(socketKernel, "El socket %d se desconectó");
+
+		if (ret == 0) {
+			cerrarConexion(socketKernel, "El Kernel hizo una operacion invalida (socket %d)");
+			break;
+		}
 	}
 }
 
@@ -436,12 +406,18 @@ void *fHilo(void* param) {
 		return NULL;
 	}
 	if (tipoCliente == KERNEL) {
-		printf("Kernel\n");
 		if (hayAlguienQueSea(KERNEL)) {
 			cerrarConexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
 			return NULL;
 		}
+
+		printf("Kernel conectado\n");
+
 		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
+
+		/* Enviar tamanio de pagina (marco) al kernel */
+		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
+
 		agregarCliente(KERNEL, socketCliente);
 		atenderKernel(socketCliente);
 	}
@@ -463,15 +439,6 @@ void finalizarPrograma(int numCliente, unsigned short payload) {
 void flush() {
 	// TODO
 }
-
-/*
-int frameLibre() {
-	int i;
-	for (i = 0; i < MARCOS && tablaAdministrativa[i].pid != -2; i++);
-
-	return (i < MARCOS) ? i : -1;
-}
-*/
 
 void *get_in_addr(struct sockaddr *sa) {
 	if (sa->sa_family == AF_INET) {
@@ -524,35 +491,6 @@ void inicializarTabla(void) {
 	}
 }
 
-void iniciarPrograma(int socketKernel, unsigned short bytesDePayload) {
-	datosMemoria *datosMem = malloc(sizeof(datosMemoria));
-
-	int ret = recv(socketKernel, datosMem, sizeof(datosMem->pid) + sizeof(datosMem->codeSize), 0);
-	if (ret <= 0) {
-		logearError("No se pudo recibir el programa.", false);
-		return;
-	}
-
-	datosMem->code = malloc(datosMem->codeSize);
-
-	ret = recv(socketKernel, datosMem->code, datosMem->codeSize, 0);
-	if (ret <= 0) {
-		logearError("No se pudo recibir el codigo de programa.", false);
-		return;
-	}
-
-	printf("[PID %d] Codigo del Proceso:%s \n", datosMem->pid, datosMem->code);
-
-	ret = asignarFramesContiguos(datosMem);
-	if (ret == 0) {
-		logearError("[PID %d] No hay frames disponibles.", false, datosMem->pid);
-	}
-
-	logearInfo("[PID %d] Listo.", datosMem->pid);
-
-	free(datosMem);
-}
-
 void interaccionMemoria() {
 	imprimirOpcionesDeMemoria();
 	char input[3];
@@ -602,14 +540,6 @@ void interaccionMemoria() {
 		}
 		}
 	}
-}
-
-void leerMensaje(int socket, int bytes) {
-	char* mensaje = malloc(bytes+1);
-	int bytesRecibidos = recv(socket, mensaje, bytes, 0);
-	mensaje[bytes] = '\0';
-	logearInfo("Mensaje recibido: %s",mensaje);
-	free(mensaje);
 }
 
 int recibirHandshake(int socket) {
