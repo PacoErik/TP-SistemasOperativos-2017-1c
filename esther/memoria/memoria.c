@@ -357,13 +357,35 @@ void dump() {
 
 	int i_pag, i_offset;	// Indice pagina y desplazamiento
 	for (i_pag = 0; i_pag < MARCOS; i_pag++) {
+
+		char *frame = ir_a_frame(i_pag);
+
 		for (i_offset = 0; i_offset < MARCO_SIZE; i_offset += 16) {
 			printf("%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
+			fflush(stdout);
 
-			//printf("%.*s\n", 16, (char *) ir_a_frame(i_pag) + i_offset);
-			fwrite((char *) ir_a_frame(i_pag) + i_offset, sizeof(char), 16, stdout);
+			int max_bytes = ((MARCO_SIZE - i_offset) > 16) ? 16 : (MARCO_SIZE - i_offset);
+
+			int i_byte;
+			for (i_byte = 0; i_byte < max_bytes; i_byte++) {
+				printf("%02X", (unsigned char) frame[i_offset + i_byte]);
+				if (i_byte % 2 == 1) {
+					printf(" ");
+				}
+				fflush(stdout);
+			}
+
+			for (i_byte = 0; i_byte < max_bytes; i_byte++) {
+				if (iscntrl(frame[i_offset + i_byte])) {
+					printf(".");
+				}
+				else {
+					printf("%c", frame[i_offset + i_byte]);
+				}
+				fflush(stdout);
+			}
+
 			printf("\n");
-
 			fflush(stdout);
 		}
 	}
