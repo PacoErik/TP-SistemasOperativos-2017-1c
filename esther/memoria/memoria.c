@@ -271,7 +271,7 @@ void atenderKernel(int socketKernel) {
 			break;
 		}
 
-		if (ret == 0) {
+		if (ret == -2) {
 			cerrarConexion(socketKernel, "El Kernel hizo una operacion invalida (socket %d)");
 			break;
 		}

@@ -23,7 +23,7 @@ int kernel_processar_operacion(int socket) {
 		return kernel_mensaje(socket);
 
 	default:
-		return 0;
+		return -2;
 	}
 }
 
@@ -62,7 +62,7 @@ int kernel_inicializar_programa(int socket) {
 	ret = recv(socket, datos_programa, paquete.bytes_datos, 0);
 
 	if (ret <= 0) {
-		return 0;
+		return -1;
 	}
 
 	ret = asignar_frames_contiguos(paquete.PID, paquete.paginas,
@@ -76,6 +76,7 @@ int kernel_inicializar_programa(int socket) {
 
 	if (ret == 0) {
 		respuesta = ERROR;
+		logearInfo("[PID %d] Espacio insuficiente.", paquete.PID);
 		send(socket, &respuesta, sizeof respuesta, 0);
 		return 0;
 	}

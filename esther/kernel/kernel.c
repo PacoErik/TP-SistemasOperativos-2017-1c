@@ -415,12 +415,11 @@ void intentar_iniciar_proceso() {
 			free(codigo);
 
 			if (ret == 0) {
-				logearError("Memoria insuficiente.", false);
+				logearError("[PID %d] Memoria insuficiente.", false, PID);
 				queue_push(cola_NEW, nuevo_proceso); // Vuelve a la cola de new
 				PID = -1;
 				enviarHeader(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
 				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
-				//intentar_iniciar_proceso(); // Recursividad??
 			}
 
 			else {

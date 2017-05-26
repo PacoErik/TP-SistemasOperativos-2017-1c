@@ -427,7 +427,9 @@ void procesarOperacion(char operacion, int bytes) {
 			proceso *procesoAux = list_find(procesos,esNuevo);
 			procesoAux->PID = PID;
 
-			logearInfo("[PID:%d] Programa iniciado",PID);
+			if (PID != -1) {
+				logearInfo("[PID:%d] Programa iniciado",PID);
+			}
 			break;
 		default:
 			logearError("Operación inválida", false);
