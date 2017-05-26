@@ -8,7 +8,6 @@
 #include "commons/collections/queue.h"
 #include <string.h>
 #include "parser/metadata_program.h"
-
 #include "commons/collections/list.h"
 
 #include "op_memoria.h"
