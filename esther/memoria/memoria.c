@@ -122,14 +122,11 @@ int			existeCliente						(int);
 void*		fHilo								(void *);
 void		finalizarPrograma					(int, unsigned short);
 void		flush								();
-void*		get_in_addr						(struct sockaddr *);
 int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
-void		iniciarPrograma					(int, unsigned short);
 void		interaccionMemoria				();
 char*		ir_a_frame							(int);
-void		leerMensaje						(int, int);
 void		limpiarPantalla					();
 int			recibirHandshake					(int);
 void		size								();
@@ -225,9 +222,9 @@ int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
 	}
 
 	/* Asignar frames al proceso */
-	for (i -= frames_encontrados; i < frames_encontrados; i++) {
+	for (i -= frames; i - frames <= frames; i++) {
 		tablaAdministrativa[i].pid = PID;
-		tablaAdministrativa[i].pag = i - frames_encontrados;
+		//tablaAdministrativa[i].pag = i - frames - 1; MAL
 	}
 
 	/* Escribir datos a la memoria */
@@ -438,14 +435,6 @@ void finalizarPrograma(int numCliente, unsigned short payload) {
 
 void flush() {
 	// TODO
-}
-
-void *get_in_addr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*) sa)->sin_addr);
-	}
-
-	return &(((struct sockaddr_in6*) sa)->sin6_addr);
 }
 
 int hayAlguienQueSea(char identificacion) {

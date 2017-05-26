@@ -4,14 +4,16 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include "commons/collections/list.h"
+#include "commons/collections/queue.h"
 #include <string.h>
+#include "parser/metadata_program.h"
 
 #include "commons/collections/list.h"
 
 #include "op_memoria.h"
 
 //-----DEFINES-----//
-#define MAX_NUM_CLIENTES 100
 #define ID_CLIENTE(x) ID_CLIENTES[x-CONSOLA]
 #define DEF_MISMO_SOCKET(SOCKET)										\
 		_Bool mismoSocket(void* elemento) {							\
@@ -37,12 +39,18 @@ typedef struct PCB {
 	int PID;
 	int PC;
 	int ERROR_NUM;
+	t_size			instrucciones_size;				// Cantidad de instrucciones
+	t_intructions*	instrucciones_serializado;
+	t_size			etiquetas_size;					// Tamaño del mapa serializado de etiquetas
+	char*			etiquetas;
+	int				cantidad_de_funciones;
+	int				cantidad_de_etiquetas;
 } PCB;
 
 //Un choclazo de struct para llevar la estadística de los procesos y tener
 //un control más agrupado.. o algo así :v
 typedef struct Proceso {
-	int consola; //Socket la consola que envio este proceso
+	int consola; //Socket de la consola que envio este proceso
 	int cantRafagas;
 	int cantOperacionesPriv;
 	int cantPaginasHeap;
@@ -51,14 +59,20 @@ typedef struct Proceso {
 	int cantLiberar;
 	int bytesLiberados;
 	int cantSyscalls; //sí, me encantan los int
+	char* codigo;
 	PCB pcb;
 } Proceso;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
+
 listaCliente *clientes;
-listaProcesos *procesos;
+
+t_queue* cola_NEW;
+listaProcesos *procesos; //Dentro van a estar los procesos en estado READY/EXEC/BLOCKED
+t_list* lista_EXIT;
+
 static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
 int PUERTO_KERNEL;
 char IP_FS[16];
@@ -82,7 +96,7 @@ int PUERTO_MEMORIA;
 //-----PROTOTIPOS DE FUNCIONES-----//
 void 	hacerPedidoMemoria(datosMemoria);
 void 	agregarCliente(char, int);
-void 	agregarProceso(int, int, int);
+void 	agregarProceso(Proceso *);
 void 	borrarCliente(int);
 void 	cerrarConexion(int, char*);
 void	eliminarProceso(int);
@@ -102,7 +116,10 @@ int main(void) {
 	configurar("kernel");
 
 	clientes = list_create();
+
+	cola_NEW = queue_create();
 	procesos = list_create();
+	lista_EXIT = list_create();
 
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -188,6 +205,7 @@ int main(void) {
 			else if (i == fileno(stdin)) {
 				//Esto es solo testeo, para probar que efectivamente se puede
 				//tener input a la vez de recibir clientes y toda esa wea
+
 				char input[16];
 				fgets(input, sizeof input, stdin);
 				int len = strlen(input) - 1;
@@ -268,19 +286,19 @@ void agregarCliente(char identificador, int socketCliente) {
 
 	list_add(clientes, cliente);
 }
-void agregarProceso(int pid, int PC, int error) {
+void agregarProceso(Proceso *nuevo_proceso) {
+	int pid = nuevo_proceso->pcb.PID;
 	if (existeProceso(pid)) {
 		printf("Warning: Ya existe proceso con mismo PID\n");
 	}
-	PCB *proceso = malloc(sizeof(PCB));
-	proceso->PID = pid;
-	proceso->PC = PC;
-	proceso->ERROR_NUM = error;
-	list_add(procesos, proceso);
+	list_add(procesos, nuevo_proceso);
 }
 void borrarCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
+}
+int cantidadProcesosEnSistema() {
+	return list_size(procesos);
 }
 void cerrarConexion(int socketCliente, char* motivo) {
 	logearError(motivo, false, socketCliente);
@@ -289,9 +307,21 @@ void cerrarConexion(int socketCliente, char* motivo) {
 }
 void eliminarProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
-		return PID == ((PCB*) elemento)->PID;
+		return PID == ((Proceso*) elemento)->pcb.PID;
 	}
-	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
+
+	Proceso* proceso = list_remove_by_condition(procesos,mismoPID);
+
+	free(proceso->codigo);
+	free(proceso->pcb.etiquetas);
+	free(proceso->pcb.instrucciones_serializado);
+
+	//Aún tiene memoria reservada para los otros campos.
+	//Pero como dicen que hay que mantener la traza de ejecución
+	//no los libero, ya que nos interesan saber las estadísticas de los
+	//procesos finalizados.
+
+	list_add(lista_EXIT,proceso);
 }
 int enviarMensajeATodos(int socketCliente, char* mensaje) {
 	_Bool condicion(void* elemento) {
@@ -354,9 +384,57 @@ int existeCliente(int socketCliente) {
 }
 int existeProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
-		return PID == ((PCB*) elemento)->PID;
+		return PID == ((Proceso*) elemento)->pcb.PID;
 	}
 	return list_any_satisfy(procesos, mismoPID);
+}
+void finalizar_programa(int PID) {
+	if (existeProceso(PID)) {
+		eliminarProceso(PID);
+		logearInfo("[PID:%d] Eliminado", PID);
+	}
+	else {
+		logearError("[PID:%d] No existe PID", false, PID);
+	}
+}
+void intentar_iniciar_proceso() {
+	if (cantidadProcesosEnSistema() < GRADO_MULTIPROG) {
+		Proceso* nuevo_proceso = queue_pop(cola_NEW);
+		if (nuevo_proceso == NULL) {
+			logearInfo("No hay procesos en la cola NEW");
+		}
+		else {
+			char *codigo = strdup(nuevo_proceso->codigo);
+			int PID = nuevo_proceso->pcb.PID;
+
+			int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
+			if (ret == -1) {
+				logearError("Error de conexion con la memoria.", true);
+			}
+
+			printf("Pedido a memoria\n");
+			free(codigo);
+
+			if (ret == 0) {
+				logearError("Memoria insuficiente.", false);
+				queue_push(cola_NEW, nuevo_proceso); // Vuelve a la cola de new
+				PID = -1;
+				enviarHeader(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
+				//intentar_iniciar_proceso(); // Recursividad??
+			}
+
+			else {
+				agregarProceso(nuevo_proceso);
+
+				printf("Proceso agregado con PID: %d\n",PID);
+
+				// Le envia el PID a la consola
+				enviarHeader(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
+			}
+		}
+	}
 }
 void procesarMensaje(int socketCliente, char operacion, int bytes) {
 
@@ -368,48 +446,44 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				recibirMensaje(socketCliente,bytes);
 			}
 			else if (operacion == INICIAR_PROGRAMA) {
-				char* codigo = malloc(bytes + 1);
+				PID_GLOBAL++;
+				char* codigo = malloc(bytes+1);
 				recv(socketCliente, codigo, bytes, 0);
 				codigo[bytes]='\0';
+				Proceso* nuevo_proceso = malloc(sizeof(Proceso));
+				nuevo_proceso->consola = socketCliente;
+				nuevo_proceso->bytesAlocados = 0;
+				nuevo_proceso->bytesLiberados = 0;
+				nuevo_proceso->cantAlocar = 0;
+				nuevo_proceso->cantLiberar = 0;
+				nuevo_proceso->cantOperacionesPriv = 0;
+				nuevo_proceso->cantPaginasHeap = 0;
+				nuevo_proceso->cantRafagas = 0;
+				nuevo_proceso->cantSyscalls = 0;
+				nuevo_proceso->codigo = codigo;
 
-				int nuevo_PID;
-				if (list_size(procesos) < GRADO_MULTIPROG) {
-					PID_GLOBAL++;
-					nuevo_PID = PID_GLOBAL;
+				nuevo_proceso->pcb.ERROR_NUM = 1;
+				nuevo_proceso->pcb.PC = 0;
+				nuevo_proceso->pcb.PID = PID_GLOBAL;
+				t_metadata_program *info = metadata_desde_literal(codigo);
+				nuevo_proceso->pcb.PC = info->instruccion_inicio;
+				nuevo_proceso->pcb.cantidad_de_etiquetas = info->cantidad_de_etiquetas;
+				nuevo_proceso->pcb.cantidad_de_funciones = info->cantidad_de_funciones;
+				nuevo_proceso->pcb.etiquetas = info->etiquetas;
+				nuevo_proceso->pcb.instrucciones_serializado = info->instrucciones_serializado;
+				nuevo_proceso->pcb.instrucciones_size = info->instrucciones_size;
 
-					int ret = mem_inicializar_programa(nuevo_PID, strlen(codigo), codigo);
-					if (ret == -1) {
-						logearError("Error de conexion con la memoria.", true);
-					}
-					else if (ret == 0) {
-						logearError("Espacio de memoria suficiente.", false);
-					}
-					else {
-						agregarProceso(nuevo_PID,0,1);
-						printf("Proceso agregado con PID: %d\n",PID_GLOBAL);
-						// Le envia el PID a la consola
-						enviarHeader(socketCliente, INICIAR_PROGRAMA, sizeof(nuevo_PID));
-						send(socketCliente, &nuevo_PID, sizeof(nuevo_PID), 0);
-					}
-				} else {
-					printf("No se pudo añadir proceso\n");
-					enviarHeader(socketCliente, ERROR_MULTIPROGRAMACION, 0);
-				}
-
+				queue_push(cola_NEW,nuevo_proceso);
+				logearInfo("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
+				intentar_iniciar_proceso();
 			}
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
-				recv(socketCliente, &PID, sizeof PID, 0);
-				logearInfo("Pedido de finalizacion de PID %d", PID);
-				if (existeProceso(PID)) {
-					eliminarProceso(PID);
-					mem_finalizar_programa(PID);
-					logearInfo("PID %d Eliminado", PID);
-				}
-				else {
-					logearError("No existe PID %d", false, PID);
-					break;
-				}
+				recv(socketCliente, &PID, sizeof(PID), 0);
+				eliminarProceso(PID);
+				mem_finalizar_programa(PID);
+
+				intentar_iniciar_proceso();
 			}
 			break;
 

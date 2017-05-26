@@ -1,7 +1,7 @@
 CC=gcc
 MAKE=make
 
-LIBS = -lcommons -lqepd
+LIBS = -lcommons -lqepd -lparser-ansisop
 LIBPATH=../QEPDLibrary
 LIBBINPATH=$(LIBPATH)/build
 

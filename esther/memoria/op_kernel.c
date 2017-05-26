@@ -82,6 +82,8 @@ int kernel_inicializar_programa(int socket) {
 	respuesta = OK;
 	send(socket, &respuesta, sizeof respuesta, 0);
 
+	logearInfo("[PID %d] Listo.", paquete.PID);
+
 	return 1;
 }
 
