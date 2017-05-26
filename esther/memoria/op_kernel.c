@@ -77,6 +77,7 @@ int kernel_inicializar_programa(int socket) {
 	if (ret == 0) {
 		respuesta = ERROR;
 		send(socket, &respuesta, sizeof respuesta, 0);
+		return 0;
 	}
 
 	respuesta = OK;

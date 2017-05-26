@@ -48,15 +48,18 @@ void mem_mensaje(char *mensaje) {
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
-	PedidoInicializar paquete;
+	PedidoInicializar paquete = {
+		.operacion = MEM_INICIALIZAR_PROGRAMA,
+		.PID = PID,
+		.paginas = DIVIDE_ROUNDUP(size, tamanio_pagina),		// Pongo cantidad de paginas por el enunciado
+		.bytes_datos = size,
+	};
 
-	paquete.operacion = MEM_INICIALIZAR_PROGRAMA;
-	paquete.PID = PID;
-	paquete.paginas = DIVIDE_ROUNDUP(size, tamanio_pagina);		// Pongo cantidad de paginas por el enunciado
-	paquete.bytes_datos = size;
+	char *buffer = malloc(sizeof paquete + size);
+	memcpy(buffer, &paquete, sizeof paquete);
+	memcpy(buffer + sizeof paquete, datos, size);
 
-	send(socket_memoria, &paquete, sizeof paquete, 0);
-	send(socket_memoria, datos, size, 0);
+	send(socket_memoria, buffer, sizeof paquete + size, 0);
 
 	respuesta_op_mem respuesta;
 

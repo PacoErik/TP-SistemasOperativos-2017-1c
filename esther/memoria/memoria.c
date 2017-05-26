@@ -127,7 +127,7 @@ void		flush								();
 int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
-void		interaccionMemoria				();
+void*		interaccionMemoria				(void *);
 char*		ir_a_frame							(int);
 void		limpiarPantalla					();
 int			recibirHandshake					(int);
@@ -144,6 +144,9 @@ int main(void) {
 	clientes = list_create();
 
 	inicializarTabla();
+
+	pthread_t hilo_consola;
+	pthread_create(&hilo_consola, NULL, interaccionMemoria, NULL);
 
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);	// Socket de escucha
 
@@ -341,7 +344,29 @@ void crearMemoria(void) {
 }
 
 void dump() {
-	// TODO
+	char tmp[16];
+
+	int pag_digits;			// Cantidad de digitos hexa de una pagina
+	int offset_digits;		// Cantidad de digitos hexa de un desplazamiento
+
+	snprintf(tmp, sizeof tmp - 1, "%x", MARCOS);
+	pag_digits = strlen(tmp);
+
+	snprintf(tmp, sizeof tmp - 1, "%x", MARCO_SIZE);
+	offset_digits = strlen(tmp);
+
+	int i_pag, i_offset;	// Indice pagina y desplazamiento
+	for (i_pag = 0; i_pag < MARCOS; i_pag++) {
+		for (i_offset = 0; i_offset < MARCO_SIZE; i_offset += 16) {
+			printf("%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
+
+			//printf("%.*s\n", 16, (char *) ir_a_frame(i_pag) + i_offset);
+			fwrite((char *) ir_a_frame(i_pag) + i_offset, sizeof(char), 16, stdout);
+			printf("\n");
+
+			fflush(stdout);
+		}
+	}
 }
 
 void establecerConfiguracion() {
@@ -495,7 +520,7 @@ void inicializarTabla(void) {
 	}
 }
 
-void interaccionMemoria() {
+void *interaccionMemoria(void * _) {
 	imprimirOpcionesDeMemoria();
 	char input[3];
 
@@ -522,7 +547,7 @@ void interaccionMemoria() {
 		}
 		case '2': {
 			logearInfo("Comando de dump ejecutado");
-			dump(); // TODO
+			dump();
 			break;
 		}
 		case '3': {
