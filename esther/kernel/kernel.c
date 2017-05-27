@@ -93,22 +93,29 @@ char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 	hacerPedidoMemoria(datosMemoria);
-void 	agregarCliente(char, int);
-void 	agregarProceso(Proceso *);
-void 	borrarCliente(int);
-void 	cerrarConexion(int, char*);
-void	eliminarProceso(int);
-void 	enviarHeader(int, char, int);
-int 	enviarMensajeATodos(int, char*);
-void 	establecerConfiguracion();
-int 	existeCliente(int);
-int		existeProceso(int PID);
-void 	procesarMensaje(int, char, int);
-int 	recibirHandshake(int);
-int 	recibirHeader(int, headerDeLosRipeados*);
-int 	recibirMensaje(int, int);
-int 	tipoCliente(int);
+
+void 		agregarCliente(char, int);
+void 		agregarProceso(Proceso *);
+void 		borrarCliente(int);
+int 		cantidadProcesosEnSistema();
+void 		cerrarConexion(int, char*);
+void		eliminarProceso(int);
+int 		enviarMensajeATodos(int, char*);
+void 		establecerConfiguracion();
+int 		existeCliente(int);
+int			existeProceso(int PID);
+void 		finalizar_programa(int PID);
+void 		hacerPedidoMemoria(datosMemoria);
+inline void imprimirOpcionesDeKernel();
+void 		intentar_iniciar_proceso();
+void 		interaccionKernel();
+inline void limpiarBufferEntrada();
+void 		procesarMensaje(int, char, int);
+int 		recibirHandshake(int);
+int 		recibirMensaje(int, int);
+char*		removerSaltoDeLinea(char*);
+int			soloNumeros(char*);
+int 		tipoCliente(int);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -155,7 +162,7 @@ int main(void) {
     int fdmax;				// valor maximo de los FDs
 
     if (mem_conectar() == 0) {
-    	logearError("No se pudo conectar a la memoria.", false);
+    	logearError("No se pudo conectar a la memoria.", true);
     }
 
 	agregarCliente(MEMORIA, socket_memoria);
@@ -165,6 +172,8 @@ int main(void) {
     FD_SET(servidor, &conectados);
     FD_SET(socket_memoria, &conectados);
     FD_SET(fileno(stdin), &conectados);
+
+    imprimirOpcionesDeKernel();
 
     for(;;) {
         read_fds = conectados;
@@ -202,16 +211,7 @@ int main(void) {
 			}
 			// Mensaje por interfaz del Kernel
 			else if (i == fileno(stdin)) {
-				//Esto es solo testeo, para probar que efectivamente se puede
-				//tener input a la vez de recibir clientes y toda esa wea
-
-				char input[16];
-				fgets(input, sizeof input, stdin);
-				int len = strlen(input) - 1;
-				if (len > 0 && input[len] == '\n') {
-					input[len] = '\0';
-				}
-				printf("%s\n", input);
+				interaccionKernel();
 			}
 			// Un cliente mando un mensaje
 			else {
@@ -256,23 +256,6 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----//
-void hacerPedidoMemoria(datosMemoria datosMem) {
-	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
-
-	enviarHeader(socket_memoria, INICIAR_PROGRAMA, tamanioTotal);
-
-	char *buffer = malloc(tamanioTotal);				// Tamanio del codigo
-
-	memcpy(buffer, &datosMem.pid, sizeof(int));		// Como no tengo puntero del pid (de code si), lo paso con &
-	memcpy(buffer + sizeof(int), &datosMem.codeSize, sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
-	memcpy(buffer + sizeof(int) + sizeof(datosMem.codeSize), datosMem.code, datosMem.codeSize);
-
-	send(socket_memoria, buffer, tamanioTotal, 0);
-
-	free(buffer);
-}
-
-
 void agregarCliente(char identificador, int socketCliente) {
 	if (existeCliente(socketCliente)) {
 		logearError("No se puede agregar 2 veces mismo socket", false);
@@ -396,6 +379,46 @@ void finalizar_programa(int PID) {
 		logearError("[PID:%d] No existe PID", false, PID);
 	}
 }
+void hacerPedidoMemoria(datosMemoria datosMem) {
+	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
+
+	enviarHeader(socket_memoria, INICIAR_PROGRAMA, tamanioTotal);
+
+	char *buffer = malloc(tamanioTotal);				// Tamanio del codigo
+
+	memcpy(buffer, &datosMem.pid, sizeof(int));		// Como no tengo puntero del pid (de code si), lo paso con &
+	memcpy(buffer + sizeof(int), &datosMem.codeSize, sizeof(datosMem.codeSize)); // Aca termino de llenar el buffer que voy a mandar, copie pid primero y dsps codigo
+	memcpy(buffer + sizeof(int) + sizeof(datosMem.codeSize), datosMem.code, datosMem.codeSize);
+
+	send(socket_memoria, buffer, tamanioTotal, 0);
+
+	free(buffer);
+}
+inline void imprimirOpcionesDeKernel() {
+	printf(
+			"\n--------------------\n"
+			"BIENVENIDO AL KERNEL\n"
+			"Comandos disponibles: \n\n"
+			"listado"
+				"\t//Ver procesos de todas las colas\n"
+			"listado [NEW/READY/EXEC/BLOCKED/EXIT]"
+				"\t//Ver procesos en una cola específica\n"
+			"proceso [PID]"
+				"\t//Ver información del proceso PID\n"
+			"tablaglobal"
+				"\t//Ver la tabla global de archivos\n"
+			"multiprogramacion [GRADO]"
+				"\t//Cambiar el grado de multiprogramación a GRADO\n"
+			"finalizar [PID]"
+				"\t//Finaliza el proceso PID\n"
+			"detener"
+				"\t//Detiene la planificación\n"
+			"planificar"
+				"\t//Inicia la planificación\n"
+			"opciones"
+				"\t//Mostrar opciones\n"
+	);
+}
 void intentar_iniciar_proceso() {
 	if (cantidadProcesosEnSistema() < GRADO_MULTIPROG) {
 		Proceso* nuevo_proceso = queue_pop(cola_NEW);
@@ -433,6 +456,142 @@ void intentar_iniciar_proceso() {
 			}
 		}
 	}
+}
+void interaccionKernel() {
+	struct comando {
+		char *nombre;
+		void (*funcion) (char *param);
+	};
+
+	void listado(char *estado) {
+		logearInfo("Comando de listado de programas ejecutado");
+		string_trim(&estado);
+		if (strlen(estado) == 0) {
+			logearInfo("[Listado] Todos:");
+		} else if (strcmp("NEW",estado)==0) {
+			logearInfo("[Listado] NEW:");
+		} else if (strcmp("READY",estado)==0) {
+			logearInfo("[Listado] READY:");
+		} else if (strcmp("EXEC",estado)==0) {
+			logearInfo("[Listado] EXEC:");
+		} else if (strcmp("BLOCKED",estado)==0) {
+			logearInfo("[Listado] BLOCKED:");
+		} else if (strcmp("EXIT",estado)==0) {
+			logearInfo("[Listado] EXIT:");
+		} else {
+			logearError("[Listado] Parámetro desconocido", false);
+		}
+		free(estado);
+	}
+
+	void proceso(char *param) {
+		logearInfo("[Proceso]");
+	}
+
+	void tablaglobal(char *param) {
+		logearInfo("[Tabla Global]");
+	}
+
+	void multiprogramacion(char *param) {
+		logearInfo("[Multiprogramación]");
+	}
+
+	void finalizar(char *sPID) {
+		logearInfo("Comando de desconexión de programa ejecutado");
+
+		string_trim(&sPID);
+
+		if (strlen(sPID) == 0) {
+			logearError("El comando \"finalizar\" recibe un parametro [PID]", false);
+			free(sPID);
+			return;
+		}
+
+		if (!soloNumeros(sPID)) {
+			logearError("Error: \"%s\" no es un PID valido!", false, sPID);
+			free(sPID);
+			return;
+		}
+
+		int PID = strtol(sPID, NULL, 0);
+		free(sPID);
+
+		logearInfo("Proceso %d finalizado",PID);
+	}
+
+	void detener(char *param) {
+		logearInfo("[Detener]");
+	}
+
+	void planificar(char *param) {
+		logearInfo("[Planificar]");
+	}
+
+	void opciones(char *param) {
+		string_trim(&param);
+		if (strlen(param) != 0) {
+			logearError("El comando \"opciones\" no recibe nungun parametro", false);
+			free(param);
+			return;
+		}
+		free(param);
+		imprimirOpcionesDeKernel();
+	}
+
+	struct comando comandos[] = {
+		{ "listado", listado },
+		{ "proceso", proceso },
+		{ "tablaglobal", tablaglobal },
+		{ "multiprogramacion", multiprogramacion },
+		{ "finalizar", finalizar },
+		{ "detener", detener },
+		{ "planificar", planificar },
+		{ "opciones" , opciones }
+	};
+
+	char input[100];
+	memset(input, 0, sizeof input);
+	fgets(input, sizeof input, stdin);
+
+	if (strlen(input) == 1) {
+		return;
+	}
+
+	if (input[strlen(input) - 1] != '\n') {
+		logearError("Un comando no puede tener mas de 100 digitos", false);
+		limpiarBufferEntrada();
+		return;
+	}
+
+	removerSaltoDeLinea(input);
+
+	char *inputline = strdup(input); // Si no hago eso, string_trim se rompe
+	string_trim_left(&inputline); // Elimino espacios a la izquierda
+
+	char *cmd = NULL; // Comando
+	char *save = NULL; // Apunta al primer caracter de los siguentes caracteres sin parsear
+	char *delim = " ,"; // Separador
+
+	// strtok_r(3) devuelve un token leido
+	cmd = strtok_r(inputline, delim, &save); // Comando va a ser el primer token
+
+	int i;
+	// La division de los sizeof me calcula la cantidad de comandos
+	for (i = 0; i < (sizeof comandos / sizeof *comandos); i++) {
+		char *_cmd = comandos[i].nombre;
+		if (strcmp(cmd, _cmd) == 0) {
+			char *param = strdup(save); // Para no pasarle save por referencia
+			comandos[i].funcion(param);
+			break;
+		}
+	}
+	if (i == (sizeof comandos / sizeof *comandos)) {
+		logearError("Error: %s no es un comando", false, cmd);
+	}
+}
+inline void limpiarBufferEntrada() {
+	int c;
+	while ((c = getchar()) != '\n' && c != EOF);
 }
 void procesarMensaje(int socketCliente, char operacion, int bytes) {
 
@@ -502,7 +661,6 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 			break;
 	}
 }
-
 int recibirHandshake(int socketCliente) {
 	headerDeLosRipeados handy;
 
@@ -517,7 +675,6 @@ int recibirHandshake(int socketCliente) {
 	}
 	return 0;
 }
-
 int recibirMensaje(int socketCliente, int bytesDePayload) {
     char* mensaje = malloc(bytesDePayload+1);
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
@@ -531,6 +688,22 @@ int recibirMensaje(int socketCliente, int bytesDePayload) {
     }
     free(mensaje);
 	return bytesRecibidos;
+}
+char* removerSaltoDeLinea(char* s) { // By Beej
+    int len = strlen(s);
+
+    if (len > 0 && s[len-1] == '\n')  // if there's a newline
+        s[len-1] = '\0';          // truncate the string
+
+    return s;
+}
+int soloNumeros(char *str) {
+    while (*str) {
+        if (isdigit(*str++) == 0) {
+        	return 0;
+        }
+    }
+    return 1;
 }
 int tipoCliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
