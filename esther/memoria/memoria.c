@@ -16,8 +16,8 @@
 #include <pthread.h>
 #include "commons/collections/list.h"
 #include "qepd/qepd.h"
-
 #include "op_kernel.h"
+#include "op_cpu.h"
 
 /*----------DEFINES----------*/
 #define MOSTRAR_LOGS_EN_PANTALLA true
@@ -88,6 +88,12 @@ typedef struct estructuraAdministrativa {
 	int pag;
 }__attribute__((packed, aligned(1))) estructuraAdministrativa;
 
+typedef struct estructuraAdministrativa_cache {
+	int pid;
+	int pag;
+	int contenidoDeLaPag; //Numero de byte a partir del cual empieza la pag en cuestion. Se llamo asi para respetar el enunciado
+}__attribute__((packed, aligned(1))) estructuraAdministrativa_cache;
+
 typedef t_list listaCliente;
 
 /*-----VARIABLES GLOBALES-----*/
@@ -107,12 +113,16 @@ t_config* config;
 listaCliente *clientes;
 
 char *memoria;
+char *memoria_cache;
+
+estructuraAdministrativa_cache *tablaAdministrativa_cache;
 estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de frames, ver config.cfg TODO
 
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
-int			asignar_frames_contiguos			(int, int, size_t, void*);
+int			asignar_frames_contiguos			(int, int, int, size_t, void*);
 void		atenderKernel						(int);
+void 		atenderCPU							(int);
 void		agregarCliente						(char, int);
 void		borrarCliente						(int);
 void		cerrarConexion						(int, char*);
@@ -127,23 +137,27 @@ void		flush								();
 int			hayAlguienQueSea					(char);
 void		imprimirOpcionesDeMemoria			();
 void		inicializarTabla					();
+void		inicializarTabla_cache				();
 void*		interaccionMemoria				(void *);
 char*		ir_a_frame							(int);
 void		limpiarPantalla					();
 int			recibirHandshake					(int);
 void		size								();
 int			tipoCliente						(int);
+int 		buscarEnMemoriaYDevolver					(posicionDeMemoriaVariable, int);
+
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
 int main(void) {
 	configurar("memoria");
 
-	crearMemoria(); // Creacion de la memoria general.
-	//cache miCache[ENTRADAS_CACHE]; // La cache de nuestra memoria
+	crearMemoria(); // Creacion de la memoria general y cache
+
 
 	clientes = list_create();
 
 	inicializarTabla();
+	inicializarTabla_cache();
 
 	pthread_t hilo_consola;
 	pthread_create(&hilo_consola, NULL, interaccionMemoria, NULL);
@@ -204,15 +218,48 @@ int main(void) {
 
 /*------------DEFINICION DE FUNCIONES----------------*/
 
+int buscarEnMemoriaYDevolver(posicionDeMemoriaVariable posicion, int socket) {
+
+	int i;
+
+	//Recorro la tabla admin de la cache para ver si esta
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		if (tablaAdministrativa_cache[i].pid != posicion.processID
+			&& tablaAdministrativa_cache[i].pag != posicion.numeroDePagina) {
+
+			enviarDesdeCache(i, socket, posicion);
+			return 1;
+		}
+	}
+
+	//Hay que implementar el reemplazo LRU si no encuentra en la cache
+
+	usleep(RETARDO * 1000);
+
+	/* Recorro la tabla admin de la memoria principal */
+	for (i = 0; i < MARCOS; i++) {
+		if (tablaAdministrativa[i].pid != posicion.processID
+			&& tablaAdministrativa[i].pag != posicion.numeroDePagina) {
+			//enviarDesdeMemoria();
+			return 1;
+		}
+	}
+
+	return -1;
+
+}
+
+
 /*
  * Asigna frames contiguos para un proceso.
  */
-int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
+int asignar_frames_contiguos(int PID, int frames_codigo, int frames_stack, size_t bytes, void *datos) {
 	int i;
 	int frames_encontrados;		// Contador frames libres encontrados
+	int frames_totales = frames_stack + frames_codigo;
 
 	for (i = 0, frames_encontrados = 0;
-			i < MARCOS && frames_encontrados < frames; i++) {
+			i < MARCOS && frames_encontrados < frames_totales; i++) {
 		if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
 			frames_encontrados++;
 		}
@@ -222,13 +269,13 @@ int asignar_frames_contiguos(int PID, int frames, size_t bytes, void *datos) {
 	}
 
 	/* No hay frames disponibles */
-	if (frames_encontrados != frames) {
+	if (frames_encontrados != frames_totales) {
 		return 0;
 	}
 
 	/* Asignar frames al proceso */
 
-	int frame_inicial = i - frames;		// Indice primer frame
+	int frame_inicial = i - frames_totales;		// Indice primer frame
 	int frame_final = i;				// Indice ultimo frame
 
 	for (i = frame_inicial; i < frame_final; i++) {
@@ -252,6 +299,13 @@ char *ir_a_frame(int indice) {
 	return ((char (*) [MARCO_SIZE]) memoria) [indice];
 }
 
+char *ir_a_frame_cache(int indice) {
+	if (indice >= ENTRADAS_CACHE) {
+		return NULL;
+	}
+	return ((char (*) [MARCO_SIZE]) memoria_cache) [indice];
+}
+
 void liberar_frames(int PID) {
 	int i;
 	for (i = 0; i < MARCOS; i++) {
@@ -273,6 +327,23 @@ void atenderKernel(int socketKernel) {
 
 		if (ret == -2) {
 			cerrarConexion(socketKernel, "El Kernel hizo una operacion invalida (socket %d)");
+			break;
+		}
+	}
+}
+
+void atenderCPU(int socketCPU) {
+	int ret;
+	while (1) {
+		ret = cpu_processar_operacion(socketCPU);
+
+		if (ret == -1) {
+			cerrarConexion(socketCPU, "Error de conexion con el CPU (socket %d)");
+			break;
+		}
+
+		if (ret == -2) {
+			cerrarConexion(socketCPU, "El CPU hizo una operacion invalida (socket %d)");
 			break;
 		}
 	}
@@ -340,7 +411,10 @@ void configurarRetardo() {
 }
 
 void crearMemoria(void) {
-	memoria = malloc(MARCOS * MARCO_SIZE);
+	memoria = calloc(MARCOS , MARCO_SIZE);
+
+	memoria_cache = calloc(ENTRADAS_CACHE , MARCO_SIZE);
+
 }
 
 void dump() {
@@ -482,6 +556,14 @@ void *fHilo(void* param) {
 	}
 	else {
 		agregarCliente(CPU, socketCliente);
+
+		printf("Nuevo CPU conectado\n");
+
+		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
+
+		atenderCPU(socketCliente);
+
+
 		//atenderCPU(socketCliente);
 	}
 	return NULL;
@@ -540,6 +622,18 @@ void inicializarTabla(void) {
 	for ( ; i < MARCOS; i++) {
 		tablaAdministrativa[i].pid = FRAME_LIBRE;
 	}
+}
+
+void inicializarTabla_cache(void) {
+
+	int i;
+
+	tablaAdministrativa_cache = malloc(ENTRADAS_CACHE * sizeof(estructuraAdministrativa_cache));
+
+	for (i=0 ; i < ENTRADAS_CACHE; i++) {
+			tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
+		}
+
 }
 
 void *interaccionMemoria(void * _) {

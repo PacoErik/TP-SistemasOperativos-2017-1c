@@ -24,7 +24,8 @@
 	/* Pedido de inicializacion de programa */
 	typedef struct {
 		int PID;
-		int paginas;
+		int paginas_codigo;
+		int paginas_stack;
 		size_t bytes_datos;		// Cantidad de bytes del contenido de programa
 		/* void *datos; */
 	} PACKED PedidoInicializar;
