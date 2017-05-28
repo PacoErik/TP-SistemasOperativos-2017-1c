@@ -1,17 +1,20 @@
 CC=gcc
 MAKE=make
 
-PROG=cpu
-LIB=../QEPDLibrary
-LIBBIN=$(LIB)/build
+LIBS = -lcommons -lqepd -lparser-ansisop
+LIBPATH=../QEPDLibrary
+LIBBINPATH=$(LIBPATH)/build
 
-all: compile
+SRCS=$(wildcard *.c)
+OBJS=$(SRCS:.c=.o)
 
-compile: $(LIB)/build
-	$(CC) $(PROG).c -I$(LIB) -L$(LIBBIN) -lcommons -lqepd -lparser-ansisop -Wl,-rpath=$(LIBBIN) -o $(PROG)
+all: cpu
 
-$(LIB)/build:
-	cd $(LIB); $(MAKE)
+cpu: $(SRCS) $(LIBPATH)/build/libqepd.so
+	$(CC) -o $@ $^ -I$(LIBPATH) -L$(LIBBINPATH) $(LIBS) -Wl,-rpath=$(LIBBINPATH)
+
+$(LIBPATH)/build/libqepd.so:
+	cd $(LIBPATH); $(MAKE)
 
 debug: CC += -DDEBUG -g
 debug: MAKE += debug

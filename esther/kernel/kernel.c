@@ -83,7 +83,6 @@ int GRADO_MULTIPROG;
 //SEM_IDS
 //SEM_INIT
 //SHARED_VARS
-int STACK_SIZE;
 int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
 
 /* op_memoria.h */
@@ -91,6 +90,8 @@ int socket_memoria;
 int tamanio_pagina;
 char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
+int STACK_SIZE;
+
 
 //-----PROTOTIPOS DE FUNCIONES-----//
 
