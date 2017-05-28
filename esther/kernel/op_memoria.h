@@ -18,6 +18,9 @@
 
 	/* Puerto de memoria */
 	extern int PUERTO_MEMORIA;
+	/* Cantidad de pags de Stack */
+	extern int STACK_SIZE;
+
 
 #define PACKED __attribute__((packed, aligned(1)))
 
@@ -39,7 +42,8 @@
 	typedef struct {
 		op_mem operacion;
 		int PID;
-		int paginas;
+		int paginas_codigo;
+		int paginas_stack;
 		size_t bytes_datos;		// Cantidad de bytes del contenido de programa
 		/* void *datos; */
 	} PACKED PedidoInicializar;
