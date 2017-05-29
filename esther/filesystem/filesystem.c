@@ -154,7 +154,7 @@ void interaccion_FS(void) {
 					scanf("%d", &input_offset);
 					scanf("%d", &input_size);
 					char *contenido = leer_archivo(input_ruta, input_offset, input_size);
-					printf("Contenido archivo: \"%s\"\n", contenido);
+					printf("Contenido archivo: \"%.*s\"\n", input_size, contenido);
 					free(contenido);
 
 					break;
@@ -707,8 +707,9 @@ int *_asignar_bloques(int n, int **bloques) {
 		return NULL;
 	}
 
-	//*bloques = tmp;
 	memcpy(*bloques, tmp, n * sizeof(int));
+
+	free(tmp);
 
 	return *bloques;
 }
