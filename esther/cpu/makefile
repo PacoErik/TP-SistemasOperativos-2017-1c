@@ -12,7 +12,7 @@ compile: $(LIB)/build
 
 $(LIB)/build:
 	cd $(LIB); $(MAKE)
-
+	
 debug: CC += -DDEBUG -g
 debug: MAKE += debug
 debug: all

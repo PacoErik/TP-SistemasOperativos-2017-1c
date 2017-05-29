@@ -65,7 +65,7 @@ int kernel_inicializar_programa(int socket) {
 		return -1;
 	}
 
-	ret = asignar_frames_contiguos(paquete.PID, paquete.paginas,
+	ret = asignar_frames_contiguos(paquete.PID, paquete.paginas_codigo, paquete.paginas_stack,
 			paquete.bytes_datos, datos_programa);
 
 	printf("[PID %d] Codigo del Proceso:\n%.*s \n", paquete.PID, paquete.bytes_datos, (char *) datos_programa);

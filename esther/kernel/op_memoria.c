@@ -4,6 +4,8 @@ int socket_memoria;
 
 int tamanio_pagina;
 
+int STACK_SIZE;
+
 char IP_MEMORIA[16];
 
 int PUERTO_MEMORIA;
@@ -48,10 +50,14 @@ void mem_mensaje(char *mensaje) {
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
+
+
+
 	PedidoInicializar paquete = {
 		.operacion = MEM_INICIALIZAR_PROGRAMA,
 		.PID = PID,
-		.paginas = DIVIDE_ROUNDUP(size, tamanio_pagina),		// Pongo cantidad de paginas por el enunciado
+		.paginas_codigo = DIVIDE_ROUNDUP(size, tamanio_pagina),		// Pongo cantidad de paginas por el enunciado
+		.paginas_stack = STACK_SIZE,
 		.bytes_datos = size,
 	};
 
