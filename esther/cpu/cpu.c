@@ -122,17 +122,7 @@ int PUERTO_KERNEL;
 char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 
-typedef struct indiceCodigo {
-	char numeroDePagina;
-	char offset;
-	char size;
-}__attribute__((packed, aligned(1))) indiceCodigo;
-
-typedef struct indiceEtiquetas {
-	// Diccionario what the actual fuck
-}__attribute__((packed, aligned(1))) indiceEtiquetas;
-
-typedef struct posicionDeMemoria { // Esto es del stack
+typedef struct posicionDeMemoria {
 	char numeroDePagina;
 	char start;
 	char offset;
@@ -147,15 +137,14 @@ typedef struct argumento {
 
 typedef struct variable {
 	int identificador;
-	t_puntero posicion;
 	int numeroDePagina;
 	int start;
 	int offset;
 }__attribute__((packed, aligned(1))) variable;
 
 typedef struct indiceStack {
-	t_list* listaDeArgumentos; // Esta bien el tipo?
-	t_list* listaDeVariables; // Esta bien el tipo?
+	t_list* listaDeArgumentos;
+	t_list* listaDeVariables;
 	char direccionDeRetorno;
 	posicionDeMemoria posicionDeLaVariableDeRetorno;
 }__attribute__((packed, aligned(1))) indiceStack;
@@ -179,28 +168,29 @@ typedef struct servidor { // Esto es más que nada una cheteada para poder usar 
 	char identificador;
 } servidor;
 
-typedef struct posicionDeMemoriaVariable {
+typedef struct posicionDeMemoriaAPedir {
 	int processID;
-	t_puntero posicionNumero;
 	int numeroDePagina;
 	int start;
 	int offset;
-} posicionDeMemoriaVariable;
+} posicionDeMemoriaAPedir;
 
 servidor kernel;
 servidor memoria;
 
-bool programaVivitoYColeando; // Si el programa fallecio o no
-bool elProgramaNoFinalizo; // Si el programa finalizo correctamente o sigue en curso
-bool signalRecibida = false; // Si se recibe o no una señal SIGUSR1
+bool programaVivitoYColeando; 	// Si el programa fallecio o no
+bool elProgramaNoFinalizo; 		// Si el programa finalizo correctamente o sigue en curso
+bool signalRecibida = false; 	// Si se recibe o no una señal SIGUSR1
 
 char* actualInstruccion; // Lo modelo como variable global porque se me hace menos codigo analizar los header y demas.
 
 PCB actualPCB; // Programa corriendo
 posicionDeMemoria actualPosicion; // Actual posicion de memoria a utilizar
-posicionDeMemoriaVariable actualPosicionVariable; // Usado para comunicarse con el proceso memoria
+posicionDeMemoriaAPedir actualPosicionVariable; // Usado para comunicarse con el proceso memoria
 
 int actualValorVariable;
+
+int MARCO_SIZE;
 
 void establecerConfiguracion();
 void configurar(char*);
@@ -222,13 +212,15 @@ void solicitarInstruccion();
 bool elProgramaEstaASalvo();
 int pedirMemoria();
 void agregarAlStack(t_nombre_variable identificador_variable, posicionDeMemoria posicionDeMemoria);
-unsigned int analizarHeader(servidor servidor, headerDeLosRipeados header);
+int analizarHeader(servidor servidor, headerDeLosRipeados header);
 void obtenerPosicionDeMemoria();
 int recibirAlgoDe(servidor servidor);
 void leerMensaje(servidor servidor, unsigned short bytesDePayload);
-void serializarPosicionDeMemoriaVariable(posicionDeMemoriaVariable *posicion, char *mensajePosicion);
-void deserializarPosicionDeMemoriaVariable(posicionDeMemoriaVariable *posicion, char *mensajePosicion);
+void serializarposicionDeMemoriaAPedir(posicionDeMemoriaAPedir *posicion, char *mensajePosicion);
+void deserializarposicionDeMemoriaAPedir(posicionDeMemoriaAPedir *posicion, char *mensajePosicion);
 void obtenerValorVariable();
+void obtenerMarcoSize();
+t_puntero calcularPuntero(posicionDeMemoria posicion);
 
 /*
  * ↓ Señales ↓
@@ -262,6 +254,8 @@ int main(void) {
 	handshake(kernel.socket, CPU);
 	handshake(memoria.socket, CPU);
 
+	recibirAlgoDe(memoria); // Recibir el MARCO_SIZE
+
 	printf(MAG "[CPU] " RESET "Comenzando el trabajo.\n");
 
 	comenzarTrabajo();
@@ -293,11 +287,10 @@ void solicitarInstruccion() {
 		return;
 	}
 
-	posicionDeMemoriaVariable instruccion;
+	posicionDeMemoriaAPedir instruccion;
 	t_intructions instruction = actualPCB.instrucciones_serializado[actualPCB.programCounter];
 
 	instruccion.processID = actualPCB.processID;
-	instruccion.posicionNumero = 0;
 	//instruccion.numeroDePagina = actualPCB.
 	instruccion.offset = instruction.offset;
 	instruccion.start = instruction.start;
@@ -394,7 +387,7 @@ int recibirAlgoDe(servidor servidor) {
 	return respuesta;
 }
 
-unsigned int analizarHeader(servidor servidor, headerDeLosRipeados header) {
+int analizarHeader(servidor servidor, headerDeLosRipeados header) {
 	switch(servidor.identificador) {
 		case KERNEL:
 			return cumplirDeseosDeKernel(header.codigoDeOperacion, header.bytesDePayload);
@@ -456,19 +449,15 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 }
 
 int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
-	t_puntero posicionEnMemoria;
 
 	switch(codigoDeOperacion) {
-	/*
-	 * No nos va a interesar que nos mande un msj.
-	 *
-		case MENSAJE:
-			leerMensaje(memoria, bytesDePayload);
-			break;
-	*/
 		case EXCEPCION_DE_SOLICITUD:
 			finalizarPrograma(memoria);
 			return 0;
+			break;
+
+		case FRAME_SIZE:
+			obtenerMarcoSize();
 			break;
 
 		case INSTRUCCION_OK:
@@ -582,7 +571,7 @@ int pedirMemoria() {
 
 void obtenerPosicionDeMemoria() {
 
-	int bytesRecibidos = recv(kernel.socket, &actualPosicionVariable, sizeof(posicionDeMemoriaVariable), 0);
+	int bytesRecibidos = recv(kernel.socket, &actualPosicionVariable, sizeof(posicionDeMemoriaAPedir), 0);
 
 	if(bytesRecibidos <= 0) {
 		// TODO kernel del ort
@@ -600,12 +589,11 @@ void agregarAlStack(t_nombre_variable identificador_variable, posicionDeMemoria 
 	nuevaVariable = malloc(sizeof(variable));
 
 	nuevaVariable->identificador = identificador_variable;
-	nuevaVariable->posicion = actualPosicionVariable.posicionNumero;
 	nuevaVariable->numeroDePagina = posicionDeMemoria.numeroDePagina;
 	nuevaVariable->start = posicionDeMemoria.start;
 	nuevaVariable->offset = posicionDeMemoria.offset;
 
-	list_add(actualPCB.indiceDeStack->listaDeVariables, nuevaVariable);
+	list_add(actualPCB.indiceDeStack->listaDeVariables, nuevaVariable); // TODO Es un poco mas complejo el list_add, ya que es un puntero el indiceDeStack
 }
 
 void obtenerValorVariable() {
@@ -616,6 +604,14 @@ void obtenerValorVariable() {
 		// TODO memoria del ort
 	}
 
+}
+
+void obtenerMarcoSize() {
+	int bytesRecibidos = recv(kernel.socket, &MARCO_SIZE, sizeof(MARCO_SIZE), 0);
+
+	if(bytesRecibidos <= 0) {
+		// TODO
+	}
 }
 
 /*
@@ -768,11 +764,15 @@ int existeArchivo(const char *ruta)
     return false;
 }
 
-void serializarPosicionDeMemoriaVariable(posicionDeMemoriaVariable *posicion, char *mensajePosicion) { // TODO
+t_puntero calcularPuntero(posicionDeMemoria posicion) {
+	return posicion.numeroDePagina * MARCO_SIZE + posicion.start;
+}
+
+void serializarposicionDeMemoriaAPedir(posicionDeMemoriaAPedir *posicion, char *mensajePosicion) { // TODO
 
 }
 
-void deserializarPosicionDeMemoriaVariable(posicionDeMemoriaVariable *posicion, char *mensajePosicion) { // TODO
+void deserializarposicionDeMemoriaAPedir(posicionDeMemoriaAPedir *posicion, char *mensajePosicion) { // TODO
 
 }
 
@@ -793,12 +793,6 @@ void deserializarPCB(PCB *miPCB, void *bufferPCB) { // TODO
  */
 
 /*
-bool compararIdentificadorVariable(void* variable) {
-	return variable.identificador;
-}
-*/
-
-/*
  * ↑ Funciones auxiliares del Parser ↑
  */
 
@@ -806,53 +800,56 @@ bool compararIdentificadorVariable(void* variable) {
  * ↓ Parsear tranqui ↓
  */
 
-// t_puntero devuelve el offset.
-
 t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("Se definio una variable con el caracter %c.\n", identificador_variable);
 
 	if(pedirMemoria() == 1) {
 		printf(WHT "[Memoria] " RESET "Devolvió exitosamente una posición de memoria.\n");
 		agregarAlStack(identificador_variable, actualPosicion);
-		return actualPosicionVariable.posicionNumero;
+		return calcularPuntero(actualPosicion);
 	} else {
 		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
 		programaVivitoYColeando = false;
 		actualPCB.exitCode = EXCEPCION_MEMORIA;
-		return 0; // TODO Al ripear hay que ver que devolver, ya que tranquilamente puede no ripear y estar en el offset 0.
+		return 0;
 	}
 
 }
 
 t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) {
-	t_puntero posicionVariable;
 
 	_Bool compararIdentificadorVariable(void* param) {
 		variable* var = (variable*) param;
 		return identificador_variable == var->identificador;
 	}
 
-	variable *miVariable = list_find(actualPCB.indiceDeStack->listaDeVariables, &compararIdentificadorVariable);
+	variable *miVariable = list_find(actualPCB.indiceDeStack->listaDeVariables, &compararIdentificadorVariable); // TODO indiceDeStack jodido
 
-	return miVariable->posicion;
+	posicionDeMemoria posicion;
+	posicion.numeroDePagina = miVariable->numeroDePagina;
+	posicion.offset = miVariable->offset;
+	posicion.start = miVariable->start;
+
+	return calcularPuntero(posicion);
 }
 
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	t_valor_variable miValor;
-	posicionDeMemoriaVariable posicion;
+	posicionDeMemoriaAPedir posicion;
 
 	_Bool compararDireccionVariable(void* param) {
 		variable* var = (variable*) param;
 		return direccion_variable == var->identificador;
 	}
 
-	variable *miVariable = list_find(actualPCB.indiceDeStack->listaDeVariables, &compararDireccionVariable);
+	variable *miVariable = list_find(actualPCB.indiceDeStack->listaDeVariables, &compararDireccionVariable); // TODO indiceDeStack es puntero
 
+	// Hay que obtener la posicion de la variable gracias a nuestro MARCO_SIZE
+
+	posicion.processID = actualPCB.processID;
 	posicion.numeroDePagina = miVariable->numeroDePagina;
 	posicion.start = miVariable->start;
 	posicion.offset = miVariable->offset;
-	posicion.processID = actualPCB.processID;
-	posicion.posicionNumero = direccion_variable;
 
 	headerDeLosRipeados header;
 	header.codigoDeOperacion = OBTENER_VALOR_VARIABLE;
@@ -876,11 +873,6 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 
 void asignar(t_puntero direccion_variable, t_valor_variable valor) { // TODO
 	printf("Se asigno una variable con el valor %i\n", valor);
-
-	// Segun lo que tengo entendido, direccion_variable es la direccion en el proceso memoria.
-	// Muy automagico.
-
-
 
 }
 
