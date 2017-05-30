@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include "commons/bitarray.h"
 
@@ -91,6 +92,7 @@ void			_destruir_metadata_archivo		(FileMetadata*);
 void			_liberar_bloques					(FileMetadata*);
 FILE*			_archivo_bloque_r					(int);
 FILE*			_archivo_bloque_w					(int);
+bool			_crear_directorios				(char*);
 
 int main(void) {
 	configurar("filesystem");
@@ -264,7 +266,11 @@ bool existe_archivo(char *ruta) {
  * Crea un archivo vacio dentro de la ruta solicitada.
  */
 bool crear_archivo(char *ruta) {
-	/* TODO: Crear los directorios que contiene al archivo */
+	if (_crear_directorios(ruta) == 0) {
+		logearError("No se pudo crear el directorio para el archivo.", false);
+		return 0;
+	}
+
 	int *bloques = malloc(sizeof(int));
 
 	_asignar_bloques(1, &bloques);
@@ -284,6 +290,38 @@ bool crear_archivo(char *ruta) {
 	return result;
 }
 
+/*
+ * Crea los directorios que contiene al archivo.
+ */
+bool _crear_directorios(char *ruta) {
+	char *dir = calloc(strlen(ruta) + 1, sizeof(char));
+
+	int i;
+	for (i = 0; i != strlen(ruta); i++) {
+		if (ruta[i] != '/') {
+			continue;
+		}
+
+		strncpy(dir, ruta, i);
+
+		if (access(ruta, F_OK) == 0) {
+			continue;
+		}
+
+		if (mkdir(_ruta_desde_archivos(dir), 777) == -1) {
+			if (errno == ENOTDIR) {
+				logearError("\"%s\" no es un directorio.\n", false, dir);
+
+				free(dir);
+				return 0;
+			}
+		}
+	}
+
+	free(dir);
+	return 1;
+}
+
 bool _actualizar_metadata_bitmap(char *ruta, FileMetadata *file_md) {
 	char *ruta_completa = _ruta_desde_archivos(ruta);
 
@@ -291,6 +329,9 @@ bool _actualizar_metadata_bitmap(char *ruta, FileMetadata *file_md) {
 	free(ruta_completa);
 
 	if (archivo == NULL) {
+		if (errno == ENOTDIR) {
+			logearError("No se pudo crear el directorio para el archivo.", false);
+		}
 		return 0;
 	}
 
