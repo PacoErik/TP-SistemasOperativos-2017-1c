@@ -304,7 +304,7 @@ bool _crear_directorios(char *ruta) {
 
 		strncpy(dir, ruta, i);
 
-		if (access(ruta, F_OK) == 0) {
+		if (access(_ruta_desde_archivos(dir), F_OK) == 0) {
 			continue;
 		}
 
