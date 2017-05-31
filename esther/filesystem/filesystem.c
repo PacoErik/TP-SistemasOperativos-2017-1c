@@ -190,9 +190,9 @@ void leer_mensaje(void) {
 	mensaje[bytesRecibidos] = '\0';
 	if (bytesRecibidos <= 0) {
 		close(servidor);
-		logearError("Servidor desconectado luego de intentar leer mensaje", true);
+		logear_error("Servidor desconectado luego de intentar leer mensaje", true);
 	}
-	logearInfo("Mensaje recibido: %s", mensaje);
+	logear_info("Mensaje recibido: %s", mensaje);
 }
 
 void leer_metadata(void) {
@@ -204,27 +204,27 @@ void leer_metadata(void) {
 	if (metadata_config == NULL) {
 		free(ruta_metadata);
 		config_destroy(metadata_config);
-		logearError("No existe el archivo \"Metadata.bin\"", true);
+		logear_error("No existe el archivo \"Metadata.bin\"", true);
 	}
 
 	free(ruta_metadata);
-	logearInfo("Leyendo \"Metadata.bin\"...");
+	logear_info("Leyendo \"Metadata.bin\"...");
 
 	if (config_has_property(metadata_config, "TAMANIO_BLOQUES")) {
 		FSMetadata.TAMANIO_BLOQUES = config_get_int_value(metadata_config, "TAMANIO_BLOQUES");
-		logearInfo("Tamaño de Bloques: %d", FSMetadata.TAMANIO_BLOQUES);
+		logear_info("Tamaño de Bloques: %d", FSMetadata.TAMANIO_BLOQUES);
 	}
 	else {
-		logearError("Error al leer el tamaño de bloques", false);
+		logear_error("Error al leer el tamaño de bloques", false);
 		goto error;
 	}
 
 	if (config_has_property(metadata_config, "CANTIDAD_BLOQUES")) {
 		FSMetadata.CANTIDAD_BLOQUES = config_get_int_value(metadata_config, "CANTIDAD_BLOQUES");
-		logearInfo("Cantidad de Bloques: %d", FSMetadata.CANTIDAD_BLOQUES);
+		logear_info("Cantidad de Bloques: %d", FSMetadata.CANTIDAD_BLOQUES);
 	}
 	else {
-		logearError("Error al leer la cantidad de bloques", false);
+		logear_error("Error al leer la cantidad de bloques", false);
 		goto error;
 	}
 
@@ -232,10 +232,10 @@ void leer_metadata(void) {
 		strncpy(FSMetadata.MAGIC_NUMBER,
 				config_get_string_value(metadata_config, "MAGIC_NUMBER"),
 				sizeof FSMetadata.MAGIC_NUMBER);
-		logearInfo("Magic Number: %s", FSMetadata.MAGIC_NUMBER);
+		logear_info("Magic Number: %s", FSMetadata.MAGIC_NUMBER);
 	}
 	else {
-		logearError("Error al leer el Magic Number!!", false);
+		logear_error("Error al leer el Magic Number!!", false);
 		goto error;
 	}
 
@@ -267,7 +267,7 @@ bool existe_archivo(char *ruta) {
  */
 bool crear_archivo(char *ruta) {
 	if (_crear_directorios(ruta) == 0) {
-		logearError("No se pudo crear el directorio para el archivo.", false);
+		logear_error("No se pudo crear el directorio para el archivo.", false);
 		return 0;
 	}
 
@@ -275,7 +275,7 @@ bool crear_archivo(char *ruta) {
 
 	_asignar_bloques(1, &bloques);
 	if (bloques == NULL) {
-		logearError("No se pudo crear el archivo: Espacio insuficiente", false);
+		logear_error("No se pudo crear el archivo: Espacio insuficiente", false);
 		return 0;
 	}
 
@@ -310,7 +310,7 @@ bool _crear_directorios(char *ruta) {
 
 		if (mkdir(_ruta_desde_archivos(dir), 777) == -1) {
 			if (errno == ENOTDIR) {
-				logearError("\"%s\" no es un directorio.\n", false, dir);
+				logear_error("\"%s\" no es un directorio.\n", false, dir);
 
 				free(dir);
 				return 0;
@@ -330,7 +330,7 @@ bool _actualizar_metadata_bitmap(char *ruta, FileMetadata *file_md) {
 
 	if (archivo == NULL) {
 		if (errno == ENOTDIR) {
-			logearError("No se pudo crear el directorio para el archivo.", false);
+			logear_error("No se pudo crear el directorio para el archivo.", false);
 		}
 		return 0;
 	}
@@ -664,7 +664,7 @@ t_bitarray *leer_bitmap(void) {
 	free(ruta_bitmap);
 
 	if (bitmap_file == NULL) {
-		logearError("No existe el archivo \"Bitmap.bin\"", false);
+		logear_error("No existe el archivo \"Bitmap.bin\"", false);
 		return NULL;
 	}
 
@@ -676,7 +676,7 @@ t_bitarray *leer_bitmap(void) {
 	if (read_bytes != bitarray_size) {
 		fclose(bitmap_file);
 		free(bitarray);
-		logearError("El Bitmap esta incompleto", false);
+		logear_error("El Bitmap esta incompleto", false);
 		return NULL;
 	}
 
@@ -709,13 +709,13 @@ bool actualizar_archivo_bitmap(void) {
 	free(ruta);
 
 	if (bitmap_file == NULL) {
-		logearError("No se pudo actualizar el archivo \"Bitmap.bin\"", false);
+		logear_error("No se pudo actualizar el archivo \"Bitmap.bin\"", false);
 		return 0;
 	}
 
 	int bytes = fwrite(bitmap->bitarray, sizeof(char), bitmap->size, bitmap_file);
 	if (bytes != bitmap->size) {
-		logearError("Error al actualizar el archivo \"Bitmap.bin\"", false);
+		logear_error("Error al actualizar el archivo \"Bitmap.bin\"", false);
 		fclose(bitmap_file);
 		return 0;
 	}
@@ -758,33 +758,33 @@ int *_asignar_bloques(int n, int **bloques) {
 void establecer_configuracion(void) {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
 		FSConfig.PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logearInfo("Puerto Kernel: %d", FSConfig.PUERTO_KERNEL);
+		logear_info("Puerto Kernel: %d", FSConfig.PUERTO_KERNEL);
 	}
 	else {
-		logearError("Error al leer el puerto del Kernel", true);
+		logear_error("Error al leer el puerto del Kernel", true);
 	}
 
 	if (config_has_property(config, "IP_KERNEL")) {
 		strcpy(FSConfig.IP_KERNEL, config_get_string_value(config, "IP_KERNEL"));
-		logearInfo("IP Kernel: %s", FSConfig.IP_KERNEL);
+		logear_info("IP Kernel: %s", FSConfig.IP_KERNEL);
 	}
 	else {
-		logearError("Error al leer la IP del Kernel", true);
+		logear_error("Error al leer la IP del Kernel", true);
 	}
 
 	if (config_has_property(config, "PUERTO_MEMORIA")) {
 		FSConfig.PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logearInfo("Puerto Memoria: %d", FSConfig.PUERTO_MEMORIA);
+		logear_info("Puerto Memoria: %d", FSConfig.PUERTO_MEMORIA);
 	}
 	else {
-		logearError("Error al leer el puerto de la Memoria", true);
+		logear_error("Error al leer el puerto de la Memoria", true);
 	}
 
 	if (config_has_property(config, "PUNTO_MONTAJE")) {
 		strcpy(FSConfig.PUNTO_MONTAJE, config_get_string_value(config, "PUNTO_MONTAJE"));
-		logearInfo("Punto de Montaje: %s", FSConfig.PUNTO_MONTAJE);
+		logear_info("Punto de Montaje: %s", FSConfig.PUNTO_MONTAJE);
 	}
 	else {
-		logearError("Error al leer el punto de montaje del FS", true);
+		logear_error("Error al leer el punto de montaje del FS", true);
 	}
 }

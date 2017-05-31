@@ -160,7 +160,7 @@ int main(void) {
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (servidor == -1) {
-		logearError("No se pudo crear el socket", true);
+		logear_error("No se pudo crear el socket", true);
 	}
 
 	int activado = 1;
@@ -174,14 +174,14 @@ int main(void) {
 	bzero(&(servidor_info.sin_zero), 8);
 
 	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
-		logearError("Fallo al bindear el puerto", true);
+		logear_error("Fallo al bindear el puerto", true);
 	}
 
     if (listen(servidor, 10) == -1) {
-		logearError("Fallo al escuchar", true);
+		logear_error("Fallo al escuchar", true);
     }
 
-    logearInfo("Estoy escuchando");
+    logear_info("Estoy escuchando");
 
     fd_set conectados;		// Set de FDs conectados
     fd_set read_fds;		// sockets de lectura
@@ -192,7 +192,7 @@ int main(void) {
     int fdmax;				// valor maximo de los FDs
 
     if (mem_conectar() == 0) {
-    	logearError("No se pudo conectar a la memoria.", true);
+    	logear_error("No se pudo conectar a la memoria.", true);
     }
 
 	agregar_cliente(MEMORIA, socket_memoria);
@@ -209,7 +209,7 @@ int main(void) {
         read_fds = conectados;
 
 		if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
-			logearError("Error en el select", true);
+			logear_error("Error en el select", true);
         }
 
         struct sockaddr_in cliente_info;
@@ -228,14 +228,14 @@ int main(void) {
 				nuevoCliente = accept(servidor, (struct sockaddr*) &cliente_info, &addrlen);
 
 				if (nuevoCliente == -1) {
-					logearError("Fallo en el accept", false);
+					logear_error("Fallo en el accept", false);
 				}
 				else {
 					FD_SET(nuevoCliente, &conectados);		// Agregarlo al set
 					if (nuevoCliente > fdmax) {
 						fdmax = nuevoCliente;				// Cambia el maximo
 					}
-					logearInfo("Nueva conexión desde %s en el socket %d",
+					logear_info("Nueva conexión desde %s en el socket %d",
 							inet_ntoa(cliente_info.sin_addr), nuevoCliente);
 				}
 			}
@@ -258,11 +258,11 @@ int main(void) {
 				else {
 					//Recibir header
 					headerDeLosRipeados header;
-					int bytesRecibidos = recibirHeader(i, &header);
+					int bytesRecibidos = recibir_header(i, &header);
 					if (bytesRecibidos <= 0) {
 						int tipo = tipo_cliente(i);
 						if (tipo >= 0) {
-							logearInfo("Cliente [%s] desconectado", ID_CLIENTE(tipo));
+							logear_info("Cliente [%s] desconectado", ID_CLIENTE(tipo));
 							borrar_cliente(i);
 							close(i);
 						} else {
@@ -303,7 +303,7 @@ int enviar_mensaje_todos(int socketCliente, char* mensaje) {
 			return;
 		}
 
-		enviarHeader(cliente->socketCliente, MENSAJE, strlen(mensaje));
+		enviar_header(cliente->socketCliente, MENSAJE, strlen(mensaje));
 		send(cliente->socketCliente, mensaje, strlen(mensaje), 0);
 
 	}
@@ -330,7 +330,7 @@ void procesar_mensaje(int socketCliente, char operacion, int bytes) {
 				inicializar_proceso(socketCliente, codigo, nuevo_proceso);
 
 				queue_push(cola_NEW,nuevo_proceso);
-				logearInfo("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
+				logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
 				PID_GLOBAL++;
 
 				intentar_iniciar_proceso();
@@ -358,19 +358,19 @@ void procesar_mensaje(int socketCliente, char operacion, int bytes) {
 			break;
 
 		default:
-			logearError("Operación inválida de %s", false, ID_CLIENTE(tipo));
+			logear_error("Operación inválida de %s", false, ID_CLIENTE(tipo));
 			break;
 	}
 }
 int recibir_handshake(int socketCliente) {
 	headerDeLosRipeados handy;
 
-	recibirHeader(socketCliente, &handy);
+	recibir_header(socketCliente, &handy);
 
 	if (CONSOLA <= handy.codigoDeOperacion
 			&& handy.codigoDeOperacion <= CPU
 			&& handy.bytesDePayload == 0) {
-		logearInfo("El nuevo cliente fue identificado como: %s", ID_CLIENTE(handy.codigoDeOperacion));
+		logear_info("El nuevo cliente fue identificado como: %s", ID_CLIENTE(handy.codigoDeOperacion));
 		agregar_cliente(handy.codigoDeOperacion, socketCliente);
 		return 1;
 	}
@@ -381,9 +381,9 @@ int recibir_mensaje(int socketCliente, int bytesDePayload) {
     int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
     mensaje[bytesDePayload]='\0';
     if (bytesRecibidos > 0) {
-        logearInfo("Mensaje recibido: %s", mensaje);
+        logear_info("Mensaje recibido: %s", mensaje);
         int cantidad = enviar_mensaje_todos(socketCliente, mensaje);
-        logearInfo("Mensaje retransmitido a %i clientes", cantidad);
+        logear_info("Mensaje retransmitido a %i clientes", cantidad);
     } else {
     	cerrar_conexion(socketCliente,"Error al recibir mensaje del socket %i\n");
     }
@@ -424,51 +424,51 @@ void interaccion_kernel() {
 	};
 
 	void listado(char *estado) {
-		logearInfo("Comando de listado de programas ejecutado");
+		logear_info("Comando de listado de programas ejecutado");
 		string_trim(&estado);
 		if (strlen(estado) == 0) {
-			logearInfo("[Listado] Todos:");
+			logear_info("[Listado] Todos:");
 		} else if (strcmp("NEW",estado)==0) {
-			logearInfo("[Listado] NEW:");
+			logear_info("[Listado] NEW:");
 		} else if (strcmp("READY",estado)==0) {
-			logearInfo("[Listado] READY:");
+			logear_info("[Listado] READY:");
 		} else if (strcmp("EXEC",estado)==0) {
-			logearInfo("[Listado] EXEC:");
+			logear_info("[Listado] EXEC:");
 		} else if (strcmp("BLOCKED",estado)==0) {
-			logearInfo("[Listado] BLOCKED:");
+			logear_info("[Listado] BLOCKED:");
 		} else if (strcmp("EXIT",estado)==0) {
-			logearInfo("[Listado] EXIT:");
+			logear_info("[Listado] EXIT:");
 		} else {
-			logearError("[Listado] Parámetro desconocido", false);
+			logear_error("[Listado] Parámetro desconocido", false);
 		}
 		free(estado);
 	}
 
 	void proceso(char *param) {
-		logearInfo("[Proceso]");
+		logear_info("[Proceso]");
 	}
 
 	void tablaglobal(char *param) {
-		logearInfo("[Tabla Global]");
+		logear_info("[Tabla Global]");
 	}
 
 	void multiprogramacion(char *param) {
-		logearInfo("[Multiprogramación]");
+		logear_info("[Multiprogramación]");
 	}
 
 	void finalizar(char *sPID) {
-		logearInfo("Comando de desconexión de programa ejecutado");
+		logear_info("Comando de desconexión de programa ejecutado");
 
 		string_trim(&sPID);
 
 		if (strlen(sPID) == 0) {
-			logearError("El comando \"finalizar\" recibe un parametro [PID]", false);
+			logear_error("El comando \"finalizar\" recibe un parametro [PID]", false);
 			free(sPID);
 			return;
 		}
 
 		if (!solo_numeros(sPID)) {
-			logearError("Error: \"%s\" no es un PID valido!", false, sPID);
+			logear_error("Error: \"%s\" no es un PID valido!", false, sPID);
 			free(sPID);
 			return;
 		}
@@ -476,21 +476,21 @@ void interaccion_kernel() {
 		int PID = strtol(sPID, NULL, 0);
 		free(sPID);
 
-		logearInfo("Proceso %d finalizado",PID);
+		logear_info("Proceso %d finalizado",PID);
 	}
 
 	void detener(char *param) {
-		logearInfo("[Detener]");
+		logear_info("[Detener]");
 	}
 
 	void planificar(char *param) {
-		logearInfo("[Planificar]");
+		logear_info("[Planificar]");
 	}
 
 	void opciones(char *param) {
 		string_trim(&param);
 		if (strlen(param) != 0) {
-			logearError("El comando \"opciones\" no recibe nungun parametro", false);
+			logear_error("El comando \"opciones\" no recibe nungun parametro", false);
 			free(param);
 			return;
 		}
@@ -518,7 +518,7 @@ void interaccion_kernel() {
 	}
 
 	if (input[strlen(input) - 1] != '\n') {
-		logearError("Un comando no puede tener mas de 100 digitos", false);
+		logear_error("Un comando no puede tener mas de 100 digitos", false);
 		limpiar_buffer_entrada();
 		return;
 	}
@@ -546,7 +546,7 @@ void interaccion_kernel() {
 		}
 	}
 	if (i == (sizeof comandos / sizeof *comandos)) {
-		logearError("Error: %s no es un comando", false, cmd);
+		logear_error("Error: %s no es un comando", false, cmd);
 	}
 }
 inline void limpiar_buffer_entrada() {
@@ -608,16 +608,16 @@ int existeProceso(int PID) {
 void finalizar_programa(int PID) {
 	if (existeProceso(PID)) {
 		eliminar_proceso(PID);
-		logearInfo("[PID:%d] Eliminado", PID);
+		logear_info("[PID:%d] Eliminado", PID);
 	}
 	else {
-		logearError("[PID:%d] No existe PID", false, PID);
+		logear_error("[PID:%d] No existe PID", false, PID);
 	}
 }
 void hacer_pedido_memoria(datosMemoria datosMem) {
 	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
 
-	enviarHeader(socket_memoria, INICIAR_PROGRAMA, tamanioTotal);
+	enviar_header(socket_memoria, INICIAR_PROGRAMA, tamanioTotal);
 
 	char *buffer = malloc(tamanioTotal);				// Tamanio del codigo
 
@@ -633,7 +633,7 @@ void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
 		Proceso* nuevo_proceso = queue_pop(cola_NEW);
 		if (nuevo_proceso == NULL) {
-			logearInfo("No hay procesos en la cola NEW");
+			logear_info("No hay procesos en la cola NEW");
 		}
 		else {
 			char *codigo = strdup(nuevo_proceso->codigo);
@@ -641,17 +641,17 @@ void intentar_iniciar_proceso() {
 
 			int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
 			if (ret == -1) {
-				logearError("Error de conexion con la memoria.", true);
+				logear_error("Error de conexion con la memoria.", true);
 			}
 
 			printf("Pedido a memoria\n");
 			free(codigo);
 
 			if (ret == 0) {
-				logearError("[PID %d] Memoria insuficiente.", false, PID);
+				logear_error("[PID %d] Memoria insuficiente.", false, PID);
 				queue_push(cola_NEW, nuevo_proceso); // Vuelve a la cola de new
 				PID = -1;
-				enviarHeader(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+				enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
 				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
 			}
 
@@ -661,7 +661,7 @@ void intentar_iniciar_proceso() {
 				printf("Proceso agregado con PID: %d\n",PID);
 
 				// Le envia el PID a la consola
-				enviarHeader(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+				enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
 				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
 			}
 		}
@@ -671,7 +671,7 @@ void intentar_iniciar_proceso() {
 //MANEJO DE CLIENTES//
 void agregar_cliente(char identificador, int socketCliente) {
 	if (existe_cliente(socketCliente)) {
-		logearError("No se puede agregar 2 veces mismo socket", false);
+		logear_error("No se puede agregar 2 veces mismo socket", false);
 		return;
 	}
 
@@ -687,7 +687,7 @@ void borrar_cliente(int socketCliente) {
 	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
 }
 void cerrar_conexion(int socketCliente, char* motivo) {
-	logearError(motivo, false, socketCliente);
+	logear_error(motivo, false, socketCliente);
 	borrar_cliente(socketCliente);
 	close(socketCliente);
 }
@@ -843,34 +843,34 @@ PCB *deserializar_PCB(void *buffer) {
 //EXTRA//
 void establecer_configuracion() {
 	PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-	logearInfo("Puerto Kernel: %d",PUERTO_KERNEL);
+	logear_info("Puerto Kernel: %d",PUERTO_KERNEL);
 
 	strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-	logearInfo("IP Memoria: %s",IP_MEMORIA);
+	logear_info("IP Memoria: %s",IP_MEMORIA);
 
 	PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-	logearInfo("Puerto Memoria: %d", PUERTO_MEMORIA);
+	logear_info("Puerto Memoria: %d", PUERTO_MEMORIA);
 
 	strcpy(IP_FS,config_get_string_value(config, "IP_FS"));
-	logearInfo("IP File System: %s",IP_FS);
+	logear_info("IP File System: %s",IP_FS);
 
 	PUERTO_FS = config_get_int_value(config, "PUERTO_FS");
-	logearInfo("Puerto File System: %d", PUERTO_FS);
+	logear_info("Puerto File System: %d", PUERTO_FS);
 
 	QUANTUM = config_get_int_value(config, "QUANTUM");
-	logearInfo("QUANTUM: %d", QUANTUM);
+	logear_info("QUANTUM: %d", QUANTUM);
 
 	QUANTUM_SLEEP = config_get_int_value(config, "QUANTUM_SLEEP");
-	logearInfo("QUANTUM_SLEEP: %d", QUANTUM_SLEEP);
+	logear_info("QUANTUM_SLEEP: %d", QUANTUM_SLEEP);
 
 	strcpy(ALGORITMO,config_get_string_value(config, "ALGORITMO"));
-	logearInfo("ALGORITMO: %s",ALGORITMO);
+	logear_info("ALGORITMO: %s",ALGORITMO);
 
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
-	logearInfo("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
+	logear_info("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
 
 	STACK_SIZE = config_get_int_value(config, "STACK_SIZE");
-	logearInfo("STACK_SIZE: %d", STACK_SIZE);
+	logear_info("STACK_SIZE: %d", STACK_SIZE);
 }
 char* remover_salto_linea(char* s) { // By Beej
     int len = strlen(s);

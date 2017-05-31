@@ -176,8 +176,8 @@ int MARCO_SIZE;
 
 void establecer_configuracion();
 void configurar(char*);
-void logearInfo(char *, ...);
-void logearError(char *, int, ...);
+void logear_info(char *, ...);
+void logear_error(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
 int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
 int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
@@ -608,27 +608,27 @@ void obtenerMarcoSize() {
 void establecer_configuracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logearInfo("Puerto Kernel: %i \n",PUERTO_KERNEL);
+		logear_info("Puerto Kernel: %i \n",PUERTO_KERNEL);
 	} else {
-		logearError("Error al leer el puerto del Kernel", true);
+		logear_error("Error al leer el puerto del Kernel", true);
 	}
 	if(config_has_property(config, "IP_KERNEL")) {
 		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		logearInfo("IP Kernel: %s \n", IP_KERNEL);
+		logear_info("IP Kernel: %s \n", IP_KERNEL);
 	} else {
-		logearError("Error al leer la IP del Kernel", true);
+		logear_error("Error al leer la IP del Kernel", true);
 	}
 	if(config_has_property(config, "PUERTO_MEMORIA")) {
 		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logearInfo("Puerto Memoria: %i \n", PUERTO_MEMORIA);
+		logear_info("Puerto Memoria: %i \n", PUERTO_MEMORIA);
 	} else {
-		logearError("Error al leer el puerto de la Memoria", true);
+		logear_error("Error al leer el puerto de la Memoria", true);
 	}
 	if(config_has_property(config, "IP_MEMORIA")){
 		strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-		logearInfo("IP Memoria: %s \n", IP_MEMORIA);
+		logear_info("IP Memoria: %s \n", IP_MEMORIA);
 	} else {
-		logearError("Error al leer la IP de la Memoria", true);
+		logear_error("Error al leer la IP de la Memoria", true);
 	}
 
 }
@@ -656,7 +656,7 @@ void configurar(char* quienSoy) {
 	if(config_keys_amount(config) > 0) {
 		establecer_configuracion();
 	} else {
-		logearError("Error al leer archivo de configuración",true);
+		logear_error("Error al leer archivo de configuración",true);
 	}
 
 	config_destroy(config);
@@ -686,10 +686,10 @@ void conectarA(char* IP, int PUERTO, char identificador) {
 
 	if (connect(servidor, (struct sockaddr *) &direccionServidor, sizeof(direccionServidor)) < 0) {
 		close(servidor);
-		logearError("No se pudo conectar a %s\n", true, quienEs);
+		logear_error("No se pudo conectar a %s\n", true, quienEs);
 	}
 
-	logearInfo("Conectado a %s\n", quienEs);
+	logear_info("Conectado a %s\n", quienEs);
 	free(quienEs);
 }
 
@@ -701,7 +701,7 @@ void conectarA(char* IP, int PUERTO, char identificador) {
  * ↓ Logeos de CPU ↓
  */
 
-void logearInfo(char* formato, ...) {
+void logear_info(char* formato, ...) {
 	char* mensaje;
 	va_list args;
 	va_start(args, formato);
@@ -711,7 +711,7 @@ void logearInfo(char* formato, ...) {
 	va_end(args);
 }
 
-void logearError(char* formato, int terminar , ...) {
+void logear_error(char* formato, int terminar , ...) {
 	char* mensaje;
 	va_list args;
 	va_start(args, terminar);

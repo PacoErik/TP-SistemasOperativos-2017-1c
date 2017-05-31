@@ -134,7 +134,7 @@ void		inicializarTabla					();
 void		inicializarTabla_cache				();
 void*		interaccionMemoria				(void *);
 char*		ir_a_frame							(int);
-void		limpiarPantalla					();
+void		limpiar_pantalla					();
 int			recibir_handshake					(int);
 void		size								();
 int			tipo_cliente						(int);
@@ -158,7 +158,7 @@ int main(void) {
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);	// Socket de escucha
 
 	if (servidor == -1) {
-		logearError("No se pudo crear el socket", true);
+		logear_error("No se pudo crear el socket", true);
 	}
 
 	int activado = 1;
@@ -172,14 +172,14 @@ int main(void) {
 	bzero(&(servidor_info.sin_zero), 8);
 
 	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
-		logearError("Fallo al bindear el puerto", true);
+		logear_error("Fallo al bindear el puerto", true);
 	}
 
     if (listen(servidor, 10) == -1) {
-		logearError("Fallo al escuchar", true);
+		logear_error("Fallo al escuchar", true);
     }
 
-	logearInfo("Estoy escuchando");
+	logear_info("Estoy escuchando");
 
 	for(;;) {
 		int nuevoCliente;					// Socket del nuevo cliente conectado
@@ -190,7 +190,7 @@ int main(void) {
 		nuevoCliente = accept(servidor, (struct sockaddr *) &clienteInfo, &addrlen);
 
 		if (nuevoCliente == -1) {
-			logearError("Fallo en el accept", false);
+			logear_error("Fallo en el accept", false);
 		}
 
 		int *param = malloc(sizeof(int));
@@ -204,7 +204,7 @@ int main(void) {
 
 		pthread_create(&tid, &atributos, &fHilo, param);
 
-		logearInfo("Nueva conexión desde %s en el socket %d",
+		logear_info("Nueva conexión desde %s en el socket %d",
 				inet_ntoa(clienteInfo.sin_addr), nuevoCliente);
 	}
 }
@@ -344,7 +344,7 @@ void atenderCPU(int socketCPU) {
 
 void agregar_cliente(char identificador, int socketCliente) {
 	if (existe_cliente(socketCliente)) {
-		logearError("No se puede agregar 2 veces mismo socket", false);
+		logear_error("No se puede agregar 2 veces mismo socket", false);
 		return;
 	}
 
@@ -361,7 +361,7 @@ void borrar_cliente(int socketCliente) {
 }
 
 void cerrar_conexion(int socketCliente, char* motivo) {
-	logearInfo(motivo, socketCliente);
+	logear_info(motivo, socketCliente);
 	borrar_cliente(socketCliente); // Si el cliente no esta en la lista no hace nada
 	close(socketCliente);
 }
@@ -390,7 +390,7 @@ void configurarRetardo() {
 				short exRETARDO = RETARDO;
 				RETARDO = atoi(input);
 				printf("Retardo cambiado a %i ms\n", RETARDO);
-				logearInfo(
+				logear_info(
 						"Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n",
 						exRETARDO, RETARDO);
 				break;
@@ -461,60 +461,60 @@ void dump() {
 void establecer_configuracion() {
 	if (config_has_property(config, "PUERTO")) {
 		PUERTO = config_get_int_value(config, "PUERTO");
-		logearInfo("PUERTO: %i", PUERTO);
+		logear_info("PUERTO: %i", PUERTO);
 	}
 	else {
-		logearError("Error al leer el puerto de la memoria", true);
+		logear_error("Error al leer el puerto de la memoria", true);
 	}
 
 	if (config_has_property(config, "MARCOS")) {
 		MARCOS = config_get_int_value(config, "MARCOS");
-		logearInfo("MARCOS: %i", MARCOS);
+		logear_info("MARCOS: %i", MARCOS);
 	}
 	else {
-		logearError("Error al leer los marcos de la memoria", true);
+		logear_error("Error al leer los marcos de la memoria", true);
 	}
 
 	if (config_has_property(config, "MARCO_SIZE")) {
 		MARCO_SIZE = config_get_int_value(config, "MARCO_SIZE");
-		logearInfo("MARCO_SIZE: %i", MARCO_SIZE);
+		logear_info("MARCO_SIZE: %i", MARCO_SIZE);
 	}
 	else {
-		logearError("Error al leer los tamaños de los marcos de la memoria",
+		logear_error("Error al leer los tamaños de los marcos de la memoria",
 		true);
 	}
 
 	if (config_has_property(config, "ENTRADAS_CACHE")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "ENTRADAS_CACHE");
-		logearInfo("ENTRADAS_CACHE: %i", ENTRADAS_CACHE);
+		logear_info("ENTRADAS_CACHE: %i", ENTRADAS_CACHE);
 	}
 	else {
-		logearError("Error al leer las entradas cache de la memoria", true);
+		logear_error("Error al leer las entradas cache de la memoria", true);
 	}
 
 	if (config_has_property(config, "CACHE_X_PROC")) {
 		ENTRADAS_CACHE = config_get_int_value(config, "CACHE_X_PROC");
-		logearInfo("CACHE_X_PROC: %i", CACHE_X_PROC);
+		logear_info("CACHE_X_PROC: %i", CACHE_X_PROC);
 	}
 	else {
-		logearError("Error al leer los cache por proceso de la memoria", true);
+		logear_error("Error al leer los cache por proceso de la memoria", true);
 	}
 
 	if (config_has_property(config, "REEMPLAZO_CACHE")) {
 		strcpy(REEMPLAZO_CACHE,
 				config_get_string_value(config, "REEMPLAZO_CACHE"));
-		logearInfo("REEMPLAZO_CACHE: %s", REEMPLAZO_CACHE);
+		logear_info("REEMPLAZO_CACHE: %s", REEMPLAZO_CACHE);
 	}
 	else {
-		logearError("Error al leer los reemplazo cache de la memoria", true);
+		logear_error("Error al leer los reemplazo cache de la memoria", true);
 	}
 
 	if (config_has_property(config, "RETARDO")) {
 		RETARDO = config_get_int_value(config, "RETARDO");
-		logearInfo("RETARDO: %i", RETARDO);
+		logear_info("RETARDO: %i", RETARDO);
 	}
 	else {
-		logearError("Error al leer el retardo de la memoria", true);
+		logear_error("Error al leer el retardo de la memoria", true);
 	}
 }
 
@@ -655,12 +655,12 @@ void *interaccionMemoria(void * _) {
 			break;
 		}
 		case '2': {
-			logearInfo("Comando de dump ejecutado");
+			logear_info("Comando de dump ejecutado");
 			dump();
 			break;
 		}
 		case '3': {
-			logearInfo("Comando de flush ejecutado\n");
+			logear_info("Comando de flush ejecutado\n");
 			flush(); // TODO
 			break;
 		}
@@ -669,7 +669,7 @@ void *interaccionMemoria(void * _) {
 			break;
 		}
 		case '5': {
-			limpiarPantalla();
+			limpiar_pantalla();
 			break;
 		}
 		case '6': {
@@ -682,7 +682,7 @@ void *interaccionMemoria(void * _) {
 
 int recibir_handshake(int socket) {
 	headerDeLosRipeados header;
-	int bytesRecibidos = recibirHeader(socket, &header);
+	int bytesRecibidos = recibir_header(socket, &header);
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == -1) {
 			cerrar_conexion(socket, "El socket %d se desconectó");
@@ -696,7 +696,7 @@ int recibir_handshake(int socket) {
 	return (codOp == KERNEL || codOp == CPU) ? codOp : -1;
 }
 
-void limpiarPantalla() {
+void limpiar_pantalla() {
 	printf("\033[H\033[J");
 }
 

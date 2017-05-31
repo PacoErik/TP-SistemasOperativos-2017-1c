@@ -42,7 +42,7 @@ int kernel_mensaje(int socket) {
 		return -1;
 	}
 
-	logearInfo("Mensaje recibido: %s", mensaje);
+	logear_info("Mensaje recibido: %s", mensaje);
 
 	free(mensaje);
 	return 1;
@@ -76,7 +76,7 @@ int kernel_inicializar_programa(int socket) {
 
 	if (ret == 0) {
 		respuesta = ERROR;
-		logearInfo("[PID %d] Espacio insuficiente.", paquete.PID);
+		logear_info("[PID %d] Espacio insuficiente.", paquete.PID);
 		send(socket, &respuesta, sizeof respuesta, 0);
 		return 0;
 	}
@@ -84,7 +84,7 @@ int kernel_inicializar_programa(int socket) {
 	respuesta = OK;
 	send(socket, &respuesta, sizeof respuesta, 0);
 
-	logearInfo("[PID %d] Listo.", paquete.PID);
+	logear_info("[PID %d] Listo.", paquete.PID);
 
 	return 1;
 }
@@ -116,7 +116,7 @@ int kernel_finalizar_programa(int socket) {
 
 	liberar_frames(paquete.PID);
 
-	logearInfo("[PID %d] Eliminado.", paquete.PID);
+	logear_info("[PID %d] Eliminado.", paquete.PID);
 
 	return 1;
 }

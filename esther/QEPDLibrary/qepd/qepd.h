@@ -51,12 +51,11 @@ extern t_config* config;
 
 void 	conectar(int *,char *,int);
 void 	configurar(char*);
-void 	enviarHeader(int, char, int);
+void 	enviar_header(int, char, int);
 int 	existeArchivo(const char *);
 void 	handshake(int,char);
-void 	logearError(char*, int,...);
-void 	logearInfo(char*,...);
-int 	recibirHeader(int, headerDeLosRipeados *);
-void 	serializarHeader(headerDeLosRipeados *, void *);
+void 	logear_error(char*, int,...);
+void 	logear_info(char*,...);
+int 	recibir_header(int, headerDeLosRipeados *);
 
 #endif /* QEPD_H_ */

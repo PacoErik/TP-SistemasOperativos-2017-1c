@@ -10,9 +10,9 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 	*servidor = socket(AF_INET, SOCK_STREAM, 0);
 	if (connect(*servidor, (struct sockaddr *) &direccionServidor,sizeof(direccionServidor)) < 0) {
 		close(*servidor);
-		logearError("No se pudo conectar al servidor",true);
+		logear_error("No se pudo conectar al servidor",true);
 	}
-	logearInfo("Conectado al servidor");
+	logear_info("Conectado al servidor");
 }
 void configurar(char* quienSoy) {
 
@@ -25,17 +25,17 @@ void configurar(char* quienSoy) {
 		free(ruta);
 
 	}else{
-		logearError("No existe el archivo de configuración",true);
+		logear_error("No existe el archivo de configuración",true);
 	}
 
 	if(config_keys_amount(config) > 0) {
 		establecer_configuracion();
 	} else {
-		logearError("Error al leer archivo de configuración",true);
+		logear_error("Error al leer archivo de configuración",true);
 	}
 	config_destroy(config);
 }
-void enviarHeader(int socket, char operacion, int bytes) {
+void enviar_header(int socket, char operacion, int bytes) {
 	headerDeLosRipeados headerDeMiMensaje;
 	headerDeMiMensaje.bytesDePayload = bytes;
 	headerDeMiMensaje.codigoDeOperacion = operacion;
@@ -48,7 +48,7 @@ int existeArchivo(const char *ruta) {
 
     if (archivo == NULL) {
     	if (errno == EISDIR) {
-    		logearError("Error: \"%s\" es un directorio", false, ruta);
+    		logear_error("Error: \"%s\" es un directorio", false, ruta);
     	}
 		return false;
     }
@@ -57,23 +57,23 @@ int existeArchivo(const char *ruta) {
     return true;
 }
 void handshake(int socket, char operacion) {
-	logearInfo("Enviando saludo al servidor");
+	logear_info("Enviando saludo al servidor");
 
-	enviarHeader(socket,operacion,0);
+	enviar_header(socket,operacion,0);
 
 	char* respuesta = malloc(32);
 	int bytesRecibidos = recv(socket, respuesta, 32, 0);
 
 	if (bytesRecibidos > 0) {
-		logearInfo("Saludo recibido: \"%s\"", respuesta);
+		logear_info("Saludo recibido: \"%s\"", respuesta);
 	}
 	else {
-		logearError("Ripeaste papu",true);
+		logear_error("Ripeaste papu",true);
 	}
 
 	free(respuesta);
 }
-void logearError(char* formato, int terminar , ...) {
+void logear_error(char* formato, int terminar , ...) {
 	va_list args;
 	va_start(args, terminar);
 	char* mensaje = malloc(512);
@@ -84,7 +84,7 @@ void logearError(char* formato, int terminar , ...) {
 	free(mensaje);
 	if (terminar) exit(0);
 }
-void logearInfo(char* formato, ...) {
+void logear_info(char* formato, ...) {
 	va_list args;
 	va_start(args, formato);
 	char* mensaje = malloc(512);
@@ -94,7 +94,7 @@ void logearInfo(char* formato, ...) {
 	va_end(args);
 	free(mensaje);
 }
-int recibirHeader(int socket, headerDeLosRipeados *header) {
+int recibir_header(int socket, headerDeLosRipeados *header) {
 	int bytesARecibir = sizeof(headerDeLosRipeados);
 	int bytesRecibidos = recv(socket, header, bytesARecibir, 0);
 
