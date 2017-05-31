@@ -9,7 +9,6 @@
 #include <string.h>
 #include "parser/metadata_program.h"
 #include "commons/collections/list.h"
-
 #include "op_memoria.h"
 
 //-----DEFINES-----//
@@ -18,6 +17,7 @@
 		_Bool mismoSocket(void* elemento) {							\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
 		}
+#define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 
 //-----ESTRUCTURAS-----//
 typedef struct datosMemoria {
@@ -34,16 +34,39 @@ typedef struct miCliente {
 typedef t_list listaCliente;
 typedef t_list listaProcesos;
 
+typedef struct Posicion_memoria {
+	int numero_pagina;
+	int offset;
+	int size;
+} Posicion_memoria;
+
+typedef struct Variable {
+	char identificador;
+	Posicion_memoria posicion;
+} Variable;
+
+typedef struct Entrada_stack {
+	t_list *args;
+	t_list *vars;
+	int retPos;
+	Posicion_memoria retVar;
+} Entrada_stack;
+
 typedef struct PCB {
-	int PID;
-	int PC;
-	int ERROR_NUM;
-	t_size			instrucciones_size;				// Cantidad de instrucciones
-	t_intructions*	instrucciones_serializado;
-	t_size			etiquetas_size;					// Tamaño del mapa serializado de etiquetas
-	char*			etiquetas;
-	int				cantidad_de_funciones;
-	int				cantidad_de_etiquetas;
+	int pid;
+	int program_counter;
+	int cantidad_paginas_codigo;
+
+	t_size cantidad_instrucciones;
+	t_intructions *instrucciones_serializado;
+
+	t_size etiquetas_size;
+	char *etiquetas;
+
+	int	puntero_stack;
+	t_list *indice_stack;
+
+	int exit_code;
 } PCB;
 
 //Un choclazo de struct para llevar la estadística de los procesos y tener
@@ -270,7 +293,7 @@ void agregarCliente(char identificador, int socketCliente) {
 	list_add(clientes, cliente);
 }
 void agregarProceso(Proceso *nuevo_proceso) {
-	int pid = nuevo_proceso->pcb.PID;
+	int pid = nuevo_proceso->pcb.pid;
 	if (existeProceso(pid)) {
 		printf("Warning: Ya existe proceso con mismo PID\n");
 	}
@@ -290,7 +313,7 @@ void cerrarConexion(int socketCliente, char* motivo) {
 }
 void eliminarProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
-		return PID == ((Proceso*) elemento)->pcb.PID;
+		return PID == ((Proceso*) elemento)->pcb.pid;
 	}
 
 	Proceso* proceso = list_remove_by_condition(procesos,mismoPID);
@@ -367,7 +390,7 @@ int existeCliente(int socketCliente) {
 }
 int existeProceso(int PID) {
 	_Bool mismoPID(void* elemento) {
-		return PID == ((Proceso*) elemento)->pcb.PID;
+		return PID == ((Proceso*) elemento)->pcb.pid;
 	}
 	return list_any_satisfy(procesos, mismoPID);
 }
@@ -428,7 +451,7 @@ void intentar_iniciar_proceso() {
 		}
 		else {
 			char *codigo = strdup(nuevo_proceso->codigo);
-			int PID = nuevo_proceso->pcb.PID;
+			int PID = nuevo_proceso->pcb.pid;
 
 			int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
 			if (ret == -1) {
@@ -604,7 +627,6 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				recibirMensaje(socketCliente,bytes);
 			}
 			else if (operacion == INICIAR_PROGRAMA) {
-				PID_GLOBAL++;
 				char* codigo = malloc(bytes+1);
 				recv(socketCliente, codigo, bytes, 0);
 				codigo[bytes]='\0';
@@ -620,19 +642,31 @@ void procesarMensaje(int socketCliente, char operacion, int bytes) {
 				nuevo_proceso->cantSyscalls = 0;
 				nuevo_proceso->codigo = codigo;
 
-				nuevo_proceso->pcb.ERROR_NUM = 1;
-				nuevo_proceso->pcb.PC = 0;
-				nuevo_proceso->pcb.PID = PID_GLOBAL;
 				t_metadata_program *info = metadata_desde_literal(codigo);
-				nuevo_proceso->pcb.PC = info->instruccion_inicio;
-				nuevo_proceso->pcb.cantidad_de_etiquetas = info->cantidad_de_etiquetas;
-				nuevo_proceso->pcb.cantidad_de_funciones = info->cantidad_de_funciones;
+				nuevo_proceso->pcb.exit_code = 1;
+				nuevo_proceso->pcb.program_counter = info->instruccion_inicio;
+				nuevo_proceso->pcb.pid = PID_GLOBAL;
 				nuevo_proceso->pcb.etiquetas = info->etiquetas;
 				nuevo_proceso->pcb.instrucciones_serializado = info->instrucciones_serializado;
-				nuevo_proceso->pcb.instrucciones_size = info->instrucciones_size;
+				nuevo_proceso->pcb.cantidad_instrucciones = info->instrucciones_size;
+				nuevo_proceso->pcb.etiquetas_size = info->etiquetas_size;
+				nuevo_proceso->pcb.puntero_stack = 0;
+				nuevo_proceso->pcb.cantidad_paginas_codigo = DIVIDE_ROUNDUP(strlen(codigo),tamanio_pagina);
+				nuevo_proceso->pcb.indice_stack = list_create();
+
+				//Entrada inicial del stack, no importa inicializar retPos y retVar
+				//ya que es el contexto principal y no retorna nada
+				Entrada_stack *entrada = malloc(sizeof(Entrada_stack));
+				entrada->args = list_create();
+				entrada->vars = list_create();
+				list_add(nuevo_proceso->pcb.indice_stack,entrada);
+
+				free(info);
 
 				queue_push(cola_NEW,nuevo_proceso);
 				logearInfo("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
+				PID_GLOBAL++;
+
 				intentar_iniciar_proceso();
 			}
 			else if (operacion == FINALIZAR_PROGRAMA) {
@@ -713,4 +747,90 @@ int tipoCliente(int socketCliente) {
 		return -1;
 	}
 	return found->identificador;
+}
+
+//Serializadores/deserializadores
+void *list_serialize(t_list* list, int element_size, int *buffersize) {
+	int element_count = list_size(list),offset = 8;
+	*buffersize = offset + element_count*element_size;
+	void *buffer = malloc(*buffersize);
+	memcpy(buffer,&element_count,4);
+	memcpy(buffer+4,&element_size,4);
+	void copy(void *param) {
+		memcpy(buffer+offset,param,element_size);
+		offset += element_size;
+	}
+	list_iterate(list,&copy);
+	return buffer;
+}
+t_list *list_deserialize(void *buffer) {
+	t_list *new_list = list_create();
+	int offset = 8,i,element_count,element_size;
+	memcpy(&element_count,buffer,4);
+	memcpy(&element_size,buffer+4,4);
+	for (i=0;i<element_count;i++) {
+		void *element = malloc(element_size);
+		memcpy(element,buffer+offset,element_size);
+		list_add(new_list,element);
+		offset += element_size;
+	}
+	return new_list;
+}
+void *serializar_PCB(PCB *pcb, int* buffersize) {
+	int instrucciones_size = pcb->cantidad_instrucciones * sizeof(t_intructions);
+	int stack_size;
+	void *stack_buffer = list_serialize(pcb->indice_stack,sizeof(Entrada_stack), &stack_size);
+	void copy(void *param) {
+		Entrada_stack *entrada = (Entrada_stack*) param;
+		int args_size;
+		int vars_size;
+		void *args_buffer = list_serialize(entrada->args,sizeof(Posicion_memoria), &args_size);
+		void *vars_buffer = list_serialize(entrada->vars,sizeof(Variable), &vars_size);
+		stack_buffer = realloc(stack_buffer, stack_size + args_size + vars_size);
+		memcpy(stack_buffer + stack_size, args_buffer, args_size);
+		memcpy(stack_buffer + stack_size + args_size, vars_buffer, vars_size);
+		stack_size += args_size + vars_size;
+		free(args_buffer);
+		free(vars_buffer);
+	}
+	list_iterate(pcb->indice_stack,&copy);
+	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size;
+	void *buffer = malloc(*buffersize);
+	int offset = 0;
+	memcpy(buffer+offset, pcb, sizeof(PCB));
+	offset += sizeof(PCB);
+	memcpy(buffer + offset, pcb->instrucciones_serializado, instrucciones_size);
+	offset += instrucciones_size;
+	memcpy(buffer + offset, pcb->etiquetas, pcb->etiquetas_size);
+	offset += pcb->etiquetas_size;
+	memcpy(buffer + offset, stack_buffer, stack_size);
+	free(stack_buffer);
+
+	return buffer;
+}
+PCB *deserializar_PCB(void *buffer) {
+	PCB *pcb = malloc(sizeof(PCB));
+	int offset = 0;
+	memcpy(pcb, buffer, sizeof(PCB));
+	offset += sizeof(PCB);
+	int instrucciones_size = pcb->cantidad_instrucciones * sizeof(t_intructions);
+	pcb->instrucciones_serializado = malloc(instrucciones_size);
+	memcpy(pcb->instrucciones_serializado, buffer + offset, instrucciones_size);
+	offset += instrucciones_size;
+	pcb->etiquetas = malloc(pcb->etiquetas_size);
+	memcpy(pcb->etiquetas, buffer + offset, pcb->etiquetas_size);
+	offset += pcb->etiquetas_size;
+	pcb->indice_stack = list_deserialize(buffer + offset);
+	offset += list_size(pcb->indice_stack) * sizeof(Entrada_stack) + 8;
+	void copy(void *param) {
+		Entrada_stack *entrada = (Entrada_stack*) param;
+		entrada->args = list_deserialize(buffer + offset);
+		int args_size = list_size(entrada->args) * sizeof(Posicion_memoria) + 8;
+		offset += args_size;
+		entrada->vars = list_deserialize(buffer + offset);
+		int vars_size = list_size(entrada->vars) * sizeof(Variable) + 8;
+		offset += vars_size;
+	}
+	list_iterate(pcb->indice_stack,&copy);
+	return pcb;
 }
