@@ -77,7 +77,7 @@ void			destruir_bitmap				(void);
 
 void		leer_mensaje					(void);
 void		leer_metadata					(void);
-void		establecerConfiguracion		(void);
+void		establecer_configuracion		(void);
 void		interaccion_FS					(void);
 
 
@@ -755,7 +755,7 @@ int *_asignar_bloques(int n, int **bloques) {
 	return *bloques;
 }
 
-void establecerConfiguracion(void) {
+void establecer_configuracion(void) {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
 		FSConfig.PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
 		logearInfo("Puerto Kernel: %d", FSConfig.PUERTO_KERNEL);
