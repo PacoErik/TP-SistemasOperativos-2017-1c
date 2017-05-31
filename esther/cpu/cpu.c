@@ -87,18 +87,6 @@ AnSISOP_kernel funcionesnucleo = {
  */
 
 #define VIVITO_Y_COLEANDO 1; // No se pueden revisar los exit code previo a que ripee
-#define FINALIZO_CORRECTAMENTE 0;
-#define NO_SE_PUDIERON_RESERVAR_RECURSOS -1;
-#define ARCHIVO_NO_EXISTE -2;
-#define INTENTO_LEER_SIN_PERMISOS -3;
-#define INTENTO_ESCRIBIR_SIN_PERMISOS -4;
-#define EXCEPCION_MEMORIA -5;
-#define DESCONEXION_CONSOLA -6;
-#define COMANDO_FINALIZAR_PROGRAMA -7;
-#define INTENTO_RESERVAR_MAS_MEMORIA_QUE_PAGINA -8;
-#define NO_SE_PUEDEN_ASIGNAR_MAS_PAGINAS -9;
-#define EXCEPCION_KERNEL -10;
-#define SIN_DEFINICION -20;
 
 /*
  * Colores:
@@ -131,7 +119,7 @@ typedef struct Posicion_memoria {
 typedef struct Variable {
 	char identificador;
 	Posicion_memoria posicion;
-} Variable;
+} PACKED Variable;
 
 typedef struct Entrada_stack {
 	t_list *args;	// Con elementos de tipo Posicion_memoria
@@ -186,7 +174,7 @@ int actualValorVariable;
 
 int MARCO_SIZE;
 
-void establecerConfiguracion();
+void establecer_configuracion();
 void configurar(char*);
 void logearInfo(char *, ...);
 void logearError(char *, int, ...);
@@ -617,7 +605,7 @@ void obtenerMarcoSize() {
  * ↓ Configuración del CPU y conexión a los servidores ↓
  */
 
-void establecerConfiguracion() {
+void establecer_configuracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
 		logearInfo("Puerto Kernel: %i \n",PUERTO_KERNEL);
@@ -666,7 +654,7 @@ void configurar(char* quienSoy) {
 	//sino, estaría mal hecho el config.cfg
 
 	if(config_keys_amount(config) > 0) {
-		establecerConfiguracion();
+		establecer_configuracion();
 	} else {
 		logearError("Error al leer archivo de configuración",true);
 	}
