@@ -29,7 +29,7 @@ void configurar(char* quienSoy) {
 	}
 
 	if(config_keys_amount(config) > 0) {
-		establecerConfiguracion();
+		establecer_configuracion();
 	} else {
 		logearError("Error al leer archivo de configuración",true);
 	}
