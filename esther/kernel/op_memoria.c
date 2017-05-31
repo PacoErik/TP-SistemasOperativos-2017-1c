@@ -47,8 +47,6 @@ void mem_mensaje(char *mensaje) {
 	send(socket_memoria, mensaje, tamanio, 0);
 }
 
-#define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
-
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
 
 
@@ -86,8 +84,6 @@ int mem_inicializar_programa(int PID, size_t size, void *datos) {
 		return -1;
 	}
 }
-
-#undef DIVIDE_ROUNDUP
 
 int mem_asignar_paginas(int PID, int paginas) {
 	PedidoAsignacion paquete;

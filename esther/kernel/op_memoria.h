@@ -21,9 +21,6 @@
 	/* Cantidad de pags de Stack */
 	extern int STACK_SIZE;
 
-
-#define PACKED __attribute__((packed, aligned(1)))
-
 	/* Operaciones de la memoria */
 	typedef enum PACKED {
 		MEM_MENSAJE,
@@ -60,8 +57,6 @@
 		op_mem operacion;
 		int PID;
 	} PACKED PedidoFinalizacion;
-
-#undef PACKED
 
 	/**
 	 * Establecer conexion con la memoria.
