@@ -4,8 +4,7 @@
 	#include <stdio.h>
 	#include <stddef.h>
 	#include <stdlib.h>
-
-#define PACKED __attribute__((packed, aligned(1)))
+	#include <qepd/qepd.h>
 
 	/* Codigos de Operacion de Kernel */
 	typedef enum PACKED {
@@ -40,8 +39,6 @@
 	typedef struct {
 		int PID;
 	} PACKED PedidoFinalizacion;
-
-#undef PACKED
 
 	/**
 	 * Recibe un codigo de operacion enviado por kernel

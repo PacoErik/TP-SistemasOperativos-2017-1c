@@ -54,7 +54,7 @@ void enviarDesdeCache(int indice, int socket, posicionDeMemoriaVariable posicion
 
 	memcpy(buffer, memoria_cache + posicionInicioACopiar ,(posicion.offset + 1) - posicion.start); // En este memcpy uso el contenidoDePag, no le veo la necesidad
 
-	send(socket, buffer,, 0);
+	send(socket, buffer, 4, 0);
 
 
 

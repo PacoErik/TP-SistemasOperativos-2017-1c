@@ -42,7 +42,7 @@ typedef struct datosMemoria {
 	int pid;
 	short int codeSize;
 	char *code;
-}__attribute__((packed, aligned(1))) datosMemoria;
+} PACKED datosMemoria;
 
 typedef struct miCliente {
 	short socketCliente;
@@ -86,13 +86,7 @@ typedef struct estructuraAdministrativa {
 	int frame;
 	int pid;
 	int pag;
-}__attribute__((packed, aligned(1))) estructuraAdministrativa;
-
-typedef struct estructuraAdministrativa_cache {
-	int pid;
-	int pag;
-	int contenidoDeLaPag; //Numero de byte a partir del cual empieza la pag en cuestion. Se llamo asi para respetar el enunciado
-}__attribute__((packed, aligned(1))) estructuraAdministrativa_cache;
+} PACKED estructuraAdministrativa;
 
 typedef t_list listaCliente;
 
@@ -123,14 +117,14 @@ estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de f
 int			asignar_frames_contiguos			(int, int, int, size_t, void*);
 void		atenderKernel						(int);
 void 		atenderCPU							(int);
-void		agregarCliente						(char, int);
-void		borrarCliente						(int);
-void		cerrarConexion						(int, char*);
+void		agregar_cliente						(char, int);
+void		borrar_cliente						(int);
+void		cerrar_conexion						(int, char*);
 void		configurarRetardo					();
 void		crearMemoria						(void);
 void		dump								();
-void		establecerConfiguracion			();
-int			existeCliente						(int);
+void		establecer_configuracion			();
+int			existe_cliente						(int);
 void*		fHilo								(void *);
 void		finalizarPrograma					(int, unsigned short);
 void		flush								();
@@ -141,10 +135,9 @@ void		inicializarTabla_cache				();
 void*		interaccionMemoria				(void *);
 char*		ir_a_frame							(int);
 void		limpiarPantalla					();
-int			recibirHandshake					(int);
+int			recibir_handshake					(int);
 void		size								();
-int			tipoCliente						(int);
-int 		buscarEnMemoriaYDevolver					(posicionDeMemoriaVariable, int);
+int			tipo_cliente						(int);
 
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
@@ -321,12 +314,12 @@ void atenderKernel(int socketKernel) {
 		ret = kernel_processar_operacion(socketKernel);
 
 		if (ret == -1) {
-			cerrarConexion(socketKernel, "Error de conexion con el Kernel (socket %d)");
+			cerrar_conexion(socketKernel, "Error de conexion con el Kernel (socket %d)");
 			break;
 		}
 
 		if (ret == -2) {
-			cerrarConexion(socketKernel, "El Kernel hizo una operacion invalida (socket %d)");
+			cerrar_conexion(socketKernel, "El Kernel hizo una operacion invalida (socket %d)");
 			break;
 		}
 	}
@@ -338,19 +331,19 @@ void atenderCPU(int socketCPU) {
 		ret = cpu_processar_operacion(socketCPU);
 
 		if (ret == -1) {
-			cerrarConexion(socketCPU, "Error de conexion con el CPU (socket %d)");
+			cerrar_conexion(socketCPU, "Error de conexion con el CPU (socket %d)");
 			break;
 		}
 
 		if (ret == -2) {
-			cerrarConexion(socketCPU, "El CPU hizo una operacion invalida (socket %d)");
+			cerrar_conexion(socketCPU, "El CPU hizo una operacion invalida (socket %d)");
 			break;
 		}
 	}
 }
 
-void agregarCliente(char identificador, int socketCliente) {
-	if (existeCliente(socketCliente)) {
+void agregar_cliente(char identificador, int socketCliente) {
+	if (existe_cliente(socketCliente)) {
 		logearError("No se puede agregar 2 veces mismo socket", false);
 		return;
 	}
@@ -362,14 +355,14 @@ void agregarCliente(char identificador, int socketCliente) {
 	list_add(clientes, cliente);
 }
 
-void borrarCliente(int socketCliente) {
+void borrar_cliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	list_remove_and_destroy_by_condition(clientes, mismoSocket, free);
 }
 
-void cerrarConexion(int socketCliente, char* motivo) {
+void cerrar_conexion(int socketCliente, char* motivo) {
 	logearInfo(motivo, socketCliente);
-	borrarCliente(socketCliente); // Si el cliente no esta en la lista no hace nada
+	borrar_cliente(socketCliente); // Si el cliente no esta en la lista no hace nada
 	close(socketCliente);
 }
 
@@ -465,7 +458,7 @@ void dump() {
 	}
 }
 
-void establecerConfiguracion() {
+void establecer_configuracion() {
 	if (config_has_property(config, "PUERTO")) {
 		PUERTO = config_get_int_value(config, "PUERTO");
 		logearInfo("PUERTO: %i", PUERTO);
@@ -525,22 +518,22 @@ void establecerConfiguracion() {
 	}
 }
 
-int existeCliente(int socketCliente) {
+int existe_cliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	return list_any_satisfy(clientes, mismoSocket);
 }
 
 void *fHilo(void* param) {
 	int socketCliente = (int)*((int*)param);
-	int tipoCliente = recibirHandshake(socketCliente);
+	int tipoCliente = recibir_handshake(socketCliente);
 	if (tipoCliente == -1) {
 		// La memoria no conoce otro tipo de clientes ni permite hacer operaciones sin haber hecho handshake
-		cerrarConexion(socketCliente, "Socket %d: Operacion Invalida");
+		cerrar_conexion(socketCliente, "Socket %d: Operacion Invalida");
 		return NULL;
 	}
 	if (tipoCliente == KERNEL) {
 		if (hayAlguienQueSea(KERNEL)) {
-			cerrarConexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
+			cerrar_conexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
 			return NULL;
 		}
 
@@ -551,11 +544,11 @@ void *fHilo(void* param) {
 		/* Enviar tamanio de pagina (marco) al kernel */
 		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
 
-		agregarCliente(KERNEL, socketCliente);
+		agregar_cliente(KERNEL, socketCliente);
 		atenderKernel(socketCliente);
 	}
 	else {
-		agregarCliente(CPU, socketCliente);
+		agregar_cliente(CPU, socketCliente);
 
 		printf("Nuevo CPU conectado\n");
 
@@ -687,15 +680,15 @@ void *interaccionMemoria(void * _) {
 	}
 }
 
-int recibirHandshake(int socket) {
+int recibir_handshake(int socket) {
 	headerDeLosRipeados header;
 	int bytesRecibidos = recibirHeader(socket, &header);
 	if (bytesRecibidos <= 0) {
 		if (bytesRecibidos == -1) {
-			cerrarConexion(socket, "El socket %d se desconectó");
+			cerrar_conexion(socket, "El socket %d se desconectó");
 		}
 		else {
-			cerrarConexion(socket, "Socket %d: Error en el recv");
+			cerrar_conexion(socket, "Socket %d: Error en el recv");
 		}
 		return -1;
 	}
@@ -711,7 +704,7 @@ void size() {
 	// TODO
 }
 
-int tipoCliente(int socketCliente) {
+int tipo_cliente(int socketCliente) {
 	DEF_MISMO_SOCKET(socketCliente);
 	miCliente *found = (miCliente*)(list_find(clientes, mismoSocket));
 	if (found == NULL) {
