@@ -59,7 +59,7 @@ extern t_config* config;
 void 	conectar(int *,char *,int);
 void 	configurar(char*);
 void 	enviar_header(int, char, int);
-int 	existeArchivo(const char *);
+int 	existe_archivo(const char *);
 void 	handshake(int,char);
 void 	logear_error(char*, int,...);
 void 	logear_info(char*,...);

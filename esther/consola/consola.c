@@ -215,7 +215,7 @@ void* iniciar_programa(void* arg) {
 	//Chequeo de que el archivo del programa ingresado exista
 	char* ruta = arg;
 	logear_info("Ruta ingresada: %s",ruta);
-	if (!existeArchivo(ruta)) {
+	if (!existe_archivo(ruta)) {
 		logear_error("No se encontró el archivo %s",false,ruta);
 		return NULL;
 	} else if (!string_ends_with(ruta,".ansisop")) {
