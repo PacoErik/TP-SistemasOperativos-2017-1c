@@ -2,10 +2,8 @@
 #include "qepd/qepd.h"
 
 int cpu_processar_operacion(int socket) {
-
-	headerDeLosRipeados header; //Me manda un header, entonces recv header
-
-	int ret = recv(socket, &header, sizeof (headerDeLosRipeados), 0);
+	headerDeLosRipeados header;
+	int ret = recibir_header(socket ,&header);
 
 	if (ret <= 0) {
 		return -1;

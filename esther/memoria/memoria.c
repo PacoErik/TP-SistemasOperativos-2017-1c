@@ -551,13 +551,9 @@ void *fHilo(void* param) {
 		agregar_cliente(CPU, socketCliente);
 
 		printf("Nuevo CPU conectado\n");
-
 		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
-
+		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
 		atenderCPU(socketCliente);
-
-
-		//atenderCPU(socketCliente);
 	}
 	return NULL;
 }

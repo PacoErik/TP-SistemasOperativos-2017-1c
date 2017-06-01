@@ -131,7 +131,7 @@ void		eliminar_proceso(int);
 int 		enviar_mensaje_todos(int, char*);
 void 		establecer_configuracion();
 int 		existe_cliente(int);
-int			existeProceso(int);
+int			existe_proceso(int);
 void 		finalizar_programa(int);
 void 		hacer_pedido_memoria(datosMemoria);
 inline void imprimir_opciones_kernel();
@@ -354,7 +354,9 @@ void procesar_mensaje(int socketCliente, char operacion, int bytes) {
 			break;
 
 		case CPU:
-			printf("CPU\n");
+			if (operacion == DEVOLUCION_PCB) {
+
+			}
 			break;
 
 		default:
@@ -557,7 +559,7 @@ inline void limpiar_buffer_entrada() {
 //MANEJO DE PROCESOS//
 void agregar_proceso(Proceso *nuevo_proceso) {
 	int pid = nuevo_proceso->pcb.pid;
-	if (existeProceso(pid)) {
+	if (existe_proceso(pid)) {
 		printf("Warning: Ya existe proceso con mismo PID\n");
 	}
 	list_add(procesos, nuevo_proceso);
@@ -599,14 +601,14 @@ void eliminar_proceso(int PID) {
 
 	list_add(lista_EXIT,proceso);
 }
-int existeProceso(int PID) {
+int existe_proceso(int PID) {
 	_Bool mismoPID(void* elemento) {
 		return PID == ((Proceso*) elemento)->pcb.pid;
 	}
 	return list_any_satisfy(procesos, mismoPID);
 }
 void finalizar_programa(int PID) {
-	if (existeProceso(PID)) {
+	if (existe_proceso(PID)) {
 		eliminar_proceso(PID);
 		logear_info("[PID:%d] Eliminado", PID);
 	}

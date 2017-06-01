@@ -165,6 +165,7 @@ bool elProgramaNoFinalizo; 		// Si el programa finalizo correctamente o sigue en
 bool signalRecibida = false; 	// Si se recibe o no una señal SIGUSR1
 
 char* actualInstruccion; // Lo modelo como variable global porque se me hace menos codigo analizar los header y demas.
+void *buffer_solicitado;
 
 PCB *actualPCB; // Programa corriendo
 Posicion_memoria actualPosicion; // Actual posicion de memoria a utilizar
@@ -181,7 +182,6 @@ void logear_error(char *, int, ...);
 void conectarA(char* IP, int PUERTO, char identificador);
 int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
 int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
-void solicitarPCB();
 void devolverPCB();
 void finalizarPrograma();
 void obtenerPCB(unsigned short bytesDePayload);
@@ -230,13 +230,12 @@ int main(void) {
 
 	configurar("cpu");
 
-	conectarA(IP_KERNEL, PUERTO_KERNEL, KERNEL);
 	conectarA(IP_MEMORIA, PUERTO_MEMORIA, MEMORIA);
-
-	handshake(kernel.socket, CPU);
 	handshake(memoria.socket, CPU);
+	recv(memoria.socket, &MARCO_SIZE, 4, 0);
 
-	recibirAlgoDe(memoria); // Recibir el MARCO_SIZE
+	conectarA(IP_KERNEL, PUERTO_KERNEL, KERNEL);
+	handshake(kernel.socket, CPU);
 
 	printf(MAG "[CPU] " RESET "Comenzando el trabajo.\n");
 
@@ -253,90 +252,50 @@ void comenzarTrabajo() {
 	for(;;) {
 		programaVivitoYColeando = true;
 		elProgramaNoFinalizo = true;
-		solicitarPCB();
+		recibirAlgoDe(kernel);
 		solicitarInstruccion();
 		ejecutarInstruccion();
 		devolverPCB();
 	}
 }
 
-void solicitarPCB() {
-	recibirAlgoDe(kernel);
-}
+
 
 void solicitarInstruccion() {
-	if(!elProgramaEstaASalvo()) {
-		return;
-	}
-
-	posicionDeMemoriaAPedir instruccion;
+	posicionDeMemoriaAPedir posicion;
 	t_intructions instruction = actualPCB->instrucciones_serializado[actualPCB->program_counter];
 
-	instruccion.processID = actualPCB->pid;
-	//instruccion.numeroDePagina = actualPCB.
-	instruccion.size = instruction.offset;
-	instruccion.offset = instruction.start;
+	posicion.processID = actualPCB->pid;
+	posicion.numero_pagina = 0;
+	posicion.size = instruction.offset;
+	posicion.offset = instruction.start;
 
-	headerDeLosRipeados header;
-	header.codigoDeOperacion = INSTRUCCION;
-	header.bytesDePayload = sizeof(instruccion);
-
-	send(memoria.socket, &header, sizeof(header), 0); // Le mando el header
-
-	send(memoria.socket, &instruccion, sizeof(instruccion), 0); // Le mando la geolocalizacion de la instrucción
+	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
+	send(memoria.socket, &posicion, sizeof(posicion), 0);
 
 	// Ahora esperamos la instruccion
 
 	recibirAlgoDe(memoria);
 
+	//La ejecutamos
+
+	actualInstruccion = buffer_solicitado;
 }
 
 void ejecutarInstruccion() {
-	if(!elProgramaEstaASalvo()) {
-		return;
-	}
-
 	analizadorLinea(strdup(actualInstruccion), &funciones, &funcionesnucleo);
 	free(actualInstruccion);
-
-	// ¿? Acá pasa algo ¿?
-
-	actualPCB->program_counter++;
-
-	// TODO
 }
 
 void devolverPCB() {
-	char codigo;
+	int buffersize;
+	void *buffer = serializar_PCB(actualPCB, &buffersize);
 
-	if(elProgramaEstaASalvo()) {
-		if(elProgramaNoFinalizo) {
-			printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
-			codigo = PCB_INCOMPLETO;
-		} else {
-			printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
-			codigo = PCB_COMPLETO;
-		}
-	} else {
-		printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
-		codigo = PCB_EXCEPCION;
-	}
-
-	int PCBSize = sizeof(actualPCB);
-	void *PCBComprimido = malloc(PCBSize);
-	void serializarPCB(PCB *miPCB, void *PCBComprimido);
-
-	headerDeLosRipeados header;
-	header.bytesDePayload = PCBSize;
-	header.codigoDeOperacion = codigo;
-
-	send(kernel.socket, &header, sizeof(header), 0);
-
-	send(kernel.socket, PCBComprimido, PCBSize, 0);
-	free(PCBComprimido);
+	enviar_header(kernel.socket, DEVOLUCION_PCB, buffersize);
+	send(kernel.socket, buffer, buffersize, 0);
 
 	if(signalRecibida) {
-		printf(MAG "[CPU] " RESET "Finalización del proceso.\n");
+		printf(MAG "[CPU] " RESET "io me tomo el palo.\n");
 		exit(EXIT_SUCCESS);
 	}
 }
@@ -355,18 +314,15 @@ void devolverPCB() {
  */
 
 int recibirAlgoDe(servidor servidor) {
-	int bytesRecibidos;
 	headerDeLosRipeados header;
-	int respuesta;
+	int bytesRecibidos = recibir_header(servidor.socket, &header);
+	if (bytesRecibidos > 0) {
+		return analizarHeader(servidor, header);
+	} else {
+		logear_error("El servidor se desconectó. Finalizando...", false);
+		exit(0); //En realidad se puede poner true en el logear_error y sacar esto pero me tira alto warning v:
+	}
 
-	do {
-		bytesRecibidos = recv(servidor.socket, &header, sizeof(header), 0);
-
-		respuesta = analizarHeader(servidor, header);
-
-	} while(respuesta == 2); // Quiere decir que es un mensaje, hay que volver a iterar
-
-	return respuesta;
 }
 
 int analizarHeader(servidor servidor, headerDeLosRipeados header) {
@@ -380,8 +336,7 @@ int analizarHeader(servidor servidor, headerDeLosRipeados header) {
 			break;
 
 		default:
-			// TODO
-			exit(EXIT_FAILURE);
+			logear_error("Servidor desconocido, finalizando CPU...", true);
 	}
 
 	return 0; // Hubo un problema
@@ -433,26 +388,30 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
 
 	switch(codigoDeOperacion) {
-		case EXCEPCION_DE_SOLICITUD:
-			finalizarPrograma(memoria);
-			return 0;
-			break;
+	case SOLICITAR_BYTES:
+		recv(memoria.socket, buffer_solicitado, bytesDePayload, 0);
+		printf("buffer_solicitado: %s", buffer_solicitado);
+		break;
+	case EXCEPCION_DE_SOLICITUD:
+		finalizarPrograma(memoria);
+		return 0;
+		break;
 
-		case FRAME_SIZE:
-			obtenerMarcoSize();
-			break;
+	case FRAME_SIZE:
+		obtenerMarcoSize();
+		break;
 
-		case INSTRUCCION_OK:
-			obtenerInstruccionDeMemoria();
-			break;
+	case INSTRUCCION_OK:
+		obtenerInstruccionDeMemoria();
+		break;
 
-		case OBTENER_VALOR_VARIABLE_OK:
-			obtenerValorVariable();
-			break;
+	case OBTENER_VALOR_VARIABLE_OK:
+		obtenerValorVariable();
+		break;
 
-		default:
-			printf("TODO");
-			// TODO
+	default:
+		printf("TODO");
+		// TODO
 	}
 
 	return 1;
