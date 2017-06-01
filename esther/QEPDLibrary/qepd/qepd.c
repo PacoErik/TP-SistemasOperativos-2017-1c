@@ -16,7 +16,7 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 }
 void configurar(char* quienSoy) {
 
-	if (existeArchivo(RUTA_CONFIG)) {
+	if (existe_archivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
 		int longitud = strlen(quienSoy)+strlen(".log ");
 		char *ruta = malloc(longitud+1);
@@ -43,7 +43,7 @@ void enviar_header(int socket, char operacion, int bytes) {
 	int headerSize = sizeof(headerDeMiMensaje);
 	send(socket, header, headerSize, 0);
 }
-int existeArchivo(const char *ruta) {
+int existe_archivo(const char *ruta) {
     FILE *archivo = fopen(ruta, "r+");
 
     if (archivo == NULL) {

@@ -57,7 +57,7 @@ comando comandos[] = {
 
 /* Operaciones del File System */
 
-bool		existe_archivo				(char*);
+bool		validar_archivo				(char*);
 bool		crear_archivo				(char*);
 bool		eliminar_archivo			(char*);
 char*		leer_archivo				(char*, off_t, size_t);
@@ -141,7 +141,7 @@ void interaccion_FS(void) {
 				scanf("%s", input_ruta);
 				switch (comandos[i].op) {
 				case FS_VALIDAR:
-					printf("%s\n", existe_archivo(input_ruta) ? "True" : "False");
+					printf("%s\n", validar_archivo(input_ruta) ? "True" : "False");
 					break;
 
 				case FS_CREAR:
@@ -247,7 +247,7 @@ error:
 	exit(EXIT_FAILURE);
 }
 
-bool existe_archivo(char *ruta) {
+bool validar_archivo(char *ruta) {
 	char *ruta_completa = _ruta_desde_archivos(ruta);
 
 	FILE *archivo = fopen(ruta_completa, "r");
@@ -424,7 +424,7 @@ cleanup:
 }
 
 bool eliminar_archivo(char *ruta) {
-	if (existe_archivo(ruta) == 0) {
+	if (validar_archivo(ruta) == 0) {
 		return 0;
 	}
 
