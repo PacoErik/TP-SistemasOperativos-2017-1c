@@ -11,8 +11,26 @@
 		int pag;
 		int contenidoDeLaPag; //Numero de byte a partir del cual empieza la pag en cuestion. Se llamo asi para respetar el enunciado
 	} PACKED estructuraAdministrativa_cache;
+	typedef struct estructuraAdministrativa {
+		int frame;
+		int pid;
+		int pag;
+	} PACKED estructuraAdministrativa;
 	extern estructuraAdministrativa_cache *tablaAdministrativa_cache;
+	extern estructuraAdministrativa *tablaAdministrativa;
 	extern char *memoria_cache;
+	extern char *memoria;
+	extern int MARCO_SIZE;
+	extern int MARCOS;
+	extern short int RETARDO;
+
+
+	typedef struct posicionDeMemoriaAPedir {
+		int processID;
+		int numero_pagina;
+		int offset;
+		int size;
+	} posicionDeMemoriaAPedir;
 
 	typedef struct posicionDeMemoriaVariable {
 		int processID;
@@ -30,7 +48,7 @@ int buscarEnMemoriaYDevolver	(posicionDeMemoriaVariable, int);
 
 void enviarDesdeCache			(int, int, posicionDeMemoriaVariable);
 
-
+int traducir_a_frame(int, int);
 
 
 

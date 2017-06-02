@@ -1,5 +1,6 @@
 #include "op_cpu.h"
 #include "qepd/qepd.h"
+#include "string.h"
 
 int cpu_processar_operacion(int socket) {
 	headerDeLosRipeados header;
@@ -20,7 +21,24 @@ int cpu_processar_operacion(int socket) {
 
 	case INSTRUCCION:
 		return 0;
+	case SOLICITAR_BYTES:
+		logear_info("CPU %d solicitando bytes...", socket);
 
+		usleep(RETARDO * 1000);
+
+		posicionDeMemoriaAPedir posicion_relativa;
+		recv(socket, &posicion_relativa, header.bytesDePayload, 0);
+		int frame = traducir_a_frame(posicion_relativa.numero_pagina, posicion_relativa.processID);
+		if (frame >= 0) {
+			enviar_header(socket, SOLICITAR_BYTES, posicion_relativa.size);
+			int posicion_absoluta = frame * MARCO_SIZE + posicion_relativa.offset;
+			send(socket, memoria+posicion_absoluta, posicion_relativa.size, 0);
+			logear_info("Se le envió correctamente el contenido");
+		} else {
+			logear_error("CPU intentó acceder a posición de memoria indebida", false);
+			enviar_header(socket, EXCEPCION, 4);
+		}
+		return 0;
 	default:
 		return -2;
 	}
@@ -40,6 +58,7 @@ int cpu_obtener_variable(int socket) {
 
 		printf("No se encontro en memoria"); //Habria que avisar al cpu
 	}
+	return -1;
 
 }
 
@@ -50,14 +69,22 @@ void enviarDesdeCache(int indice, int socket, posicionDeMemoriaVariable posicion
 
 	//memcpy(ir_a_frame_cache(indice) + posicion.start, buffer ,(posicion.offset + 1) - posicion.start);	En este memcpy uso la funcion ir a frame cache que me evita tener el offset (contenidoDePag) en la estructura
 
-	memcpy(buffer, memoria_cache + posicionInicioACopiar ,(posicion.offset + 1) - posicion.start); // En este memcpy uso el contenidoDePag, no le veo la necesidad
+	memcpy(buffer, memoria_cache + posicionInicioACopiar , posicion.offset); // En este memcpy uso el contenidoDePag, no le veo la necesidad
 
 	send(socket, buffer, 4, 0);
 
-
-
-
-
 }
 
+int traducir_a_frame(int pagina, int pid) {
+	//la forma más básica de traducir a frame
+	//en realidad habría que usar la función de hashing
+	int i;
+	for (i = 0; i < MARCOS; i++) {
+		if (tablaAdministrativa[i].pid == pid
+			&& tablaAdministrativa[i].pag == pagina) {
+			return i;
+		}
+	}
+	return -1;
+}
 
