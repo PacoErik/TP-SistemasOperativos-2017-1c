@@ -109,32 +109,29 @@ void desconectar_programa(int PID) {
 
 	pthread_cancel(TID);
 
-	_Bool mismoPID(void* elemento) {
-			return PID == ((proceso *) elemento)->PID;
-		}
-	proceso *procesoAux = list_find(procesos,mismoPID);
-
-	//Estadística
-	time_t inicio = procesoAux->inicio;
-	time_t fin = time(NULL);
-	char stringTiempo[20];
-	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
-	logear_info("[PID:%d] Inicio: %s", PID, stringTiempo);
-	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
-	logear_info("[PID:%d] Fin: %s", PID, stringTiempo);
-	logear_info("[PID:%d] Cantidad de impresiones: %d", PID, procesoAux->cantidadImpresiones);
-	logear_info("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
-	//Fin estadística
-
 	eliminar_proceso(PID);
 
 	logear_info("[PID:%d] Proceso finalizado", PID);
 }
 void eliminar_proceso(int PID) {
 	_Bool mismoPID(void* elemento) {
-		return PID == ((proceso *) elemento)->PID;
-	}
-	list_remove_and_destroy_by_condition(procesos, mismoPID, free);
+			return PID == ((proceso *) elemento)->PID;
+		}
+	proceso *proceso = list_remove_by_condition(procesos,mismoPID);
+
+	//Estadística
+	time_t inicio = proceso->inicio;
+	time_t fin = time(NULL);
+	char stringTiempo[20];
+	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
+	logear_info("[PID:%d] Inicio: %s", PID, stringTiempo);
+	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
+	logear_info("[PID:%d] Fin: %s", PID, stringTiempo);
+	logear_info("[PID:%d] Cantidad de impresiones: %d", PID, proceso->cantidadImpresiones);
+	logear_info("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
+	//Fin estadística
+	logear_info("[PID:%d] Finalizado", PID);
+	free(proceso);
 }
 void enviar_mensaje(char *param) {
 	char mensaje[512];
@@ -188,23 +185,22 @@ pthread_t hiloID_programa(int PID) {
 inline void imprimir_opciones_consola() {
 	printf(
 			"\n--------------------\n"
-			"\n"
-			"BIENVENIDO A LA CONSOLA\n\n"
-			"Lista de comandos: \n\n"
-			"iniciar [RUTA]\n"
-				"\tIniciar programa AnSISOP\n\n"
-			"finalizar [PID]\n"
-				"\tFinalizar programa AnSISOP\n\n"
-			"salir\n"
-				"\tDesconectar consola\n\n"
-			"mensaje\n"
-				"\tEnviar mensaje\n\n"
-			"mensaje [MENSAJE]\n"
-				"\tEnviar mensaje\n\n"
-			"limpiar\n"
-				"\tLimpiar mensajes\n\n"
-			"opciones\n"
-				"\tMostrar opciones\n"
+			"BIENVENIDO A LA CONSOLA\n"
+			"Lista de comandos: \n"
+			"iniciar [RUTA] "
+				"\t/Iniciar programa AnSISOP\n"
+			"finalizar [PID] "
+				"\t//Finalizar programa AnSISOP\n"
+			"salir "
+				"\t//Desconectar consola\n"
+			"mensaje "
+				"\t//Enviar mensaje\n"
+			"mensaje [MENSAJE] "
+				"\t//Enviar mensaje\n"
+			"limpiar "
+				"\t//Limpiar mensajes\n"
+			"opciones "
+				"\t//Mostrar opciones\n"
 	);
 }
 void* iniciar_programa(void* arg) {
@@ -406,6 +402,7 @@ void manejar_signal_apagado(int sig) {
    desconectar_consola();
 }
 void procesar_operacion(char operacion, int bytes) {
+	int PID;
 	switch (operacion) {
 		case MENSAJE: ;
 			char* mensaje = malloc(bytes+1);
@@ -414,8 +411,7 @@ void procesar_operacion(char operacion, int bytes) {
 			logear_info("Mensaje recibido: %s", mensaje);
 			free(mensaje);
 			break;
-		case INICIAR_PROGRAMA: ;
-			int PID;
+		case INICIAR_PROGRAMA:
 			recv(servidor, &PID, sizeof(PID), 0);
 
 			_Bool esNuevo(void* elemento) {
@@ -429,7 +425,14 @@ void procesar_operacion(char operacion, int bytes) {
 
 			if (PID != -1) {
 				logear_info("[PID:%d] Programa iniciado",PID);
+			} else {
+				logear_info("No se pudo iniciar programa por falta de recursos");
+				eliminar_proceso(PID);
 			}
+			break;
+		case FINALIZAR_PROGRAMA:
+			recv(servidor, &PID, sizeof(PID), 0);
+			eliminar_proceso(PID);
 			break;
 		default:
 			logear_error("Operación inválida", false);
