@@ -61,8 +61,8 @@ void handshake(int socket, char operacion) {
 
 	enviar_header(socket,operacion,0);
 
-	char* respuesta = malloc(32);
-	int bytesRecibidos = recv(socket, respuesta, 32, 0);
+	char* respuesta = malloc(sizeof("Bienvenido!"));
+	int bytesRecibidos = recv(socket, respuesta, sizeof("Bienvenido!"), 0);
 
 	if (bytesRecibidos > 0) {
 		logear_info("Saludo recibido: \"%s\"", respuesta);
