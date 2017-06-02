@@ -16,8 +16,8 @@
 #include <pthread.h>
 #include "commons/collections/list.h"
 #include "qepd/qepd.h"
-#include "op_kernel.h"
 #include "op_cpu.h"
+#include "op_kernel.h"
 
 /*----------DEFINES----------*/
 #define MOSTRAR_LOGS_EN_PANTALLA true
@@ -82,24 +82,18 @@ typedef struct frameDeCache {
 	pagina *posicion; // Hacer malloc(MARCO_SIZE de Cache)
 } cache;
 
-typedef struct estructuraAdministrativa {
-	int frame;
-	int pid;
-	int pag;
-} PACKED estructuraAdministrativa;
-
 typedef t_list listaCliente;
 
 /*-----VARIABLES GLOBALES-----*/
 
 /* Configs */
 int					PUERTO;
+short int			RETARDO;
 int					MARCOS;
 int					MARCO_SIZE;
 int					ENTRADAS_CACHE;
 int					CACHE_X_PROC;
 char				REEMPLAZO_CACHE[8]; // ?
-unsigned short		RETARDO;
 
 t_log* logger;
 t_config* config;
@@ -277,7 +271,7 @@ int asignar_frames_contiguos(int PID, int frames_codigo, int frames_stack, size_
 	}
 
 	/* Escribir datos a la memoria */
-	memcpy(ir_a_frame(frame_inicial), datos, sizeof(char) * bytes);
+	memcpy(ir_a_frame(frame_inicial), datos, bytes);
 
 	return 1;
 }
@@ -315,6 +309,7 @@ void atenderKernel(int socketKernel) {
 
 		if (ret == -1) {
 			cerrar_conexion(socketKernel, "Error de conexion con el Kernel (socket %d)");
+			logear_error("Finalizando memoria debido a desconexión del Kernel", true);
 			break;
 		}
 
@@ -539,7 +534,7 @@ void *fHilo(void* param) {
 
 		printf("Kernel conectado\n");
 
-		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
+		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
 
 		/* Enviar tamanio de pagina (marco) al kernel */
 		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
@@ -551,7 +546,7 @@ void *fHilo(void* param) {
 		agregar_cliente(CPU, socketCliente);
 
 		printf("Nuevo CPU conectado\n");
-		send(socketCliente, "Bienvenido", sizeof "Bienvenido", 0);
+		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
 		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
 		atenderCPU(socketCliente);
 	}
