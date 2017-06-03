@@ -12,41 +12,41 @@
 
 # SEGUNDO CHECKPOINT
 
-- [ ] El sistema anterior ahora permite enviar archivos a través de un comando enviado por el proceso Consola, de tal forma que sean almacenados en el proceso Memoria y sean accesibles desde el Kernel y las CPU. Dichos archivos serán de tamaño variable.
+- [x] El sistema anterior ahora permite enviar archivos a través de un comando enviado por el proceso Consola, de tal forma que sean almacenados en el proceso Memoria y sean accesibles desde el Kernel y las CPU. Dichos archivos serán de tamaño variable.
 
-- [ ] El kernel a este checkpoint tan solo permitirá la ejecución de un proceso muy simple que se creará en el momento de enviar el código desde la consola. Se creará un pequeño PCB con un ID de proceso y un contador de páginas para dicho PCB. Al enviar los datos a la Memoria, y obtener el OK de la misma, se aumentará el contador de páginas.
+- [x] El kernel a este checkpoint tan solo permitirá la ejecución de un proceso muy simple que se creará en el momento de enviar el código desde la consola. Se creará un pequeño PCB con un ID de proceso y un contador de páginas para dicho PCB. Al enviar los datos a la Memoria, y obtener el OK de la misma, se aumentará el contador de páginas.
 
-- [ ] Si bien el Kernel debe permitir la conexión de múltiples consolas, debe validar que no exista más de una consola enviando datos en simultáneo. Para ello, se fijará un nivel de multiprogramación en 1 en el archivo de configuración.
+- [x] Si bien el Kernel debe permitir la conexión de múltiples consolas, debe validar que no exista más de una consola enviando datos en simultáneo. Para ello, se fijará un nivel de multiprogramación en 1 en el archivo de configuración.
 
-- [ ] Al inicializar el proceso Memoria a este checkpoint, reservará un gran bloque de datos de tamaño configurable que será visto como un solo Frame, obteniendo tan solo una gran página. Esto le permitirá al Kernel leer y escribir bytes en dicho frame, utilizando la API definida por el enunciado. Este proceso deberá permitir, a través de su consola, hacer un dump del único frame utilizando el comando dump.
+- [x] Al inicializar el proceso Memoria a este checkpoint, reservará un gran bloque de datos de tamaño configurable que será visto como un solo Frame, obteniendo tan solo una gran página. Esto le permitirá al Kernel leer y escribir bytes en dicho frame, utilizando la API definida por el enunciado. Este proceso deberá permitir, a través de su consola, hacer un dump del único frame utilizando el comando dump.
 
-- [ ] Por otro lado, deberá poder conectarse un proceso CPU a través de un handshake al Kernel, y se deberá incorporar al mismo la biblioteca del parser. Se visualiza ya la implementación de algunas instrucciones básicas de ANSISOP.
+- [x] Por otro lado, deberá poder conectarse un proceso CPU a través de un handshake al Kernel, y se deberá incorporar al mismo la biblioteca del parser. Se visualiza ya la implementación de algunas instrucciones básicas de ANSISOP.
 
 # TERCER CHECKPOINT
 
-- [ ] El proceso Consola ahora reconoce todos los comandos propuestos en el enunciado. El objetivo de este checkpoint es tener una aplicación que ejecute programas simples.
+- [x] El proceso Consola ahora reconoce todos los comandos propuestos en el enunciado. El objetivo de este checkpoint es tener una aplicación que ejecute programas simples.
 
 - [ ] A la hora de recibir un nuevo proceso, el Kernel almacenará las páginas de dicho proceso en la Memoria y guardará los valores de las mismas en el PCB, inicializando el Program Counter y cargando los datos del los índices provistos por el parser. Sumado a esto, el PCB deberá ahora contener datos del Exit Code del programa, que podrá ser 0 o un valor negativo dependiendo si la consola finalizó su conexión antes de tiempo. Además, el Kernel permitirá obtener el listado de procesos del sistema, finalizar un proceso, consultar su estado y detener la planificación.
 
 - [ ] Además, existirá una regla fija ante la syscall write que permite enviar a imprimir texto a la consola siempre y cuando el FD sea 1. Caso contrario, el sistema deberá fallar.
 
-- [ ] La Memoria ya se encuentra dividida en Frames de tamaño configurable. Se creará la estructura de paginación inversa, que asociará un Frame, una Página y un PID. Por el momento no se requiere que la estructura de páginas se encuentre en memoria principal. Deberá atender, además, las peticiones de memoria de nuestra CPU, por lo que ya se visualiza una arquitectura multihilo. Para evitar problemas de sincronización en una etapa temprana, es válido atender los pedidos de forma secuencial.
+- [x] La Memoria ya se encuentra dividida en Frames de tamaño configurable. Se creará la estructura de paginación inversa, que asociará un Frame, una Página y un PID. Por el momento no se requiere que la estructura de páginas se encuentre en memoria principal. Deberá atender, además, las peticiones de memoria de nuestra CPU, por lo que ya se visualiza una arquitectura multihilo. Para evitar problemas de sincronización en una etapa temprana, es válido atender los pedidos de forma secuencial.
 
-- [ ] El proceso CPU ya puede conectarse con la Memoria y realizar pedidos de lectoescritura. Además, el CPU permite ahora ejecutar una ráfaga de ciclos de instrucción al recibir un PCB del Kernel. Para ello, ahora puede manejar la estructura del Stack. Si bien no se requiere que se implementen todas las instrucciones, es menester la implementación de la mayoría de las operaciones no privilegiadas.
+- [x] El proceso CPU ya puede conectarse con la Memoria y realizar pedidos de lectoescritura. Además, el CPU permite ahora ejecutar una ráfaga de ciclos de instrucción al recibir un PCB del Kernel. Para ello, ahora puede manejar la estructura del Stack. Si bien no se requiere que se implementen todas las instrucciones, es menester la implementación de la mayoría de las operaciones no privilegiadas.
 
 # CUARTO CHECKPOINT
 
 > El objetivo de este checkpoint es soportar la utilización de varias operaciones privilegiadas sobre memoria.
 
-- [ ] La consola comienza a llevar la información estadística requerida en el enunciado.
+- [x] La consola comienza a llevar la información estadística requerida en el enunciado.
 
-- [ ] El Kernel ya puede trabajar con múltiples programas, permitiendo indicar su nivel de multiprogramación por archivo de configuración. Debido a esto, comienzan a vislumbrarse los estados de ejecución de un programa. Se requiere, cuánto mínimo, una cola de New que mantenga el grado de multiprogramación, una cola de Ready, una cola de Exec que mande a ejecutar un programa a una única CPU, y una cola de Exit que permite mantener la información de finalización de un programa. El sistema de planificación será FIFO.
+- [x] El Kernel ya puede trabajar con múltiples programas, permitiendo indicar su nivel de multiprogramación por archivo de configuración. Debido a esto, comienzan a vislumbrarse los estados de ejecución de un programa. Se requiere, cuánto mínimo, una cola de New que mantenga el grado de multiprogramación, una cola de Ready, una cola de Exec que mande a ejecutar un programa a una única CPU, y una cola de Exit que permite mantener la información de finalización de un programa. El sistema de planificación será FIFO.
 
 - [ ] Se crea en el Kernel la Capa de Memoria, inicializando las variables compartidas y soportando las operaciones con semáforos de ANSISOP, junto con las estructuras administrativas necesarias para que puedan utilizarse. Se sincroniza correctamente el acceso a las mismas.
 
 - [ ] Además, se soportan ahora las syscall sobre las operaciones de sincronización de ANSISOP y sus variables compartidas.
 
-- [ ] La memoria ya contiene un hilo por conexión y permite acceso en simultáneo a las estructuras del sistema.
+- [x] La memoria ya contiene un hilo por conexión y permite acceso en simultáneo a las estructuras del sistema.
 
 - [ ] El proceso Filesystem deberá poder reconocer estructuras de árboles de directorios y archivos. Podrá responder una solicitud simple del Kernel como la existencia de un archivo o su tamaño.
 
