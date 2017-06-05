@@ -18,40 +18,35 @@
 		}
 enum Estado {NEW, READY, EXEC, BLOCKED, EXIT};
 
+
 //-----ESTRUCTURAS-----//
+typedef t_list listaCliente;
+typedef t_list listaProcesos;
 typedef struct datosMemoria {
 	int pid;
 	short int codeSize;
 	char *code;
 } PACKED datosMemoria;
-
 typedef struct miCliente {
     short socketCliente;
     char identificador;
     int en_uso;
 } miCliente;
-
-typedef t_list listaCliente;
-typedef t_list listaProcesos;
-
 typedef struct Posicion_memoria {
 	int numero_pagina;
 	int offset;
 	int size;
 } Posicion_memoria;
-
 typedef struct Variable {
 	char identificador;
 	Posicion_memoria posicion;
 } PACKED Variable;
-
 typedef struct Entrada_stack {
 	t_list *args;
 	t_list *vars;
 	int retPos;
 	Posicion_memoria retVar;
 } Entrada_stack;
-
 typedef struct PCB {
 	int pid;
 	int program_counter;
@@ -68,9 +63,6 @@ typedef struct PCB {
 
 	int exit_code;
 } PCB;
-
-//Un choclazo de struct para llevar la estadística de los procesos y tener
-//un control más agrupado.. o algo así :v
 typedef struct Proceso {
 	int consola; //Socket de la consola que envio este proceso
 	int cantidad_rafagas;
@@ -89,9 +81,7 @@ typedef struct Proceso {
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
-
 listaCliente *clientes;
-
 t_queue* cola_NEW;
 listaProcesos *procesos; //Dentro van a estar los procesos en estado READY/EXEC/BLOCKED
 t_list* lista_EXIT;
@@ -100,14 +90,14 @@ static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
 int PUERTO_KERNEL;
 char IP_FS[16];
 int PUERTO_FS;
-int QUANTUM;
+int QUANTUM_VALUE;
 int QUANTUM_SLEEP;
 char ALGORITMO[5];
 int GRADO_MULTIPROG;
 //SEM_IDS
 //SEM_INIT
 //SHARED_VARS
-int PID_GLOBAL; //A modo de prueba el PID va a ser un simple contador
+int PID_GLOBAL;
 
 /* op_memoria.h */
 int socket_memoria;
@@ -118,38 +108,42 @@ int STACK_SIZE;
 
 
 //-----PROTOTIPOS DE FUNCIONES-----//
+char*		remover_salto_linea(char*);
 
-void 		agregar_cliente(char, int);
-void 		agregar_proceso(Proceso *);
+inline void imprimir_opciones_kernel();
+inline void limpiar_buffer_entrada();
+
 int			algoritmo_actual_es(char *);
-miCliente*	algun_CPU_disponible();
-void 		borrar_cliente(int);
-int			cantidad_procesos(int);
 int 		cantidad_procesos_sistema();
-void 		cerrar_conexion(int, char*);
-PCB*		deserializar_PCB(void*);
-void		destruir_PCB(PCB*);
-void		eliminar_proceso(int);
+int			cantidad_procesos(int);
 int 		enviar_mensaje_todos(int, char*);
-void 		establecer_configuracion();
 int 		existe_cliente(int);
 int			existe_proceso(int);
-void 		finalizar_programa(int);
-void 		hacer_pedido_memoria(datosMemoria);
-inline void imprimir_opciones_kernel();
-void		inicializar_proceso(int, char *, Proceso *);
-void 		intentar_iniciar_proceso();
-void 		interaccion_kernel();
-inline void limpiar_buffer_entrada();
-void		planificar();
-void 		procesar_mensaje(int, char, int);
 int 		recibir_handshake(int);
 int 		recibir_mensaje(int, int);
-char*		remover_salto_linea(char*);
-void*		serializar_PCB(PCB*, int*);
 int			solo_numeros(char*);
-void		terminar_kernel();
 int 		tipo_cliente(int);
+
+miCliente*	algun_CPU_disponible();
+
+PCB*		deserializar_PCB(void*);
+
+void		destruir_PCB(PCB*);
+void		eliminar_proceso(int);
+void		inicializar_proceso(int, char *, Proceso *);
+void		planificar();
+void		terminar_kernel();
+void 		agregar_cliente(char, int);
+void 		agregar_proceso(Proceso *);
+void 		borrar_cliente(int);
+void 		cerrar_conexion(int, char*);
+void 		establecer_configuracion();
+void 		finalizar_programa(int);
+void 		hacer_pedido_memoria(datosMemoria);
+void 		intentar_iniciar_proceso();
+void 		interaccion_kernel();
+void 		procesar_mensaje(int, char, int);
+void*		serializar_PCB(PCB*, int*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -320,22 +314,22 @@ int enviar_mensaje_todos(int socketCliente, char* mensaje) {
 
 	return list_size(clientes_filtrados);
 }
-void procesar_mensaje(int socketCliente, char operacion, int bytes) {
+void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 
-	int tipo = tipo_cliente(socketCliente);
+	int tipo = tipo_cliente(socket_cliente);
 
 	switch(tipo) {
 		case CONSOLA:
 			if (operacion == MENSAJE) {
-				recibir_mensaje(socketCliente,bytes);
+				recibir_mensaje(socket_cliente,bytes);
 			}
 			else if (operacion == INICIAR_PROGRAMA) {
 				char* codigo = malloc(bytes+1);
-				recv(socketCliente, codigo, bytes, 0);
+				recv(socket_cliente, codigo, bytes, 0);
 				codigo[bytes]='\0';
 
 				Proceso* nuevo_proceso = malloc(sizeof(Proceso));
-				inicializar_proceso(socketCliente, codigo, nuevo_proceso);
+				inicializar_proceso(socket_cliente, codigo, nuevo_proceso);
 
 				queue_push(cola_NEW,nuevo_proceso);
 				logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
@@ -345,9 +339,8 @@ void procesar_mensaje(int socketCliente, char operacion, int bytes) {
 			}
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
-				recv(socketCliente, &PID, sizeof(PID), 0);
+				recv(socket_cliente, &PID, sizeof(PID), 0);
 				eliminar_proceso(PID);
-				mem_finalizar_programa(PID);
 
 				intentar_iniciar_proceso();
 			}
@@ -363,54 +356,17 @@ void procesar_mensaje(int socketCliente, char operacion, int bytes) {
 
 		case CPU:
 			if (operacion == PCB_INCOMPLETO) {
-				if (algoritmo_actual_es("FIFO")) {
-					void *buffer_PCB = malloc(bytes);
-					recv(socketCliente, buffer_PCB, bytes, 0);
-					//se lo reenviamos para que complete hasta que se termine/bloquee
-					enviar_header(socketCliente, PCB_INCOMPLETO, bytes);
-					send(socketCliente, buffer_PCB, bytes, 0);
-					free(buffer_PCB);
+				actualizar_PCB(socket_cliente, bytes);
 
-				}
 			} else if (operacion == PCB_COMPLETO) {
-				void *buffer_PCB = malloc(bytes);
-				recv(socketCliente, buffer_PCB, bytes, 0);
-				PCB *pcb = deserializar_PCB(buffer_PCB);
-				free(buffer_PCB);
+				int pid = actualizar_PCB(socket_cliente, bytes);
+				finalizar_programa(pid);
+				logear_info("[PID:%d] Finalizó correctamente", pid);
 
-				//Buscamos el proceso correspondiente al PCB y le actualizamos
-				//el PCB y de paso lo agregamos a la lista EXIT;
-				_Bool mismoPID(void *param) {
-					Proceso *proceso = (Proceso*) param;
-					return proceso->pcb->pid == pcb->pid;
-				}
-				Proceso *proceso = list_remove_by_condition(procesos, &mismoPID);
-				if (proceso != NULL) {
-					destruir_PCB(proceso->pcb);
-					proceso->pcb = pcb;
-					list_add(lista_EXIT, proceso);
-
-					enviar_header(proceso->consola, FINALIZAR_PROGRAMA, sizeof(pcb->pid));
-					send(proceso->consola, &pcb->pid, sizeof(pcb->pid), 0);
-
-					logear_info("[PID:%d] Proceso finalizado exitósamente!", pcb->pid);
-
-					mem_finalizar_programa(pcb->pid);
-				} else {
-					logear_error("No existía el proceso con PID %d... weird", pcb->pid);
-				}
-
-				//Ya que completó el proceso, ponemos el CPU correspondiente
-				//listo para un nuevo proceso
-				_Bool mismoCPU(void *param) {
-					miCliente *cpu = (miCliente*) param;
-					return cpu->socketCliente == socketCliente;
-				}
-				miCliente *cpu = list_find(clientes, &mismoCPU);
-				cpu->en_uso = false;
-				logear_info("CPU con socket %d liberada.", cpu->socketCliente);
-
-
+			} else if (operacion == PCB_EXCEPCION) {
+				int pid = actualizar_PCB(socket_cliente, bytes);
+				finalizar_programa(pid);
+				logear_error("[PID:%d] Finalizó debido a una excepción", pid);
 			}
 			break;
 
@@ -612,6 +568,36 @@ inline void limpiar_buffer_entrada() {
 }
 
 //MANEJO DE PROCESOS//
+int actualizar_PCB(int socket_cliente, int bytes) {
+	void *buffer_PCB = malloc(bytes);
+	recv(socket_cliente, buffer_PCB, bytes, 0);
+	PCB *pcb = deserializar_PCB(buffer_PCB);
+	free(buffer_PCB);
+
+	_Bool mismoPID(void *param) {
+		Proceso *proceso = (Proceso*) param;
+		return proceso->pcb->pid == pcb->pid;
+	}
+	Proceso *proceso = list_find(procesos, &mismoPID);
+	if (proceso != NULL) {
+		destruir_PCB(proceso->pcb);
+		proceso->pcb = pcb;
+	} else {
+		logear_error("No existía el proceso con PID %d... weird", pcb->pid);
+	}
+
+	//Ya que completó el proceso/la ráfaga, ponemos el CPU correspondiente
+	//listo para un nuevo proceso
+	_Bool mismoCPU(void *param) {
+		miCliente *cpu = (miCliente*) param;
+		return cpu->socketCliente == socket_cliente;
+	}
+	miCliente *cpu = list_find(clientes, &mismoCPU);
+	cpu->en_uso = false;
+	logear_info("CPU con socket %d liberada.", cpu->socketCliente);
+
+	return pcb->pid;
+}
 void agregar_proceso(Proceso *nuevo_proceso) {
 	int pid = nuevo_proceso->pcb->pid;
 	if (existe_proceso(pid)) {
@@ -635,6 +621,9 @@ void eliminar_proceso(int PID) {
 	}
 
 	Proceso* proceso = list_remove_by_condition(procesos,mismoPID);
+
+	enviar_header(proceso->consola, FINALIZAR_PROGRAMA, sizeof(int));
+	send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
 
 	void borrar(void *param) {
 		Entrada_stack *entrada = (Entrada_stack*) param;
@@ -665,6 +654,8 @@ int existe_proceso(int PID) {
 void finalizar_programa(int PID) {
 	if (existe_proceso(PID)) {
 		eliminar_proceso(PID);
+		mem_finalizar_programa(PID);
+
 		logear_info("[PID:%d] Eliminado", PID);
 	}
 	else {
@@ -818,6 +809,15 @@ void planificar() {
 	//es NULL si no hay CPU disponible
 	if (cpu != NULL) {
 		if (cantidad_procesos(READY) > 0) {
+			if (algoritmo_actual_es("FIFO")) {
+				QUANTUM_VALUE = 0;
+				// LA VILLEREADA CÓSMICA
+				// QUANTUM = 0 => FIFO! OSEA, ES LÓGICO!
+			}
+
+			enviar_header(cpu->socketCliente, QUANTUM, sizeof(int));
+			send(cpu->socketCliente, &QUANTUM_VALUE, sizeof(int), 0);
+
 			_Bool proceso_ready(void *param) {
 				Proceso *proceso = (Proceso*) param;
 				return proceso->estado == READY;
@@ -836,6 +836,8 @@ void planificar() {
 			free(buffer);
 
 			list_add(procesos, proceso);
+
+			planificar(); //Vamos a intentar vaciar la cola de READY
 		} else {
 			logear_info("No hay procesos para planificar");
 		}
@@ -947,8 +949,8 @@ void establecer_configuracion() {
 	PUERTO_FS = config_get_int_value(config, "PUERTO_FS");
 	logear_info("Puerto File System: %d", PUERTO_FS);
 
-	QUANTUM = config_get_int_value(config, "QUANTUM");
-	logear_info("QUANTUM: %d", QUANTUM);
+	QUANTUM_VALUE = config_get_int_value(config, "QUANTUM");
+	logear_info("QUANTUM: %d", QUANTUM_VALUE);
 
 	QUANTUM_SLEEP = config_get_int_value(config, "QUANTUM_SLEEP");
 	logear_info("QUANTUM_SLEEP: %d", QUANTUM_SLEEP);
@@ -993,7 +995,7 @@ void destruir_PCB(PCB *pcb) {
 void terminar_kernel() {
 	//Sucede cuando se desconecta la memoria
 	//(proximamente el file system también)
-	printf("Finalizando Kernel...\n");
+	logear_info("Finalización de Kernel debido a desconexión de memoria...");
 	log_destroy(logger);
 	list_destroy_and_destroy_elements(clientes, free);
 	void borrar_proceso(void *param) {
