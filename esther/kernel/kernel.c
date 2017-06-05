@@ -4,11 +4,10 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include "commons/collections/list.h"
+#include "commons/collections/dictionary.h"
 #include "commons/collections/queue.h"
 #include <string.h>
 #include "parser/metadata_program.h"
-#include "commons/collections/list.h"
 
 //-----DEFINES-----//
 #define ID_CLIENTE(x) ID_CLIENTES[x-CONSOLA]
@@ -94,9 +93,8 @@ int QUANTUM_VALUE;
 int QUANTUM_SLEEP;
 char ALGORITMO[5];
 int GRADO_MULTIPROG;
-//SEM_IDS
-//SEM_INIT
-//SHARED_VARS
+t_dictionary *semaforos;
+t_dictionary *variables_compartidas;
 int PID_GLOBAL;
 
 /* op_memoria.h */
@@ -147,6 +145,9 @@ void*		serializar_PCB(PCB*, int*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
+	semaforos = dictionary_create();
+	variables_compartidas = dictionary_create();
+
 	configurar("kernel");
 
 	clientes = list_create();
@@ -961,6 +962,40 @@ void establecer_configuracion() {
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
 	logear_info("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
 
+	char **array_semaforos = config_get_array_value(config, "SEM_IDS");
+	char **array_semaforos_valores = config_get_array_value(config, "SEM_INIT");
+    int i = 0;
+    while (array_semaforos[i] != NULL) {
+    	int *data = malloc(4);
+    	*data = atoi(array_semaforos_valores[i]);
+	    dictionary_put(semaforos, array_semaforos[i], data);
+	    free(array_semaforos_valores[i]);
+	    i++;
+    }
+    free(array_semaforos);
+    free(array_semaforos_valores);
+
+	char **compartidas = config_get_array_value(config, "SHARED_VARS");
+	i = 0;
+    while (compartidas[i] != NULL) {
+    	int *data = malloc(4);
+    	*data = 0;
+	    dictionary_put(variables_compartidas, compartidas[i], (void*)data);
+	    i++;
+    }
+    free(compartidas);
+
+    void imprimir(char *key, void *value) {
+    	int *valor = value;
+    	logear_info("[%s:%d]", key, *valor);
+    }
+
+    logear_info("Semáforos:");
+    dictionary_iterator(semaforos, &imprimir);
+
+    logear_info("Variables compartidas:");
+    dictionary_iterator(variables_compartidas, &imprimir);
+
 	STACK_SIZE = config_get_int_value(config, "STACK_SIZE");
 	logear_info("STACK_SIZE: %d", STACK_SIZE);
 }
@@ -994,7 +1029,7 @@ void destruir_PCB(PCB *pcb) {
 }
 void terminar_kernel() {
 	//Sucede cuando se desconecta la memoria
-	//(proximamente el file system también)
+	//(próximamente el file system también)
 	logear_info("Finalización de Kernel debido a desconexión de memoria...");
 	log_destroy(logger);
 	list_destroy_and_destroy_elements(clientes, free);
@@ -1007,6 +1042,8 @@ void terminar_kernel() {
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 	queue_clean_and_destroy_elements(cola_NEW, &borrar_proceso);
 	list_destroy_and_destroy_elements(lista_EXIT, free);
+	dictionary_destroy_and_destroy_elements(semaforos, free);
+	dictionary_destroy_and_destroy_elements(variables_compartidas, free);
 	printf("Adiós!\n");
 	exit(0);
 }
