@@ -308,7 +308,7 @@ bool _crear_directorios(char *ruta) {
 			continue;
 		}
 
-		if (mkdir(_ruta_desde_archivos(dir), 777) == -1) {
+		if (mkdir(_ruta_desde_archivos(dir), 0777) == -1) {
 			if (errno == ENOTDIR) {
 				logear_error("\"%s\" no es un directorio.\n", false, dir);
 
