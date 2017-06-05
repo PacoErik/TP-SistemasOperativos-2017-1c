@@ -4,6 +4,8 @@
 
 int cpu_processar_operacion(int socket) {
 	headerDeLosRipeados header;
+	int numero_excepcion;
+	int frame;
 	int ret = recibir_header(socket ,&header);
 
 	if (ret <= 0) {
@@ -26,18 +28,43 @@ int cpu_processar_operacion(int socket) {
 
 		usleep(RETARDO * 1000);
 
+
 		posicionDeMemoriaAPedir posicion_relativa;
 		recv(socket, &posicion_relativa, header.bytesDePayload, 0);
-		int frame = traducir_a_frame(posicion_relativa.numero_pagina, posicion_relativa.processID);
+		frame = traducir_a_frame(posicion_relativa.numero_pagina, posicion_relativa.processID);
 		if (frame >= 0) {
 			enviar_header(socket, SOLICITAR_BYTES, posicion_relativa.size);
-			int posicion_absoluta = frame * MARCO_SIZE + posicion_relativa.offset;
-			send(socket, memoria+posicion_absoluta, posicion_relativa.size, 0);
+			send(socket, (void*)ir_a_frame(frame)+posicion_relativa.offset, posicion_relativa.size, 0);
 			logear_info("Se le envió correctamente el contenido");
 		} else {
 			logear_error("CPU intentó acceder a posición de memoria indebida", false);
 			enviar_header(socket, EXCEPCION, 4);
+			numero_excepcion = SEGMENTATION_FAULT;
+			send(socket, &numero_excepcion, sizeof(numero_excepcion), 0);
 		}
+		return 0;
+	case ALMACENAR_BYTES:
+		logear_info("CPU %d almacenando bytes...", socket);
+
+		usleep(RETARDO * 1000);
+
+		posicionDeMemoriaAPedir posicion;
+		recv(socket, &posicion, header.bytesDePayload, 0);
+		void *buffer = malloc(posicion.size);
+		recv(socket, buffer, posicion.size, 0);
+
+		frame = traducir_a_frame(posicion.numero_pagina, posicion.processID);
+		if (frame >= 0) {
+			enviar_header(socket, ALMACENAR_BYTES, 0);
+			memcpy((void*)ir_a_frame(frame)+posicion.offset, buffer, posicion.size);
+			logear_info("Se asignó correctamente el contenido");
+		} else {
+			logear_error("CPU intentó acceder a posición de memoria indebida", false);
+			enviar_header(socket, EXCEPCION, 4);
+			numero_excepcion = SEGMENTATION_FAULT;
+			send(socket, &numero_excepcion, sizeof(numero_excepcion), 0);
+		}
+		free(buffer);
 		return 0;
 	default:
 		return -2;
