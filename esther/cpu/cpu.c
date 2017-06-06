@@ -1,18 +1,101 @@
-//-----HEADERS-----//
-#include "qepd/qepd.h"
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include "commons/log.h"
+#include "commons/config.h"
 #include "commons/string.h"
+#include <stdarg.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netdb.h>
 #include <signal.h>
 #include "commons/collections/list.h"
+#include "parser/parser.h"
 #include "parser/metadata_program.h"
+#include "qepd/qepd.h"
 
-
-//-----DEFINES-----//
 #define RUTA_CONFIG "config.cfg"
 #define RUTA_LOG "cpu.log"
 
+t_log* logger;
+t_config* config;
+
+/*
+ * ↓ Parser Ansisop ↓
+ */
+
+// *************** Funciones
+t_puntero definirVariable(t_nombre_variable identificador_variable);
+t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable);
+t_valor_variable dereferenciar(t_puntero direccion_variable);
+void asignar(t_puntero direccion_variable, t_valor_variable valor);
+t_valor_variable obtenerValorCompartida(t_nombre_compartida variable);
+t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor);
+void irAlLabel(t_nombre_etiqueta etiqueta);
+void llamarSinRetorno(t_nombre_etiqueta etiqueta);
+void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar);
+void finalizar(void);
+void retornar(t_valor_variable retorno);
+
+// *************** Funciones nucleo
+void wait(t_nombre_semaforo identificador_semaforo);
+void parser_signal(t_nombre_semaforo identificador_semaforo);
+t_puntero reservar(t_valor_variable espacio);
+void liberar(t_puntero puntero);
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags);
+void borrar(t_descriptor_archivo direccion);
+void cerrar(t_descriptor_archivo descriptor_archivo);
+void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion);
+void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio);
+void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio);
+
+AnSISOP_funciones funciones = {
+		.AnSISOP_definirVariable			= definirVariable,
+		.AnSISOP_obtenerPosicionVariable	= obtenerPosicionVariable,
+		.AnSISOP_dereferenciar				= dereferenciar,
+		.AnSISOP_asignar					= asignar,
+		.AnSISOP_obtenerValorCompartida		= obtenerValorCompartida,
+		.AnSISOP_asignarValorCompartida		= asignarValorCompartida,
+		.AnSISOP_irAlLabel					= irAlLabel,
+		.AnSISOP_llamarSinRetorno			= llamarSinRetorno,
+		.AnSISOP_llamarConRetorno			= llamarConRetorno,
+		.AnSISOP_finalizar					= finalizar,
+		.AnSISOP_retornar					= retornar
+};
+
+
+AnSISOP_kernel funcionesnucleo = {
+		.AnSISOP_wait	= wait,
+		.AnSISOP_signal = parser_signal,
+		.AnSISOP_reservar = reservar,
+		.AnSISOP_liberar = liberar,
+		.AnSISOP_abrir = abrir,
+		.AnSISOP_cerrar = cerrar,
+		.AnSISOP_borrar = borrar,
+		.AnSISOP_moverCursor = moverCursor,
+		.AnSISOP_escribir = escribir,
+		.AnSISOP_leer = leer
+};
+
+/*
+ * ↑ Parser Ansisop ↑
+ */
+
 #define VIVITO_Y_COLEANDO 1; // No se pueden revisar los exit code previo a que ripee
 
+/*
+ * Colores:
+ *
+ * printf(RED "red\n" RESET);
+ *
+ * printf("This is " RED "red" RESET " and this is " BLU "blue" RESET "\n");
+ *
+ */
 #define RED   "\x1B[31m"	// Señales, excepciones.
 #define BLU   "\x1B[34m"	// Finalizacion de una rafaga del programa.
 #define GRN   "\x1B[32m"	// Finalización correcta del programa (EXIT CODE == 1 o 0).
@@ -22,22 +105,29 @@
 #define WHT   "\x1B[37m"	// Acceso a memoria.
 #define RESET "\x1B[0m"		// RESET
 
-//-----ESTRUCTURAS-----//
+char IP_KERNEL[16]; // 255.255.255.255 = 15 caracteres + 1 ('\0')
+int PUERTO_KERNEL;
+char IP_MEMORIA[16];
+int PUERTO_MEMORIA;
+
 typedef struct Posicion_memoria {
 	int numero_pagina;
 	int offset;			// Desplazamiento dentro de la pagina
 	int size;
 } Posicion_memoria;
+
 typedef struct Variable {
 	char identificador;
 	Posicion_memoria posicion;
-} PACKED Variable;
+} Variable;
+
 typedef struct Entrada_stack {
 	t_list *args;	// Con elementos de tipo Posicion_memoria
 	t_list *vars;	// Con elementos de tipo Variable
 	int retPos;
 	Posicion_memoria retVar;
 } Entrada_stack;
+
 typedef struct PCB {
 	int pid;
 	int program_counter;
@@ -54,123 +144,85 @@ typedef struct PCB {
 
 	int exit_code;
 } PCB;
+
 typedef struct posicionDeMemoriaAPedir {
 	int processID;
 	int numero_pagina;
 	int offset;
 	int size;
 } posicionDeMemoriaAPedir;
+
+typedef struct Variable_Global {
+	t_nombre_compartida variable;
+	t_valor_variable valor;
+} Variable_Global;
+
 typedef struct servidor { // Esto es más que nada una cheteada para poder usar al socket/identificador como constante en los switch
 	int socket;
 	char identificador;
 } servidor;
 
-//-----VARIABLES GLOBALES-----//
-t_log* logger;
-t_config* config;
-
-char IP_KERNEL[16];
-int PUERTO_KERNEL;
-char IP_MEMORIA[16];
-int PUERTO_MEMORIA;
 servidor kernel;
 servidor memoria;
 
 bool programaVivitoYColeando; 	// Si el programa fallecio o no
 bool elProgramaNoFinalizo; 		// Si el programa finalizo correctamente o sigue en curso
-bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
+bool signalRecibida = false; 	// Si se recibe o no una señal SIGUSR1
 
-void *buffer_solicitado = NULL;
+char* actualInstruccion; // Lo modelo como variable global porque se me hace menos codigo analizar los header y demas.
+void *buffer_solicitado;
 
-PCB *PCB_actual; // Programa corriendo
-Posicion_memoria actual_posicion; // Actual posicion de memoria a utilizar
-posicionDeMemoriaAPedir actual_posicion_variable; // Usado para comunicarse con el proceso memoria
+PCB *actualPCB; // Programa corriendo
+Posicion_memoria actualPosicion; // Actual posicion de memoria a utilizar
+posicionDeMemoriaAPedir actualPosicionVariable; // Usado para comunicarse con el proceso memoria
 
 int MARCO_SIZE;
-int quantum;
-int tipo_devolucion;
 
+char quantum;
 
-//-----PROTOTIPOS Y ESTRUCTURAS AnSISOP-----//
-t_puntero definir_variable(t_nombre_variable identificador_variable);
-t_puntero obtener_posicion_variable(t_nombre_variable nombre);
-t_valor_variable dereferenciar(t_puntero direccion_variable);
-void asignar(t_puntero direccion_variable, t_valor_variable valor);
-t_valor_variable obtener_valor_compartida(t_nombre_compartida variable);
-t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor);
-void ir_al_label(t_nombre_etiqueta etiqueta);
-void llamar_sin_retorno(t_nombre_etiqueta etiqueta);
-void llamar_con_retorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar);
-void finalizar(void);
-void retornar(t_valor_variable valor_retorno);
+int analizarHeader(servidor servidor, headerDeLosRipeados header);
+int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
+int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload);
+int pedirMemoria();
+int recibirAlgoDe(servidor servidor);
+PCB *deserializar_PCB(void *buffer);
+t_puntero calcularPuntero(Posicion_memoria posicion);
+void agregarAlStack(t_nombre_variable identificador_variable, Posicion_memoria posicionDeMemoria);
+void destruir_actualPCB(void);
+void devolverPCB(int);
+void ejecutarInstruccion();
+void establecer_configuracion();
+void finalizarPrograma();
+void leerMensaje(servidor servidor, unsigned short bytesDePayload);
+void obtenerInstruccionDeMemoria();
+void obtenerMarcoSize();
+void obtenerPCB(unsigned short bytesDePayload);
+void obtenerPosicionDeMemoria();
+void solicitarInstruccion();
+void* serializar_PCB(PCB *pcb, int* buffersize);
 
-void kernel_wait(t_nombre_semaforo identificador_semaforo);
-void kernel_signal(t_nombre_semaforo identificador_semaforo);
-t_puntero reservar(t_valor_variable espacio);
-void liberar(t_puntero puntero);
-t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags);
-void borrar(t_descriptor_archivo direccion);
-void cerrar(t_descriptor_archivo descriptor_archivo);
-void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion);
-void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio);
-void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio);
+/*
+ * ↓ Señales ↓
+ */
 
-AnSISOP_funciones funciones = {
-		.AnSISOP_definirVariable			= definir_variable,
-		.AnSISOP_obtenerPosicionVariable	= obtener_posicion_variable,
-		.AnSISOP_dereferenciar				= dereferenciar,
-		.AnSISOP_asignar					= asignar,
-		.AnSISOP_obtenerValorCompartida		= obtener_valor_compartida,
-		.AnSISOP_asignarValorCompartida		= asignar_valor_compartida,
-		.AnSISOP_irAlLabel					= ir_al_label,
-		.AnSISOP_llamarSinRetorno			= llamar_sin_retorno,
-		.AnSISOP_llamarConRetorno			= llamar_con_retorno,
-		.AnSISOP_finalizar					= finalizar,
-		.AnSISOP_retornar					= retornar
-};
+void rutinaSignal(int signal) {
+	switch (signal) {
+		case SIGUSR1:
+	        printf(RED "[Señal] " RESET "Señal SIGUSR1 recibida\n");
+	        signalRecibida = true;
+	        break;
+		default:
+			printf(RED "[Señal] " RESET "Señal DESCONOCIDA recibida\n");
+	}
+}
 
-AnSISOP_kernel funcionesnucleo = {
-		.AnSISOP_wait	= kernel_wait,
-		.AnSISOP_signal = kernel_signal,
-		.AnSISOP_reservar = reservar,
-		.AnSISOP_liberar = liberar,
-		.AnSISOP_abrir = abrir,
-		.AnSISOP_cerrar = cerrar,
-		.AnSISOP_borrar = borrar,
-		.AnSISOP_moverCursor = mover_cursor,
-		.AnSISOP_escribir = escribir,
-		.AnSISOP_leer = leer
-};
+/*
+ * ↑ Señales ↑
+ */
 
-//-----PROTOTIPOS DE FUNCIONES-----//
-int 		analizar_header(servidor, headerDeLosRipeados);
-int 		cumplir_deseos_kernel(char, unsigned short);
-int 		cumplir_deseos_memoria(char, unsigned short);
-int 		pedir_memoria();
-int 		recibir_algo_de(servidor);
-
-PCB*		deserializar_PCB(void*);
-
-t_puntero 	calcular_puntero(Posicion_memoria);
-
-void 		destruir_actualPCB(void);
-void 		destruir_entrada_stack(void*);
-void 		devolver_PCB(int);
-void 		ejecutar_instruccion();
-void 		establecer_configuracion();
-void 		leer_mensaje(servidor, unsigned short);
-void 		obtener_PCB(unsigned short);
-void 		obtener_posicion_memoria();
-void 		rutina_signal(int);
-void 		solicitar_instruccion();
-void 		terminar_ejecucion(int);
-void		trabajar();
-void* 		serializar_PCB(PCB*, int*);
-
-//-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
 
-	signal(SIGUSR1, rutina_signal);
+	signal(SIGUSR1, rutinaSignal);
 
 	configurar("cpu");
 
@@ -186,53 +238,166 @@ int main(void) {
 
 	printf(MAG "[CPU] " RESET "Comenzando el trabajo.\n");
 
-	while (true) {
-		recibir_algo_de(kernel);
-	}
+	recibirAlgoDe(kernel);
+
 	return 1;
 }
 
-//-----DEFINICIÓN DE FUNCIONES-----//
+void trabajar() {
+	int i;
 
-//MENSAJES
-int analizar_header(servidor servidor, headerDeLosRipeados header) {
+	programaVivitoYColeando = true;
+	elProgramaNoFinalizo = true;
+
+	char codigo;
+
+	for(i = 0; i < quantum; i++) {
+		solicitarInstruccion();
+		ejecutarInstruccion();
+		actualPCB->program_counter++;
+
+		if(programaVivitoYColeando) {
+			if(elProgramaNoFinalizo) {
+				printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
+				codigo = PCB_INCOMPLETO;
+
+			} else {
+				printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
+				codigo = PCB_COMPLETO;
+				break;
+			}
+
+		} else {
+			printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
+			codigo = PCB_EXCEPCION;
+			break;
+		}
+	};
+
+	devolverPCB(codigo);
+}
+
+void solicitarInstruccion() {
+	logear_info("Solicitando instruccion...");
+
+	posicionDeMemoriaAPedir posicion;
+	t_intructions instruction = actualPCB->instrucciones_serializado[actualPCB->program_counter];
+
+	posicion.processID = actualPCB->pid;
+	posicion.numero_pagina = 0;
+	posicion.size = instruction.offset;
+	posicion.offset = instruction.start;
+
+	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
+	send(memoria.socket, &posicion, sizeof(posicion), 0);
+
+	// Ahora esperamos la instruccion
+
+	recibirAlgoDe(memoria);
+
+	// La guardamos en actualInstruccion para que luego se ejecute
+
+	actualInstruccion = buffer_solicitado;
+}
+
+void ejecutarInstruccion() {
+	analizadorLinea(strdup(actualInstruccion), &funciones, &funcionesnucleo);
+	free(actualInstruccion);
+}
+
+void devolverPCB(int operacion) {
+	int buffersize;
+	void *buffer = serializar_PCB(actualPCB, &buffersize);
+
+	enviar_header(kernel.socket, operacion, buffersize);
+	send(kernel.socket, buffer, buffersize, 0);
+
+	logear_info("PCB devuelto");
+
+	free(buffer);
+	destruir_actualPCB();
+
+	if(signalRecibida) {
+		printf(MAG "[CPU] " RESET "Finalización del proceso.\n");
+		exit(EXIT_SUCCESS);
+	}
+}
+
+/*
+ * ↑ Trabajar ↑
+ */
+
+/*
+ * ↓ Llega información de alguno de los servidores ↓
+ */
+
+/**
+ * Analiza el contenido del header, y respecto a ello realiza distintas acciones
+ * devuelve -1 si el servidor causa problemas
+ */
+
+int recibirAlgoDe(servidor servidor) {
+	headerDeLosRipeados header;
+	int bytesRecibidos = recibir_header(servidor.socket, &header);
+	if (bytesRecibidos > 0) {
+		return analizarHeader(servidor, header);
+	} else {
+		logear_error("El servidor se desconectó. Finalizando...", false);
+		exit(0); // En realidad se puede poner true en el logear_error y sacar esto pero me tira alto warning v:
+	}
+
+}
+
+int analizarHeader(servidor servidor, headerDeLosRipeados header) {
 	switch(servidor.identificador) {
 		case KERNEL:
-			return cumplir_deseos_kernel(header.codigoDeOperacion, header.bytesDePayload);
+			return cumplirDeseosDeKernel(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		case MEMORIA:
-			return cumplir_deseos_memoria(header.codigoDeOperacion, header.bytesDePayload);
+			return cumplirDeseosDeMemoria(header.codigoDeOperacion, header.bytesDePayload);
 			break;
 
 		default:
 			logear_error("Servidor desconocido, finalizando CPU...", true);
 	}
-	return 0;
+
+	return 0; // Hubo un problema
 }
-int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
-	switch(operacion) {
+
+int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload) {
+	switch(codigoDeOperacion) {
 		case MENSAJE:
-			leer_mensaje(kernel, bytes_payload);
+			leerMensaje(kernel, bytesDePayload);
+			recibirAlgoDe(kernel);
 			break;
 
 		case QUANTUM:
 			recv(kernel.socket, &quantum, sizeof(quantum), 0);
+			printf("Quantum %i recibido.\n", quantum);
+			recibirAlgoDe(kernel);
 			break;
 
 		case PCB_INCOMPLETO:
-			obtener_PCB(bytes_payload);
+			obtenerPCB(bytesDePayload);
 			trabajar();
+			recibirAlgoDe(kernel);
 			break;
 
 		case PEDIR_MEMORIA_VARIABLE_OK:
-			obtener_posicion_memoria();
+			obtenerPosicionDeMemoria();
 			break;
 
 		case OBTENER_VALOR_VARIABLE_OK:
 			;t_valor_variable miValor;
 			recv(kernel.socket, &miValor, sizeof(miValor), 0);
 			return miValor;
+			break;
+
+		case ASIGNAR_VALOR_VARIABLE_OK:
+			break;
+
+		case RETORNAR_VARIABLE_OK:
 			break;
 
 		case ABRIR_ARCHIVO:
@@ -251,179 +416,126 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			// TODO
 			break;
 
-		default:
-			printf(RED "CÓDIGO DE OPERACIÓN DESCONOCIDO POR PARTE DEL KERNEL: %i.\n" RESET, operacion);
-			exit(EXIT_FAILURE);
-	}
-
-	return 1;
-}
-int cumplir_deseos_memoria(char operacion, unsigned short bytes_payload) {
-	switch(operacion) {
-		case SOLICITAR_BYTES:
-			free(buffer_solicitado);
-			buffer_solicitado = malloc(bytes_payload);
-			recv(memoria.socket, buffer_solicitado, bytes_payload, 0);
-			break;
-		case ALMACENAR_BYTES:
-			//Esto es simplemente un mensaje de confirmación
-			//ya que no se dió una excepción
-			break;
-		case EXCEPCION:;
-			int numero_excepcion;
-			recv(memoria.socket, &numero_excepcion, sizeof(int), 0);
-			terminar_ejecucion(numero_excepcion);
+		case EXCEPCION_DE_SOLICITUD:
+			finalizarPrograma(kernel);
 			return 0;
 			break;
+
 		default:
-			printf(RED "CÓDIGO DE OPERACIÓN DESCONOCIDO POR PARTE DE LA MEMORIA: %i.\n" RESET, operacion);
+			printf(RED "CÓDIGO DE OPERACIÓN DESCONOCIDO POR PARTE DEL KERNEL: %i.\n" RESET, codigoDeOperacion);
 			exit(EXIT_FAILURE);
 	}
 
 	return 1;
 }
-void leer_mensaje(servidor servidor, unsigned short bytes_payload) {
-	char* mensaje = malloc(bytes_payload+1);
-    recv(servidor.socket, mensaje, bytes_payload, 0);
-    mensaje[bytes_payload]='\0';
-    printf(CYN "Kernel: " RESET "%s\n", mensaje);
-    free(mensaje);
-}
-int recibir_algo_de(servidor servidor) {
-	headerDeLosRipeados header;
-	int bytes_recibidos = recibir_header(servidor.socket, &header);
-	if (bytes_recibidos > 0) {
-		return analizar_header(servidor, header);
-	} else {
-		logear_error("El servidor se desconectó. Finalizando...", true);
+
+int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
+
+	switch(codigoDeOperacion) {
+		case SOLICITAR_BYTES:
+			buffer_solicitado = malloc(bytesDePayload);
+			recv(memoria.socket, buffer_solicitado, bytesDePayload, 0);
+			break;
+
+		case EXCEPCION_DE_SOLICITUD:
+			finalizarPrograma(memoria);
+			return 0;
+			break;
+
+		case FRAME_SIZE:
+			obtenerMarcoSize();
+			break;
+
+		case INSTRUCCION_OK:
+			obtenerInstruccionDeMemoria();
+			break;
+
+		default:
+			printf(RED "CÓDIGO DE OPERACIÓN DESCONOCIDO POR PARTE DE LA MEMORIA: %i.\n" RESET, codigoDeOperacion);
+			exit(EXIT_FAILURE);
 	}
-	return 0;
+
+	return 1;
 }
 
-//PROCESAMIENTO
-void devolver_PCB(int operacion) {
-	int buffersize;
-	void *buffer = serializar_PCB(PCB_actual, &buffersize);
+/*
+ * ↑ Llega información de alguno de los servidores ↑
+ */
 
-	enviar_header(kernel.socket, operacion, buffersize);
-	send(kernel.socket, buffer, buffersize, 0);
+/*
+ * ↓ Acatar ordenes de algunos de los servidores ↓
+ */
 
-	logear_info("PCB devuelto");
+void obtenerPCB(unsigned short bytesDePayload) {
+	void *bufferPCB = malloc(bytesDePayload);
+	int bytesRecibidos = recv(kernel.socket, bufferPCB, bytesDePayload, 0);
 
-	free(buffer);
-	destruir_actualPCB();
-
-	if(signal_recibida) {
-		printf(MAG "[CPU] " RESET "Finalización del proceso.\n");
-		exit(EXIT_SUCCESS);
-	}
-}
-void ejecutar_instruccion() {
-	char *instruccion_actual = strdup(buffer_solicitado);
-	analizadorLinea(instruccion_actual, &funciones, &funcionesnucleo);
-	free(instruccion_actual);
-}
-void obtener_PCB(unsigned short bytes_payload) {
-	void *buffer_PCB = malloc(bytes_payload);
-	int bytes_recibidos = recv(kernel.socket, buffer_PCB, bytes_payload, 0);
-
-	if(bytes_recibidos <= 0) {
+	if(bytesRecibidos <= 0) {
 		logear_error("Kernel desconectado, finalizando CPU...", true);
 	}
 
-	PCB_actual = deserializar_PCB(buffer_PCB);
+	actualPCB = deserializar_PCB(bufferPCB);
 
 	logear_info("PCB obtenido");
 
-	free(buffer_PCB);
+	free(bufferPCB);
 }
-void solicitar_instruccion() {
-	logear_info("Solicitando instruccion...");
 
-	posicionDeMemoriaAPedir posicion;
-	t_intructions instruction = PCB_actual->instrucciones_serializado[PCB_actual->program_counter];
+void finalizarPrograma(servidor servidor) {
+	switch(servidor.identificador) {
+		case KERNEL:
+			printf(RED "[Excepcion] " RESET "Debido a una excepcion de solicitud al Kernel, el proceso %i ripeo.\n", actualPCB->pid);
+			actualPCB->exit_code = EXCEPCION_KERNEL;
+			break;
 
-	posicion.processID = PCB_actual->pid;
-	posicion.numero_pagina = 0;
-	posicion.size = instruction.offset;
-	posicion.offset = instruction.start;
-
-	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
-	send(memoria.socket, &posicion, sizeof(posicion), 0);
-
-	// Ahora esperamos la instruccion
-
-	recibir_algo_de(memoria); //Se asume que recibir una instrucción siempre va a salir bien
-}
-void trabajar() {
-	tipo_devolucion = PCB_INCOMPLETO;
-	programaVivitoYColeando = true;
-
-	if (quantum == 0) {
-		while (programaVivitoYColeando) {
-			solicitar_instruccion();
-			ejecutar_instruccion();
-			PCB_actual->program_counter++;
-		}
-	} else {
-		int i;
-		for(i = 0; i < quantum; i++) {
-			if(!programaVivitoYColeando) {
-				break;
-			}
-		}
+		case MEMORIA:
+			printf(RED "[Excepcion] " RESET "Debido a una excepcion de solicitud a la Memoria, el proceso %i ripeo.\n", actualPCB->pid);
+			actualPCB->exit_code = EXCEPCION_MEMORIA;
+			break;
 	}
 
-	devolver_PCB(tipo_devolucion);
+	programaVivitoYColeando = false;
+
 }
 
-//FUNCIONES AUXILIARES
-t_puntero calcular_puntero(Posicion_memoria posicion) {
-	return posicion.numero_pagina * MARCO_SIZE + posicion.offset;
+void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
+	char* mensaje = malloc(bytesDePayload+1);
+    recv(servidor.socket, mensaje, bytesDePayload, 0);
+    mensaje[bytesDePayload]='\0';
+    printf(CYN "Kernel: " RESET "%s\n", mensaje);
+    free(mensaje);
 }
-void destruir_actualPCB(void) {
-	free(PCB_actual->etiquetas);
-	free(PCB_actual->instrucciones_serializado);
-	list_destroy_and_destroy_elements(PCB_actual->indice_stack, destruir_entrada_stack);
-	free(PCB_actual);
-}
-void destruir_entrada_stack(void *param) {
-	Entrada_stack *entrada = (Entrada_stack *) param;
-	list_destroy_and_destroy_elements(entrada->vars, free);
-	list_destroy_and_destroy_elements(entrada->args, free);
-	free(entrada);
-}
-_Bool es_parametro(char nombre) {
-	return (nombre >= '0' && nombre <= '9');
-}
-void obtener_posicion_memoria() {
 
-	int bytesRecibidos = recv(kernel.socket, &actual_posicion_variable, sizeof(posicionDeMemoriaAPedir), 0);
+void obtenerInstruccionDeMemoria() {
+	unsigned short instruccionSize;
+	instruccionSize = actualPCB->instrucciones_serializado->offset - actualPCB->instrucciones_serializado->start + 1; // "+ 1" porque hay un byte que en la resta se lo come
+
+	actualInstruccion = malloc(instruccionSize + 1); // +1 por el '\0'
+
+	unsigned short bytesRecibidos = recv(memoria.socket, actualInstruccion, instruccionSize, 0); // Recibo la instruccion
 
 	if(bytesRecibidos <= 0) {
-		printf(RED "EL KERNEL ENVÍO UNA POSICION DE MEMORIA PARA EL ORTO.\n" RESET);
+		printf(RED "LA MEMORIA ENVÍO UNA INSTRUCCION PARA EL ORTO.\n" RESET);
 		exit(EXIT_FAILURE);
 	}
 
-	actual_posicion.numero_pagina = actual_posicion_variable.numero_pagina;
-	actual_posicion.offset = actual_posicion_variable.offset;
-	actual_posicion.size = actual_posicion_variable.size;
+	actualInstruccion[instruccionSize] = '\0';
 
 }
-int obtener_tamanio_stack() {
-	int total = 0;
-	void calcular(void* param) {
-		Entrada_stack *entrada = param;
-		total += 4 * (list_size(entrada->args) + list_size(entrada->vars));
-	}
-	list_iterate(PCB_actual->indice_stack, &calcular);
-	return total;
-}
-int pedir_memoria() {
+
+/*
+ * ↑ Acatar ordenes de algunos de los servidores ↑
+ */
+
+/*
+ * ↓ Comunicarse con los servidores ↓
+ */
+
+int pedirMemoria() {
 
 	headerDeLosRipeados header;
 	header.codigoDeOperacion = PEDIR_MEMORIA_VARIABLE;
-	header.bytesDePayload = PCB_actual->pid; // Acá pongo el ID del proceso que pide memoria
+	header.bytesDePayload = actualPCB->pid; // Acá pongo el ID del proceso que pide memoria
 
 	send(kernel.socket, &header, sizeof(header), 0);
 
@@ -431,23 +543,109 @@ int pedir_memoria() {
 
 	// Ahora esperemos el ok
 
-	return recibir_algo_de(kernel);
+	return recibirAlgoDe(kernel);
 
 }
-void terminar_ejecucion(int exit_code) {
-	logear_error("Se finalizó la ejecución con el EXIT CODE (%d)", false, exit_code);
-	programaVivitoYColeando = false;
-	PCB_actual->exit_code = exit_code;
-	if (exit_code < 0) {
-		tipo_devolucion = PCB_EXCEPCION;
-	} else if (exit_code == 0) {
-		tipo_devolucion = PCB_COMPLETO;
-	} else {
-		tipo_devolucion = PCB_INCOMPLETO;
+
+void obtenerPosicionDeMemoria() {
+
+	int bytesRecibidos = recv(kernel.socket, &actualPosicionVariable, sizeof(posicionDeMemoriaAPedir), 0);
+
+	if(bytesRecibidos <= 0) {
+		printf(RED "EL KERNEL ENVÍO UNA POSICION DE MEMORIA PARA EL ORTO.\n" RESET);
+		exit(EXIT_FAILURE);
+	}
+
+	actualPosicion.numero_pagina = actualPosicionVariable.numero_pagina;
+	actualPosicion.offset = actualPosicionVariable.offset;
+	actualPosicion.size = actualPosicionVariable.size;
+
+}
+
+void agregarAlStack(t_nombre_variable identificador_variable, Posicion_memoria posicionDeMemoria) {
+	Variable *nuevaVariable;
+
+	nuevaVariable = malloc(sizeof(Variable));
+
+	nuevaVariable->identificador = identificador_variable;
+	nuevaVariable->posicion.numero_pagina = posicionDeMemoria.numero_pagina;
+	nuevaVariable->posicion.offset = posicionDeMemoria.offset;
+	nuevaVariable->posicion.size = posicionDeMemoria.size;
+
+	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+	list_add(entrada->vars, nuevaVariable);
+
+}
+
+void obtenerMarcoSize() {
+	int bytesRecibidos = recv(kernel.socket, &MARCO_SIZE, sizeof(MARCO_SIZE), 0);
+
+	if(bytesRecibidos <= 0) {
+		printf(RED "EL KERNEL ENVÍO LOS FRAMES PARA EL ORTO.\n" RESET);
+		exit(EXIT_FAILURE);
 	}
 }
 
-//SERIALIZADORES Y DESERIALIZADORES
+/*
+ * ↑ Comunicarse con los servidores ↑
+ */
+
+/*
+ * ↓ Configuración del CPU y conexión a los servidores ↓
+ */
+
+void establecer_configuracion() {
+	if(config_has_property(config, "PUERTO_KERNEL")) {
+		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
+		logear_info("Puerto Kernel: %i \n",PUERTO_KERNEL);
+	} else {
+		logear_error("Error al leer el puerto del Kernel", true);
+	}
+	if(config_has_property(config, "IP_KERNEL")) {
+		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
+		logear_info("IP Kernel: %s \n", IP_KERNEL);
+	} else {
+		logear_error("Error al leer la IP del Kernel", true);
+	}
+	if(config_has_property(config, "PUERTO_MEMORIA")) {
+		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
+		logear_info("Puerto Memoria: %i \n", PUERTO_MEMORIA);
+	} else {
+		logear_error("Error al leer el puerto de la Memoria", true);
+	}
+	if(config_has_property(config, "IP_MEMORIA")){
+		strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
+		logear_info("IP Memoria: %s \n", IP_MEMORIA);
+	} else {
+		logear_error("Error al leer la IP de la Memoria", true);
+	}
+
+}
+
+/*
+ * ↑ Configuración del CPU y conexión a los servidores ↑
+ */
+
+/*
+ * ↓ Funciones auxiliares del CPU ↓
+ */
+
+int existeArchivo(const char *ruta)
+{
+    FILE *archivo;
+    if ((archivo = fopen(ruta, "r")))
+    {
+        fclose(archivo);
+        return true;
+    }
+    return false;
+}
+
+t_puntero calcularPuntero(Posicion_memoria posicion) {
+	return posicion.numero_pagina * MARCO_SIZE + posicion.offset;
+}
+
 void *list_serialize(t_list* list, int element_size, int *buffersize) {
 	int element_count = list_size(list),offset = 8;
 	*buffersize = offset + element_count*element_size;
@@ -461,6 +659,7 @@ void *list_serialize(t_list* list, int element_size, int *buffersize) {
 	list_iterate(list,&copy);
 	return buffer;
 }
+
 t_list *list_deserialize(void *buffer) {
 	t_list *new_list = list_create();
 	int offset = 8,i,element_count,element_size;
@@ -474,6 +673,7 @@ t_list *list_deserialize(void *buffer) {
 	}
 	return new_list;
 }
+
 void *serializar_PCB(PCB *pcb, int* buffersize) {
 	int instrucciones_size = pcb->cantidad_instrucciones * sizeof(t_intructions);
 	int stack_size;
@@ -506,6 +706,7 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 
 	return buffer;
 }
+
 PCB *deserializar_PCB(void *buffer) {
 	PCB *pcb = malloc(sizeof(PCB));
 	int offset = 0;
@@ -533,254 +734,293 @@ PCB *deserializar_PCB(void *buffer) {
 	return pcb;
 }
 
-//DEFINICIÓN DE OPERACIONES
-t_puntero definir_variable(t_nombre_variable identificador_variable) {
+void destruir_entrada_stack(void *param) {
+	Entrada_stack *entrada = (Entrada_stack *) param;
+	list_destroy_and_destroy_elements(entrada->vars, free);
+	list_destroy_and_destroy_elements(entrada->args, free);
+	free(entrada);
+}
+
+void destruir_actualPCB(void) {
+	free(actualPCB->etiquetas);
+	free(actualPCB->instrucciones_serializado);
+	list_destroy_and_destroy_elements(actualPCB->indice_stack, destruir_entrada_stack);
+	free(actualPCB);
+}
+
+/*
+ * ↑ Funciones auxiliares del CPU ↑
+ */
+
+/*
+ * ↓ Funciones auxiliares del Parser ↓
+ */
+
+/*
+ * ↑ Funciones auxiliares del Parser ↑
+ */
+
+/*
+ * ↓ Parsear tranqui ↓
+ */
+
+t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("definirVariable: %c\n", identificador_variable);
 
-	int pagina_stack_inicial = PCB_actual->cantidad_paginas_codigo;
-	int tamanio_stack = obtener_tamanio_stack();
-	Posicion_memoria posicion;
-	posicion.numero_pagina = pagina_stack_inicial + (tamanio_stack / MARCO_SIZE);
-	posicion.offset = tamanio_stack % MARCO_SIZE;
-	posicion.size = 4;
-	Entrada_stack *entrada_actual = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
-
-	if (es_parametro(identificador_variable)) {
-		Posicion_memoria *posicion_parametro = malloc(sizeof(Posicion_memoria));
-		*posicion_parametro = posicion;
-		list_add(entrada_actual->args, posicion_parametro);
+	if(pedirMemoria() == 1) {
+		printf(WHT "[Memoria] " RESET "Devolvió exitosamente una posición de memoria.\n");
+		agregarAlStack(identificador_variable, actualPosicion);
+		return calcularPuntero(actualPosicion);
 	} else {
-		Variable *variable = malloc(sizeof(Variable));
-		variable->identificador = identificador_variable;
-		variable->posicion = posicion;
-		list_add(entrada_actual->vars, variable);
+		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
+		return 0;
 	}
 
-	return calcular_puntero(posicion);
+	return 0;
 }
-t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
-	printf("Obtener posicion de la variable: %c\n", nombre);
 
-	Entrada_stack *entrada = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
+t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) {
+	printf("Obtener posicion de la variable: %c.\n", identificador_variable);
+
+	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
 
 	_Bool mismo_identificador(void* param) {
 		Variable* var = (Variable*) param;
-		return nombre == var->identificador;
+		return identificador_variable == var->identificador;
 	}
 
-	if (es_parametro(nombre)) {
-		Posicion_memoria *posicion = list_get(entrada->args, atoi(&nombre));
-		if (posicion == NULL) {
-			terminar_ejecucion(VARIABLE_SIN_DECLARAR);
-		} else {
-			return calcular_puntero(*posicion);
-		}
-	} else {
-		Variable *variable = list_find(entrada->vars, &mismo_identificador);
+	Variable *miVariable = list_find(entrada->vars, &mismo_identificador);
 
-		if(variable == NULL) {
-			terminar_ejecucion(VARIABLE_SIN_DECLARAR);
-		} else {
-			return calcular_puntero(variable->posicion);
-		}
+	if(miVariable == NULL) {
+		printf(RED "No se pudo obtener la posición de la variable" RESET);
+		programaVivitoYColeando = false;
+		actualPCB->exit_code = EXCEPCION_MEMORIA;
+		return 0;
 	}
 
-	return 0;
+	t_puntero miPuntero = calcularPuntero(miVariable -> posicion);
+
+	printf("La posición de la variable es %i\n", miPuntero);
+	return miPuntero;
 }
+
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	printf("Dereferenciar: %i\n", direccion_variable);
 
+	t_valor_variable miValor;
 	posicionDeMemoriaAPedir posicion;
-	posicion.processID = PCB_actual->pid;
-	posicion.numero_pagina = direccion_variable / MARCO_SIZE;
-	posicion.offset = direccion_variable % MARCO_SIZE;
-	posicion.size = 4;
 
-	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
-	send(memoria.socket, &posicion, sizeof(posicion), 0);
+	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
 
-	if (recibir_algo_de(memoria)) {
-		t_valor_variable *valor = buffer_solicitado;
-		return *valor;
+	_Bool compararDireccionVariable(void* param) {
+		Variable* var = (Variable*) param;
+		return direccion_variable == calcularPuntero(var->posicion);
 	}
 
-	return 0;
-}
-void asignar(t_puntero direccion_variable, t_valor_variable valor) {
+	Variable *miVariable = list_find(entrada->vars, &compararDireccionVariable);
 
+	posicion.processID = actualPCB->pid;
+	posicion.numero_pagina = miVariable->posicion.numero_pagina;
+	posicion.offset = miVariable->posicion.offset;
+	posicion.size = miVariable->posicion.size;
+
+	headerDeLosRipeados header;
+	header.codigoDeOperacion = SOLICITAR_BYTES;
+	header.bytesDePayload = sizeof(posicion);
+
+	send(memoria.socket, &header, sizeof(header), 0);
+	send(memoria.socket, &posicion, sizeof(posicion), 0);
+
+	if (recibirAlgoDe(memoria)) {
+		miValor = (t_valor_variable) buffer_solicitado;
+		printf(WHT "[Memoria] " RESET "Devolvió exitosamente un valor de la memoria.\n");
+		printf("Valor dereferenciado: %i", miValor);
+		return miValor;
+	} else {
+		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
+		return 0; // Esto devuelve 0 porque algo tiene que devolver. Aun así, el programa deja de correr y se le envia el PCB al Kernel
+	}
+
+}
+
+void asignar(t_puntero direccion_variable, t_valor_variable valor) {
+	printf("Se asigno una variable con el valor %i en la direccion %i.\n", valor, direccion_variable);
 
 	posicionDeMemoriaAPedir posicion;
-	posicion.processID = PCB_actual->pid;
-	posicion.numero_pagina = direccion_variable / MARCO_SIZE;
-	posicion.offset = direccion_variable % MARCO_SIZE;
-	posicion.size = 4;
 
-	enviar_header(memoria.socket, ALMACENAR_BYTES, sizeof(posicion));
+	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+	_Bool compararDireccionVariable(void* param) {
+		Variable* var = (Variable*) param;
+		return direccion_variable == calcularPuntero(var->posicion);
+	}
+
+	Variable *miVariable = list_find(entrada->vars, &compararDireccionVariable);
+
+	posicion.processID = actualPCB->pid;
+	posicion.numero_pagina = miVariable->posicion.numero_pagina;
+	posicion.offset = miVariable->posicion.offset;
+	posicion.size = miVariable->posicion.size;
+
+	enviar_header(memoria.socket, ASIGNAR_VALOR_VARIABLE, sizeof(posicion));
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
 	send(memoria.socket, &valor, sizeof(valor), 0);
 
-	if (recibir_algo_de(memoria)) {
-		printf("Se asigno una variable con el valor %i en la direccion %i.\n", valor, direccion_variable);
+	if (recibirAlgoDe(memoria)) {
+		printf(WHT "[Memoria] " RESET "Se pudo asignar correctamente una variable.\n" RESET);
+	} else {
+		printf(WHT "[Memoria] " RESET RED "Fallecio feo la asignación.\n" RESET);
 	}
+
 }
-t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) { // TODO
+
+t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) {
 	printf("Se obtiene la variable compartida %s\n", variable);
-	/*
+
 	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, 0);
 
-	t_valor_variable miValor = recibir_algo_de(kernel);
-	//También hay que pasarle el nombre de la variable compartida .-. , kek
-	printf("El valor de la variable compartida es %i.\n", miValor);
-
-	return miValor;
-	*/
-	return 0;
-}
-t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) { // TODO
-	printf("Se asigna la variable compartida %s con el valor %d\n" ,variable, valor);
-
-	return 1;
-}
-void ir_al_label(t_nombre_etiqueta etiqueta) {
-	printf("Se va al label %s\n", etiqueta);
-	int nuevo_program_counter = metadata_buscar_etiqueta(etiqueta,
-			PCB_actual->etiquetas, PCB_actual->etiquetas_size);
-	if (nuevo_program_counter < 0) {
-		//No existe la etiqueta
-		terminar_ejecucion(ETIQUETA_INEXISTENTE);
-	} else {
-		PCB_actual->program_counter = nuevo_program_counter - 1;
-		//Ese -1 místico es porque luego voy a incrementar el program counter
-		//en 1, entonces se anula.. osea... -1 + 1 = 0, understand? meh
+	if(recibirAlgoDe(kernel)) {
+		t_valor_variable miValor = (t_valor_variable) buffer_solicitado;
+		printf("El valor de la variable compartida es %i.\n", miValor);
+		return miValor;
 	}
+
+	printf(CYN "[Kernel] " RESET RED "Fallecio feo la obtención de valor compartida.\n" RESET);
+
+	return 0;
+
 }
-void llamar_sin_retorno(t_nombre_etiqueta etiqueta) {
+
+t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor) {
+	printf("Se asigna la variable compartida %s con el valor %d.\n", variable, valor);
+
+	Variable_Global miVariable;
+
+	miVariable.valor = valor;
+	miVariable.variable = variable;
+
+	enviar_header(kernel.socket, ASIGNAR_VALOR_VARIABLE, sizeof(miVariable));
+	send(kernel.socket, &miVariable, sizeof(miVariable), 0);
+
+	if(recibirAlgoDe(kernel)) {
+		printf("Se asigno la variable exitosamente.\n");
+		return valor;
+	}
+
+	printf(CYN "[Kernel] " RESET RED "Fallecio feo la asignación de valor compartida.\n" RESET);
+
+	return valor;
+}
+
+void irAlLabel(t_nombre_etiqueta etiqueta) { // TODO no sé si funciona
+	printf("Se va al label %s.\n", etiqueta);
+	actualPCB->program_counter = metadata_buscar_etiqueta(etiqueta,	actualPCB->etiquetas, actualPCB->etiquetas_size); // Tengo mis dudas con esta linea. El program_counter me hace ruido cambiarlo así, porque despues se suma encima. Medio turbiex
+}
+
+void llamarSinRetorno(t_nombre_etiqueta etiqueta) { // TODO y esto? WTF
 	printf("Se llama sin retorno hacia %s\n", etiqueta);
-	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+	/*Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
 
-	nueva_entrada->args = list_create();
-	nueva_entrada->vars = list_create();
+	// Se guarda el indice de codigo actual como posicion de retorno de la funcion
+	nueva_entrada->retPos = actualPCB->program_counter;
 
-	nueva_entrada->retPos = PCB_actual->program_counter + 1;
-	//Hay que volver a la instrucción siguiente de la que partí
+	//list_add(nueva_entrada->args, ARGUMENTOS!!!);
 
-	list_add(PCB_actual->indice_stack, nueva_entrada);
-	PCB_actual->puntero_stack++;
+	list_add(actualPCB->indice_stack, nueva_entrada);
+	actualPCB->puntero_stack++;
 
-	ir_al_label(etiqueta);
+	irAlLabel(etiqueta);*/
 }
-void llamar_con_retorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) {
-	printf("Se llama con retorno hacia %s\n", etiqueta);
-	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
 
-	nueva_entrada->args = list_create();
-	nueva_entrada->vars = list_create();
-	nueva_entrada->retPos = PCB_actual->program_counter + 1;
+void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) { // TODO y esto? WTF
+	printf("Se llama con retorno hacia %s\n", etiqueta);
+	/*Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+
+	nueva_entrada->retPos = actualPCB->program_counter;
+
 	nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
 	nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
-	nueva_entrada->retVar.size = 4;
+	nueva_entrada->retVar.size = sizeof(int);		// Tamanio fijo?
 
-	list_add(PCB_actual->indice_stack, nueva_entrada);
-	PCB_actual->puntero_stack++;
+	//list_add(nueva_entrada->args, ARGUMENTOS!!!);
 
-	ir_al_label(etiqueta);
+	list_add(actualPCB->indice_stack, nueva_entrada);
+	actualPCB->puntero_stack++;
+
+	irAlLabel(etiqueta);*/
 }
+
 void finalizar(void) {
-	printf("Finalizar.\n");
-	if (PCB_actual->puntero_stack > 0) {
-		Entrada_stack *entrada = list_remove(PCB_actual->indice_stack, PCB_actual->puntero_stack);
+	printf("Programa finalizado correctamente.\n");
 
-		PCB_actual->puntero_stack--;
-		PCB_actual->program_counter = entrada->retPos - 1;
+	actualPCB->exit_code = 0;
+	elProgramaNoFinalizo = false;
+}
 
-		destruir_entrada_stack(entrada);
+void retornar(t_valor_variable retorno) {
+	printf("Se retorna el valor %i.\n", retorno);
+
+	enviar_header(kernel.socket, RETORNAR_VALOR, sizeof(retorno));
+
+	send(kernel.socket, &retorno, sizeof(retorno), 0);
+
+	if(recibirAlgoDe(kernel)) {
+		// Habría que almacenarlo en retVar
+		printf("Se pudo retornar exitosamente el valor %i.\n", retorno);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "No se pudo retornar correctamente el valor." RESET);
 	}
-	else {
-		terminar_ejecucion(FINALIZO_CORRECTAMENTE);
-	}
-}
-void retornar(t_valor_variable valor_retorno) {
-	printf("Se retorna el valor %i.\n", valor_retorno);
-
-	Entrada_stack *entrada = list_remove(PCB_actual->indice_stack, PCB_actual->puntero_stack);
-
-	//No sé si está bien esto pero en mi opinión creo que sí
-	asignar(calcular_puntero(entrada->retVar), valor_retorno);
-
-	PCB_actual->puntero_stack--;
-	PCB_actual->program_counter = entrada->retPos - 1;
-
-	destruir_entrada_stack(entrada);
-}
-
-//DEFINICIÓN DE OPERACIONES KERNEL
-void kernel_wait(t_nombre_semaforo identificador_semaforo) { // TODO
 
 }
-void kernel_signal(t_nombre_semaforo identificador_semaforo) { // TODO
+
+/*
+ * ↑ Parsear tranqui ↑
+ */
+
+/*
+ * ↓ Parsear Kernel ↓
+ */
+
+void wait(t_nombre_semaforo identificador_semaforo) { // TODO
 
 }
+
+void parser_signal(t_nombre_semaforo identificador_semaforo) { // TODO
+
+}
+
 t_puntero reservar(t_valor_variable espacio) { // TODO
 	return 1;
 }
+
 void liberar(t_puntero puntero) { // TODO
 
 }
+
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
 	return 1;
 }
+
 void borrar(t_descriptor_archivo direccion) { // TODO
 
 }
+
 void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
 
 }
-void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
+
+void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
 
 }
+
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
 
 }
+
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
 
 }
 
-//MANEJO DE SEÑALES
-void rutina_signal(int signal) {
-	switch (signal) {
-		case SIGUSR1:
-	        printf(RED "[Señal] " RESET "Señal SIGUSR1 recibida\n");
-	        signal_recibida = true;
-	        break;
-		default:
-			printf(RED "[Señal] " RESET "Señal DESCONOCIDA recibida\n");
-	}
-}
-
-//EXTRA
-void establecer_configuracion() {
-	if(config_has_property(config, "PUERTO_KERNEL")) {
-		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logear_info("Puerto Kernel: %i \n",PUERTO_KERNEL);
-	} else {
-		logear_error("Error al leer el puerto del Kernel", true);
-	}
-	if(config_has_property(config, "IP_KERNEL")) {
-		strcpy(IP_KERNEL,config_get_string_value(config, "IP_KERNEL"));
-		logear_info("IP Kernel: %s \n", IP_KERNEL);
-	} else {
-		logear_error("Error al leer la IP del Kernel", true);
-	}
-	if(config_has_property(config, "PUERTO_MEMORIA")) {
-		PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logear_info("Puerto Memoria: %i \n", PUERTO_MEMORIA);
-	} else {
-		logear_error("Error al leer el puerto de la Memoria", true);
-	}
-	if(config_has_property(config, "IP_MEMORIA")){
-		strcpy(IP_MEMORIA,config_get_string_value(config, "IP_MEMORIA"));
-		logear_info("IP Memoria: %s \n", IP_MEMORIA);
-	} else {
-		logear_error("Error al leer la IP de la Memoria", true);
-	}
-}
+/*
+ * ↑ Parsear Kernel ↑
+ */

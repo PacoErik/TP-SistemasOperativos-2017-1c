@@ -109,6 +109,8 @@ estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de f
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
 int			asignar_frames_contiguos			(int, int, int, size_t, void*);
+int			asignar_paginas_a_proceso			(int, int);
+int			ultimaPaginaDeProceso 				(int);
 void		atenderKernel						(int);
 void 		atenderCPU							(int);
 void		agregar_cliente						(char, int);
@@ -132,6 +134,8 @@ void		limpiar_pantalla					();
 int			recibir_handshake					(int);
 void		size								();
 int			tipo_cliente						(int);
+int 		maxLru								();
+int 		posicionAReemplazarDeCache			();
 
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
@@ -205,34 +209,83 @@ int main(void) {
 
 /*------------DEFINICION DE FUNCIONES----------------*/
 
+int maxLru(void){
+
+	int i,max=0;
+
+		for (i = 0; i < ENTRADAS_CACHE; i++) {
+			if(tablaAdministrativa_cache[i].lru > max)max=tablaAdministrativa_cache[i].lru;
+		}
+
+		return max;
+}
+
+int posicionAReemplazarDeCache(void){
+
+	int i,min=1000,pos=0;
+
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		if(tablaAdministrativa_cache[i].pid == FRAME_LIBRE)return i;
+	}
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+			if(tablaAdministrativa_cache[i].lru < min){
+				min = tablaAdministrativa_cache[i].lru;
+				pos=i;
+			}
+		}
+
+	return pos;
+}
+
+
 int buscarEnMemoriaYDevolver(posicionDeMemoriaVariable posicion, int socket) {
 
-	int i;
+	int posMainMemory;
 
 	//Recorro la tabla admin de la cache para ver si esta
-	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		if (tablaAdministrativa_cache[i].pid != posicion.processID
-			&& tablaAdministrativa_cache[i].pag != posicion.numeroDePagina) {
+	for (posMainMemory = 0; posMainMemory < ENTRADAS_CACHE; posMainMemory++) {
+		if (tablaAdministrativa_cache[posMainMemory].pid == posicion.processID
+				&& tablaAdministrativa_cache[posMainMemory].pag
+						== posicion.numeroDePagina) {
 
-			enviarDesdeCache(i, socket, posicion);
+			enviarDesdeCache(posMainMemory, socket, posicion);
+
+			tablaAdministrativa_cache[posMainMemory].lru = maxLru() + 1; // en la posicion i de la tabla de cache,correspondiente al pid encontrado, se le asigna al campo lru el maximo lru encontrado + 1
+
 			return 1;
 		}
 	}
-
-	//Hay que implementar el reemplazo LRU si no encuentra en la cache
 
 	usleep(RETARDO * 1000);
 
 	/* Recorro la tabla admin de la memoria principal */
-	for (i = 0; i < MARCOS; i++) {
-		if (tablaAdministrativa[i].pid != posicion.processID
-			&& tablaAdministrativa[i].pag != posicion.numeroDePagina) {
+	for (posMainMemory = 0; posMainMemory < MARCOS; posMainMemory++) {
+		if (tablaAdministrativa[posMainMemory].pid == posicion.processID
+				&& tablaAdministrativa[posMainMemory].pag
+						== posicion.numeroDePagina) {
+
 			//enviarDesdeMemoria();
+
+			int posCache;
+			posCache = posicionAReemplazarDeCache();
+
+			tablaAdministrativa_cache[posCache].pid = posicion.processID;
+			tablaAdministrativa_cache[posCache].pag = posicion.numeroDePagina;
+			tablaAdministrativa_cache[posCache].lru = maxLru() + 1;
+
+			// Se copia a memoria cache
+
+			memcpy(
+					memoria_cache
+							+ tablaAdministrativa_cache[posCache].contenidoDeLaPag,
+					memoria + MARCO_SIZE * posMainMemory, MARCO_SIZE);
+
 			return 1;
+
 		}
 	}
 
-	return -1;
+	return 0;
 
 }
 
@@ -274,6 +327,61 @@ int asignar_frames_contiguos(int PID, int frames_codigo, int frames_stack, size_
 	memcpy(ir_a_frame(frame_inicial), datos, bytes);
 
 	return 1;
+}
+
+int asignar_paginas_a_proceso(int pid, int framesNecesarios) {
+
+		int i;
+		int frames_encontrados;	// Contador frames libres encontrados
+		int pagInicioHeap = ultimaPaginaDeProceso(pid);
+
+
+		for (i = 0, frames_encontrados = 0;
+				i < MARCOS && frames_encontrados < framesNecesarios; i++) {
+			if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+				frames_encontrados++;
+			}
+			else {
+				frames_encontrados = 0;
+			}
+		}
+
+		/* No hay frames disponibles */
+		if (frames_encontrados != framesNecesarios) {
+			return 0;
+		}
+
+		/* Asignar frames al proceso */
+
+		int frame_inicial = i - framesNecesarios;		// Indice primer frame
+		int frame_final = i;				// Indice ultimo frame
+		int j; //Contador que me va a ir aumentando el numero de pag
+
+		for (i = frame_inicial, j = 0; i < frame_final; i++, j++) {
+
+
+
+			tablaAdministrativa[i].pid = pid;
+			tablaAdministrativa[i].pag = pagInicioHeap + j;
+		}
+
+		return 1;
+
+
+}
+
+int ultimaPaginaDeProceso (int pid) {
+
+	int i;
+	int ultimaPagina = -1;
+	for(i=0; i< MARCOS; i++) {
+		if(tablaAdministrativa[i].pid == pid){
+			ultimaPagina ++;
+		}
+	}
+
+	return ultimaPagina;
+
 }
 
 /*
@@ -616,6 +724,8 @@ void inicializarTabla_cache(void) {
 
 	for (i=0 ; i < ENTRADAS_CACHE; i++) {
 			tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
+			//La primer pag en cache empieza en 0 * MARCO_SIZE = 0, las sig posiciones de inicio se mueven de a MARCO_SIZE, por eso el i*MARCO_SIZE
+			tablaAdministrativa_cache[i].contenidoDeLaPag = i * MARCO_SIZE;
 		}
 
 }

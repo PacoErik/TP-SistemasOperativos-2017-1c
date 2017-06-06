@@ -9,6 +9,7 @@
 	typedef struct estructuraAdministrativa_cache {
 		int pid;
 		int pag;
+		short int lru;
 		int contenidoDeLaPag; //Numero de byte a partir del cual empieza la pag en cuestion. Se llamo asi para respetar el enunciado
 	} PACKED estructuraAdministrativa_cache;
 	typedef struct estructuraAdministrativa {
