@@ -324,7 +324,7 @@ int ultimaPaginaDeProceso (int pid) {
 	int i;
 	int ultimaPagina = -1;
 	for(i=0; i< MARCOS; i++) {
-		if(tablaAdministrativa[i].pid = pid){
+		if(tablaAdministrativa[i].pid == pid){
 			ultimaPagina ++;
 		}
 	}
