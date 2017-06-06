@@ -109,6 +109,8 @@ estructuraAdministrativa *tablaAdministrativa; //Marcos representa el total de f
 /*-----------PROTOTIPOS DE FUNCIONES----------*/
 
 int			asignar_frames_contiguos			(int, int, int, size_t, void*);
+int			asignar_paginas_a_proceso			(int, int);
+int			ultimaPaginaDeProceso 				(int);
 void		atenderKernel						(int);
 void 		atenderCPU							(int);
 void		agregar_cliente						(char, int);
@@ -325,6 +327,61 @@ int asignar_frames_contiguos(int PID, int frames_codigo, int frames_stack, size_
 	memcpy(ir_a_frame(frame_inicial), datos, bytes);
 
 	return 1;
+}
+
+int asignar_paginas_a_proceso(int pid, int framesNecesarios) {
+
+		int i;
+		int frames_encontrados;	// Contador frames libres encontrados
+		int pagInicioHeap = ultimaPaginaDeProceso(pid);
+
+
+		for (i = 0, frames_encontrados = 0;
+				i < MARCOS && frames_encontrados < framesNecesarios; i++) {
+			if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+				frames_encontrados++;
+			}
+			else {
+				frames_encontrados = 0;
+			}
+		}
+
+		/* No hay frames disponibles */
+		if (frames_encontrados != framesNecesarios) {
+			return 0;
+		}
+
+		/* Asignar frames al proceso */
+
+		int frame_inicial = i - framesNecesarios;		// Indice primer frame
+		int frame_final = i;				// Indice ultimo frame
+		int j; //Contador que me va a ir aumentando el numero de pag
+
+		for (i = frame_inicial, j = 0; i < frame_final; i++, j++) {
+
+
+
+			tablaAdministrativa[i].pid = pid;
+			tablaAdministrativa[i].pag = pagInicioHeap + j;
+		}
+
+		return 1;
+
+
+}
+
+int ultimaPaginaDeProceso (int pid) {
+
+	int i;
+	int ultimaPagina = -1;
+	for(i=0; i< MARCOS; i++) {
+		if(tablaAdministrativa[i].pid == pid){
+			ultimaPagina ++;
+		}
+	}
+
+	return ultimaPagina;
+
 }
 
 /*

@@ -65,6 +65,7 @@ int kernel_inicializar_programa(int socket) {
 		return -1;
 	}
 
+	//Esta funcion tambien copia los datos del programa
 	ret = asignar_frames_contiguos(paquete.PID, paquete.paginas_codigo, paquete.paginas_stack,
 			paquete.bytes_datos, datos_programa);
 
@@ -92,17 +93,37 @@ int kernel_inicializar_programa(int socket) {
 int kernel_asignar_paginas(int socket) {
 	PedidoAsignacion paquete;
 
+
 	int ret = recv(socket, &paquete, sizeof paquete, 0);
 
 	if (ret <= 0) {
 		return -1;
 	}
 
-	printf("TODO: Asignar %d paginas al PID %d\n", paquete.paginas, paquete.PID);
+	//ATENCION no cambiar nombre de esta funcion, es la interfaz que debe cumplir la memoria por enunciado
+	ret = asignar_paginas_a_proceso(paquete.PID, paquete.paginas);
 
-	/* TODO: Enviar confirmacion */
+	printf("Asignadas %d paginas de heap al PID %d\n", paquete.paginas,
+			paquete.PID);
+
+
+	//Lo que esta adelante deberia recibirse en el kernel, falta eso porque el cpu todavia no pide nada
+	respuesta_op_kernel respuesta;
+
+	if (ret == 0) {
+		respuesta = ERROR;
+		logear_info("[PID %d] Espacio insuficiente para el heap solicitado.", paquete.PID);
+		send(socket, &respuesta, sizeof respuesta, 0);
+		return 0;
+	}
+
+	respuesta = OK;
+	send(socket, &respuesta, sizeof respuesta, 0);
+
+	logear_info("[PID %d] Listo.", paquete.PID);
 
 	return 1;
+
 }
 
 int kernel_finalizar_programa(int socket) {
