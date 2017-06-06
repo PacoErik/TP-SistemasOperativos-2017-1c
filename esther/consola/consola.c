@@ -330,7 +330,7 @@ void interaccion_consola() {
 	void opciones(char *param) {
 		string_trim(&param);
 		if (strlen(param) != 0) {
-			logear_error("El comando \"opciones\" no recibe nungun parametro", false);
+			logear_error("El comando \"opciones\" no recibe parámetros", false);
 			free(param);
 			return;
 		}
@@ -359,7 +359,7 @@ void interaccion_consola() {
 		}
 
 		if (input[strlen(input) - 1] != '\n') {
-			logear_error("Un comando no puede tener mas de 100 digitos", false);
+			logear_error("Un comando no puede tener mas de 100 caracteres", false);
 			limpiar_buffer_entrada();
 			continue;
 		}

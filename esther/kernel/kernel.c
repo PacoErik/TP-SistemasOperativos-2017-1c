@@ -96,6 +96,7 @@ int GRADO_MULTIPROG;
 t_dictionary *semaforos;
 t_dictionary *variables_compartidas;
 int PID_GLOBAL;
+int planificacion_activa = true;
 
 /* op_memoria.h */
 int socket_memoria;
@@ -126,22 +127,24 @@ miCliente*	algun_CPU_disponible();
 
 PCB*		deserializar_PCB(void*);
 
-void		destruir_PCB(PCB*);
-void		eliminar_proceso(int);
-void		inicializar_proceso(int, char *, Proceso *);
-void		planificar();
-void		terminar_kernel();
 void 		agregar_cliente(char, int);
 void 		agregar_proceso(Proceso *);
 void 		borrar_cliente(int);
 void 		cerrar_conexion(int, char*);
+void		destruir_PCB(PCB*);
+void		eliminar_proceso(int);
 void 		establecer_configuracion();
 void 		finalizar_programa(int);
 void 		hacer_pedido_memoria(datosMemoria);
+void		inicializar_proceso(int, char *, Proceso *);
 void 		intentar_iniciar_proceso();
 void 		interaccion_kernel();
+void		listar_procesos_en_estado();
+void 		peticion_para_cerrar_proceso(int);
+void		planificar();
 void 		procesar_mensaje(int, char, int);
 void*		serializar_PCB(PCB*, int*);
+void		terminar_kernel();
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -341,9 +344,7 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 			else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
 				recv(socket_cliente, &PID, sizeof(PID), 0);
-				eliminar_proceso(PID);
-
-				intentar_iniciar_proceso();
+				peticion_para_cerrar_proceso(PID);
 			}
 			break;
 
@@ -357,8 +358,19 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 
 		case CPU:
 			if (operacion == PCB_INCOMPLETO) {
-				actualizar_PCB(socket_cliente, bytes);
-
+				int pid = actualizar_PCB(socket_cliente, bytes);
+				_Bool proceso_segun_pid(void *param) {
+					Proceso *proceso = param;
+					return proceso->pcb->pid == pid;
+				}
+				Proceso *proceso = list_find(procesos, &proceso_segun_pid);
+				if (proceso->estado == EXIT) {
+					logear_info("[PID:%d] Finalización por petición de consola", pid);
+					finalizar_programa(pid);
+				} else {
+					proceso->estado = READY;
+					planificar();
+				}
 			} else if (operacion == PCB_COMPLETO) {
 				int pid = actualizar_PCB(socket_cliente, bytes);
 				finalizar_programa(pid);
@@ -367,7 +379,7 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 			} else if (operacion == PCB_EXCEPCION) {
 				int pid = actualizar_PCB(socket_cliente, bytes);
 				finalizar_programa(pid);
-				logear_error("[PID:%d] Finalizó debido a una excepción", pid);
+				logear_error("[PID:%d] Finalizó debido a una excepción", false, pid);
 			}
 			break;
 
@@ -441,17 +453,27 @@ void interaccion_kernel() {
 		logear_info("Comando de listado de programas ejecutado");
 		string_trim(&estado);
 		if (strlen(estado) == 0) {
-			logear_info("[Listado] Todos:");
-		} else if (strcmp("NEW",estado)==0) {
-			logear_info("[Listado] NEW:");
-		} else if (strcmp("READY",estado)==0) {
-			logear_info("[Listado] READY:");
-		} else if (strcmp("EXEC",estado)==0) {
-			logear_info("[Listado] EXEC:");
-		} else if (strcmp("BLOCKED",estado)==0) {
-			logear_info("[Listado] BLOCKED:");
-		} else if (strcmp("EXIT",estado)==0) {
-			logear_info("[Listado] EXIT:");
+			logear_info("[Listado - Todos los estados]");
+			listar_procesos_en_estado(NEW);
+			listar_procesos_en_estado(READY);
+			listar_procesos_en_estado(EXEC);
+			listar_procesos_en_estado(BLOCKED);
+			listar_procesos_en_estado(EXIT);
+		} else if (!strcmp("NEW",estado)) {
+			logear_info("[Listado - Procesos en estado nuevo]");
+			listar_procesos_en_estado(NEW);
+		} else if (!strcmp("READY",estado)) {
+			logear_info("[Listado - Procesos en estado listo]");
+			listar_procesos_en_estado(READY);
+		} else if (!strcmp("EXEC",estado)) {
+			logear_info("[Listado - Procesos en estado de ejecucion]");
+			listar_procesos_en_estado(EXEC);
+		} else if (!strcmp("BLOCKED",estado)) {
+			logear_info("[Listado - Procesos en estado bloqueado]");
+			listar_procesos_en_estado(BLOCKED);
+		} else if (!strcmp("EXIT",estado)) {
+			logear_info("[Listado - Procesos en estado terminado]");
+			listar_procesos_en_estado(EXIT);
 		} else {
 			logear_error("[Listado] Parámetro desconocido", false);
 		}
@@ -459,15 +481,25 @@ void interaccion_kernel() {
 	}
 
 	void proceso(char *param) {
+		free(param);
 		logear_info("[Proceso]");
 	}
 
 	void tablaglobal(char *param) {
+		free(param);
 		logear_info("[Tabla Global]");
 	}
 
 	void multiprogramacion(char *param) {
-		logear_info("[Multiprogramación]");
+		int nuevo_grado = atoi(param);
+		free(param);
+		if (nuevo_grado > 0) {
+			GRADO_MULTIPROG = nuevo_grado;
+			logear_info("[Nuevo grado de multiprogramacion: %d]", GRADO_MULTIPROG);
+		} else {
+			logear_info("[Grado de multiprogramacion inválido]");
+		}
+
 	}
 
 	void finalizar(char *sPID) {
@@ -490,24 +522,31 @@ void interaccion_kernel() {
 		int PID = strtol(sPID, NULL, 0);
 		free(sPID);
 
-		logear_info("Proceso %d finalizado",PID);
+		peticion_para_cerrar_proceso(PID);
 	}
 
 	void detener(char *param) {
-		logear_info("[Detener]");
+		free(param);
+		if (planificacion_activa) {
+			planificacion_activa = false;
+			logear_info("[Planificacion detenida]");
+		} else {
+			logear_info("[La planificacion ya está desactivada]");
+		}
 	}
 
-	void planificar(char *param) {
-		logear_info("[Planificar]");
+	void activar_planificacion(char *param) {
+		free(param);
+		if (!planificacion_activa) {
+			planificacion_activa = true;
+			logear_info("[Planificacion activada]");
+			planificar();
+		} else {
+			logear_info("[La planificacion ya está activada]");
+		}
 	}
 
 	void opciones(char *param) {
-		string_trim(&param);
-		if (strlen(param) != 0) {
-			logear_error("El comando \"opciones\" no recibe nungun parametro", false);
-			free(param);
-			return;
-		}
 		free(param);
 		imprimir_opciones_kernel();
 	}
@@ -519,7 +558,7 @@ void interaccion_kernel() {
 		{ "multiprogramacion", multiprogramacion },
 		{ "finalizar", finalizar },
 		{ "detener", detener },
-		{ "planificar", planificar },
+		{ "planificar", activar_planificacion },
 		{ "opciones" , opciones }
 	};
 
@@ -532,7 +571,7 @@ void interaccion_kernel() {
 	}
 
 	if (input[strlen(input) - 1] != '\n') {
-		logear_error("Un comando no puede tener mas de 100 digitos", false);
+		logear_error("Un comando no puede tener mas de 100 caracteres", false);
 		limpiar_buffer_entrada();
 		return;
 	}
@@ -567,6 +606,42 @@ inline void limpiar_buffer_entrada() {
 	int c;
 	while ((c = getchar()) != '\n' && c != EOF);
 }
+void listar_procesos_en_estado(int estado) {
+
+	void imprimir(void *param) {
+		Proceso *proceso = param;
+		char *status = NULL;
+		if (proceso->estado == READY) {
+			status = "READY";
+		} else if (proceso->estado == EXEC) {
+			status = "EXEC";
+		} else if (proceso->estado == BLOCKED) {
+			status = "BLOCKED";
+		} else {
+			status = "EXIT";
+		}
+		if (proceso->estado == estado) {
+			logear_info("[%s] Proceso (PID:%d)", status, proceso->pcb->pid);
+		}
+	}
+
+	if (estado == NEW) {
+		int i;
+		for (i=0; i < PID_GLOBAL; i++) {
+			_Bool distintos(void *param) {
+				Proceso *proceso = param;
+				return proceso->pcb->pid != i;
+			}
+			if (list_all_satisfy(procesos, &distintos) && list_all_satisfy(lista_EXIT, &distintos)) {
+				logear_info("[NEW] Proceso (PID:%d)", i);
+			}
+		}
+	} else if (estado == EXIT) {
+		list_iterate(lista_EXIT, &imprimir);
+	} else {
+		list_iterate(procesos, &imprimir);
+	}
+}
 
 //MANEJO DE PROCESOS//
 int actualizar_PCB(int socket_cliente, int bytes) {
@@ -584,7 +659,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 		destruir_PCB(proceso->pcb);
 		proceso->pcb = pcb;
 	} else {
-		logear_error("No existía el proceso con PID %d... weird", pcb->pid);
+		logear_error("No existía el proceso con PID %d... weird", false, pcb->pid);
 	}
 
 	//Ya que completó el proceso/la ráfaga, ponemos el CPU correspondiente
@@ -623,6 +698,7 @@ void eliminar_proceso(int PID) {
 
 	Proceso* proceso = list_remove_by_condition(procesos,mismoPID);
 
+	proceso->estado = EXIT;
 	enviar_header(proceso->consola, FINALIZAR_PROGRAMA, sizeof(int));
 	send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
 
@@ -656,8 +732,8 @@ void finalizar_programa(int PID) {
 	if (existe_proceso(PID)) {
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);
-
 		logear_info("[PID:%d] Eliminado", PID);
+		planificar();
 	}
 	else {
 		logear_error("[PID:%d] No existe PID", false, PID);
@@ -693,11 +769,11 @@ void intentar_iniciar_proceso() {
 				logear_error("Error de conexion con la memoria.", true);
 			}
 
-			printf("Pedido a memoria\n");
+			logear_info("[PID:%d] Pedido a memoria", PID);
 			free(codigo);
 
 			if (ret == 0) {
-				logear_error("[PID %d] Memoria insuficiente.", false, PID);
+				logear_error("[PID:%d] Memoria insuficiente.", false, PID);
 				nuevo_proceso->estado = EXIT;
 				nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
 				list_add(lista_EXIT, nuevo_proceso);
@@ -720,6 +796,21 @@ void intentar_iniciar_proceso() {
 				planificar();
 			}
 		}
+	}
+}
+void peticion_para_cerrar_proceso(int PID) {
+	_Bool mismoPID(void *param) {
+		Proceso *proceso = param;
+		return proceso->pcb->pid == PID;
+	}
+
+	Proceso *proceso = list_find(procesos, &mismoPID);
+
+	if (proceso == NULL) {
+		logear_info("El proceso (PID:%d) no existe/ya finalizó/no comenzó",PID);
+	} else {
+		logear_info("Petición para cerrar el proceso (PID:%d) recibida",PID);
+		proceso->estado = EXIT;
 	}
 }
 
