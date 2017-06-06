@@ -24,8 +24,8 @@ struct {
 } FSConfig;
 
 struct {
-	unsigned int TAMANIO_BLOQUES;
-	unsigned int CANTIDAD_BLOQUES;
+	int TAMANIO_BLOQUES;
+	int CANTIDAD_BLOQUES;
 	char MAGIC_NUMBER[sizeof "SADICA"];
 } FSMetadata;
 
@@ -734,7 +734,7 @@ int *_asignar_bloques(int n, int **bloques) {
 	int i;
 	int found_n; // Cantidad de bloques encontrados
 
-	for (i = 0, found_n = 0; i < bitarray_get_max_bit(bitmap) && found_n < n; i++) {
+	for (i = 0, found_n = 0; i < FSMetadata.CANTIDAD_BLOQUES && found_n < n; i++) {
 		/* Encuentra bloques libres */
 		if (bitarray_test_bit(bitmap, i) == 0) {
 			tmp[found_n] = i + 1;
