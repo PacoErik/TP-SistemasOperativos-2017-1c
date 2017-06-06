@@ -336,6 +336,7 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 				logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
 				PID_GLOBAL++;
 
+
 				intentar_iniciar_proceso();
 			}
 			else if (operacion == FINALIZAR_PROGRAMA) {
@@ -663,6 +664,8 @@ void finalizar_programa(int PID) {
 		logear_error("[PID:%d] No existe PID", false, PID);
 	}
 }
+
+/*
 void hacer_pedido_memoria(datosMemoria datosMem) {
 	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
 
@@ -678,6 +681,9 @@ void hacer_pedido_memoria(datosMemoria datosMem) {
 
 	free(buffer);
 }
+
+*/
+
 void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
 		Proceso* nuevo_proceso = queue_pop(cola_NEW);
