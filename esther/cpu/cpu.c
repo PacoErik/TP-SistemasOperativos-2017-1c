@@ -152,6 +152,11 @@ typedef struct posicionDeMemoriaAPedir {
 	int size;
 } posicionDeMemoriaAPedir;
 
+typedef struct Variable_Global {
+	t_nombre_compartida variable;
+	t_valor_variable valor;
+} Variable_Global;
+
 typedef struct servidor { // Esto es más que nada una cheteada para poder usar al socket/identificador como constante en los switch
 	int socket;
 	char identificador;
@@ -370,6 +375,7 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 		case QUANTUM:
 			recv(kernel.socket, &quantum, sizeof(quantum), 0);
 			printf("Quantum %i recibido.\n", quantum);
+			recibirAlgoDe(kernel);
 			break;
 
 		case PCB_INCOMPLETO:
@@ -388,6 +394,12 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 			return miValor;
 			break;
 
+		case ASIGNAR_VALOR_VARIABLE_OK:
+			break;
+
+		case RETORNAR_VARIABLE_OK:
+			break;
+
 		case ABRIR_ARCHIVO:
 			// TODO
 			break;
@@ -404,6 +416,11 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 			// TODO
 			break;
 
+		case EXCEPCION_DE_SOLICITUD:
+			finalizarPrograma(kernel);
+			return 0;
+			break;
+
 		default:
 			printf(RED "CÓDIGO DE OPERACIÓN DESCONOCIDO POR PARTE DEL KERNEL: %i.\n" RESET, codigoDeOperacion);
 			exit(EXIT_FAILURE);
@@ -412,21 +429,12 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 	return 1;
 }
 
-
 int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload) {
 
 	switch(codigoDeOperacion) {
 		case SOLICITAR_BYTES:
 			buffer_solicitado = malloc(bytesDePayload);
 			recv(memoria.socket, buffer_solicitado, bytesDePayload, 0);
-			break;
-
-		case EXCEPCION:
-			;int numero_excepcion;
-			recv(memoria.socket, &numero_excepcion, sizeof(int), 0);
-			actualPCB->exit_code = numero_excepcion;
-			devolverPCB(EXCEPCION);
-			recibirAlgoDe(kernel);
 			break;
 
 		case EXCEPCION_DE_SOLICITUD:
@@ -458,7 +466,6 @@ int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload
  * ↓ Acatar ordenes de algunos de los servidores ↓
  */
 
-
 void obtenerPCB(unsigned short bytesDePayload) {
 	void *bufferPCB = malloc(bytesDePayload);
 	int bytesRecibidos = recv(kernel.socket, bufferPCB, bytesDePayload, 0);
@@ -474,12 +481,11 @@ void obtenerPCB(unsigned short bytesDePayload) {
 	free(bufferPCB);
 }
 
-
 void finalizarPrograma(servidor servidor) {
 	switch(servidor.identificador) {
 		case KERNEL:
 			printf(RED "[Excepcion] " RESET "Debido a una excepcion de solicitud al Kernel, el proceso %i ripeo.\n", actualPCB->pid);
-			actualPCB->exit_code = EXCEPCION_KERNEL; // EXIT CODE -10: Excepcion de Kernel.
+			actualPCB->exit_code = EXCEPCION_KERNEL;
 			break;
 
 		case MEMORIA:
@@ -492,7 +498,6 @@ void finalizarPrograma(servidor servidor) {
 
 }
 
-
 void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
 	char* mensaje = malloc(bytesDePayload+1);
     recv(servidor.socket, mensaje, bytesDePayload, 0);
@@ -500,7 +505,6 @@ void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
     printf(CYN "Kernel: " RESET "%s\n", mensaje);
     free(mensaje);
 }
-
 
 void obtenerInstruccionDeMemoria() {
 	unsigned short instruccionSize;
@@ -527,7 +531,6 @@ void obtenerInstruccionDeMemoria() {
  * ↓ Comunicarse con los servidores ↓
  */
 
-
 int pedirMemoria() {
 
 	headerDeLosRipeados header;
@@ -544,7 +547,6 @@ int pedirMemoria() {
 
 }
 
-
 void obtenerPosicionDeMemoria() {
 
 	int bytesRecibidos = recv(kernel.socket, &actualPosicionVariable, sizeof(posicionDeMemoriaAPedir), 0);
@@ -560,7 +562,6 @@ void obtenerPosicionDeMemoria() {
 
 }
 
-
 void agregarAlStack(t_nombre_variable identificador_variable, Posicion_memoria posicionDeMemoria) {
 	Variable *nuevaVariable;
 
@@ -571,10 +572,11 @@ void agregarAlStack(t_nombre_variable identificador_variable, Posicion_memoria p
 	nuevaVariable->posicion.offset = posicionDeMemoria.offset;
 	nuevaVariable->posicion.size = posicionDeMemoria.size;
 
-/*	list_add(actualPCB->indice_stack->vars, nuevaVariable); // TODO Es un poco mas complejo el list_add, ya que es un puntero el indiceDeStack*/
+	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+	list_add(entrada->vars, nuevaVariable);
+
 }
-
-
 
 void obtenerMarcoSize() {
 	int bytesRecibidos = recv(kernel.socket, &MARCO_SIZE, sizeof(MARCO_SIZE), 0);
@@ -589,11 +591,9 @@ void obtenerMarcoSize() {
  * ↑ Comunicarse con los servidores ↑
  */
 
-
 /*
  * ↓ Configuración del CPU y conexión a los servidores ↓
  */
-
 
 void establecer_configuracion() {
 	if(config_has_property(config, "PUERTO_KERNEL")) {
@@ -627,12 +627,9 @@ void establecer_configuracion() {
  * ↑ Configuración del CPU y conexión a los servidores ↑
  */
 
-
 /*
  * ↓ Funciones auxiliares del CPU ↓
  */
-
-
 
 int existeArchivo(const char *ruta)
 {
@@ -645,12 +642,9 @@ int existeArchivo(const char *ruta)
     return false;
 }
 
-
 t_puntero calcularPuntero(Posicion_memoria posicion) {
 	return posicion.numero_pagina * MARCO_SIZE + posicion.offset;
 }
-
-
 
 void *list_serialize(t_list* list, int element_size, int *buffersize) {
 	int element_count = list_size(list),offset = 8;
@@ -666,7 +660,6 @@ void *list_serialize(t_list* list, int element_size, int *buffersize) {
 	return buffer;
 }
 
-
 t_list *list_deserialize(void *buffer) {
 	t_list *new_list = list_create();
 	int offset = 8,i,element_count,element_size;
@@ -680,7 +673,6 @@ t_list *list_deserialize(void *buffer) {
 	}
 	return new_list;
 }
-
 
 void *serializar_PCB(PCB *pcb, int* buffersize) {
 	int instrucciones_size = pcb->cantidad_instrucciones * sizeof(t_intructions);
@@ -714,7 +706,6 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 
 	return buffer;
 }
-
 
 PCB *deserializar_PCB(void *buffer) {
 	PCB *pcb = malloc(sizeof(PCB));
@@ -773,8 +764,7 @@ void destruir_actualPCB(void) {
  * ↓ Parsear tranqui ↓
  */
 
-
-t_puntero definirVariable(t_nombre_variable identificador_variable) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("definirVariable: %c\n", identificador_variable);
 
 	if(pedirMemoria() == 1) {
@@ -783,17 +773,14 @@ t_puntero definirVariable(t_nombre_variable identificador_variable) { // TODO Ya
 		return calcularPuntero(actualPosicion);
 	} else {
 		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
-		programaVivitoYColeando = false;
-		actualPCB->exit_code = EXCEPCION_MEMORIA;
 		return 0;
 	}
 
 	return 0;
 }
 
-
-t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) { // TODO Ya esta hecho, pero hay que ver si tiene errores
-	printf("Obtener posicion de la variable: %c\n", identificador_variable);
+t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) {
+	printf("Obtener posicion de la variable: %c.\n", identificador_variable);
 
 	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
 
@@ -805,6 +792,7 @@ t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) { //
 	Variable *miVariable = list_find(entrada->vars, &mismo_identificador);
 
 	if(miVariable == NULL) {
+		printf(RED "No se pudo obtener la posición de la variable" RESET);
 		programaVivitoYColeando = false;
 		actualPCB->exit_code = EXCEPCION_MEMORIA;
 		return 0;
@@ -816,7 +804,7 @@ t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) { //
 	return miPuntero;
 }
 
-t_valor_variable dereferenciar(t_puntero direccion_variable) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	printf("Dereferenciar: %i\n", direccion_variable);
 
 	t_valor_variable miValor;
@@ -843,21 +831,19 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) { // TODO Ya esta h
 	send(memoria.socket, &header, sizeof(header), 0);
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
 
-	if (recibirAlgoDe(memoria) == 1) {
+	if (recibirAlgoDe(memoria)) {
 		miValor = (t_valor_variable) buffer_solicitado;
 		printf(WHT "[Memoria] " RESET "Devolvió exitosamente un valor de la memoria.\n");
 		printf("Valor dereferenciado: %i", miValor);
 		return miValor;
 	} else {
 		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
-		programaVivitoYColeando = false;
-		actualPCB->exit_code = EXCEPCION_MEMORIA;
 		return 0; // Esto devuelve 0 porque algo tiene que devolver. Aun así, el programa deja de correr y se le envia el PCB al Kernel
 	}
 
 }
 
-void asignar(t_puntero direccion_variable, t_valor_variable valor) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	printf("Se asigno una variable con el valor %i en la direccion %i.\n", valor, direccion_variable);
 
 	posicionDeMemoriaAPedir posicion;
@@ -883,37 +869,52 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) { // TODO Ya 
 	if (recibirAlgoDe(memoria)) {
 		printf(WHT "[Memoria] " RESET "Se pudo asignar correctamente una variable.\n" RESET);
 	} else {
-		programaVivitoYColeando = false;
-		actualPCB->exit_code = EXCEPCION_MEMORIA;
 		printf(WHT "[Memoria] " RESET RED "Fallecio feo la asignación.\n" RESET);
 	}
 
 }
 
-t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) {
 	printf("Se obtiene la variable compartida %s\n", variable);
 
 	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, 0);
 
-	t_valor_variable miValor = recibirAlgoDe(kernel);
+	if(recibirAlgoDe(kernel)) {
+		t_valor_variable miValor = (t_valor_variable) buffer_solicitado;
+		printf("El valor de la variable compartida es %i.\n", miValor);
+		return miValor;
+	}
 
-	printf("El valor de la variable compartida es %i.\n", miValor);
+	printf(CYN "[Kernel] " RESET RED "Fallecio feo la obtención de valor compartida.\n" RESET);
 
-	return miValor;
+	return 0;
+
 }
 
-t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor) { // TODO
-	printf("Se asigna la variable compartida %s con el valor %d\n" ,variable, valor);
+t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_variable valor) {
+	printf("Se asigna la variable compartida %s con el valor %d.\n", variable, valor);
 
+	Variable_Global miVariable;
 
+	miVariable.valor = valor;
+	miVariable.variable = variable;
 
-	return 1;
+	enviar_header(kernel.socket, ASIGNAR_VALOR_VARIABLE, sizeof(miVariable));
+	send(kernel.socket, &miVariable, sizeof(miVariable), 0);
+
+	if(recibirAlgoDe(kernel)) {
+		printf("Se asigno la variable exitosamente.\n");
+		return valor;
+	}
+
+	printf(CYN "[Kernel] " RESET RED "Fallecio feo la asignación de valor compartida.\n" RESET);
+
+	return valor;
 }
 
-void irAlLabel(t_nombre_etiqueta etiqueta) { // TODO y esto? WTF
-	printf("Se va al label %s\n", etiqueta);
-	//actualPCB->program_counter = metadata_buscar_etiqueta(etiqueta,
-	//		actualPCB->etiquetas, actualPCB->etiquetas_size);
+void irAlLabel(t_nombre_etiqueta etiqueta) { // TODO no sé si funciona
+	printf("Se va al label %s.\n", etiqueta);
+	actualPCB->program_counter = metadata_buscar_etiqueta(etiqueta,	actualPCB->etiquetas, actualPCB->etiquetas_size); // Tengo mis dudas con esta linea. El program_counter me hace ruido cambiarlo así, porque despues se suma encima. Medio turbiex
 }
 
 void llamarSinRetorno(t_nombre_etiqueta etiqueta) { // TODO y esto? WTF
@@ -930,8 +931,6 @@ void llamarSinRetorno(t_nombre_etiqueta etiqueta) { // TODO y esto? WTF
 
 	irAlLabel(etiqueta);*/
 }
-
-
 
 void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) { // TODO y esto? WTF
 	printf("Se llama con retorno hacia %s\n", etiqueta);
@@ -951,36 +950,32 @@ void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) { //
 	irAlLabel(etiqueta);*/
 }
 
-
-
-
-
-void finalizar(void) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+void finalizar(void) {
 	printf("Programa finalizado correctamente.\n");
 
 	actualPCB->exit_code = 0;
 	elProgramaNoFinalizo = false;
 }
 
-
-
-void retornar(t_valor_variable retorno) { // TODO Ya esta hecho, pero hay que ver si tiene errores
+void retornar(t_valor_variable retorno) {
 	printf("Se retorna el valor %i.\n", retorno);
 
 	enviar_header(kernel.socket, RETORNAR_VALOR, sizeof(retorno));
 
 	send(kernel.socket, &retorno, sizeof(retorno), 0);
 
-	// Hay que verificar que pudo retornar bien?? Lease RETORNAR_VARIABLE_OK
+	if(recibirAlgoDe(kernel)) {
+		// Habría que almacenarlo en retVar
+		printf("Se pudo retornar exitosamente el valor %i.\n", retorno);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "No se pudo retornar correctamente el valor." RESET);
+	}
 
 }
-
 
 /*
  * ↑ Parsear tranqui ↑
  */
-
-
 
 /*
  * ↓ Parsear Kernel ↓
