@@ -29,7 +29,8 @@ typedef struct datosMemoria {
 typedef struct miCliente {
     short socketCliente;
     char identificador;
-    int en_uso;
+    _Bool en_uso;
+    _Bool va_a_desconectarse;
 } miCliente;
 typedef struct Posicion_memoria {
 	int numero_pagina;
@@ -96,7 +97,7 @@ int GRADO_MULTIPROG;
 t_dictionary *semaforos;
 t_dictionary *variables_compartidas;
 int PID_GLOBAL;
-int planificacion_activa = true;
+_Bool planificacion_activa = true;
 
 /* op_memoria.h */
 int socket_memoria;
@@ -139,6 +140,7 @@ void 		hacer_pedido_memoria(datosMemoria);
 void		inicializar_proceso(int, char *, Proceso *);
 void 		intentar_iniciar_proceso();
 void 		interaccion_kernel();
+void		limpiar_proceso(Proceso*);
 void		listar_procesos_en_estado();
 void 		peticion_para_cerrar_proceso(int, int);
 void		planificar();
@@ -348,6 +350,13 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 				recv(socket_cliente, &PID, sizeof(PID), 0);
 				peticion_para_cerrar_proceso(PID, COMANDO_FINALIZAR_PROGRAMA);
 			} else if (operacion == DESCONECTAR_CONSOLA) {
+				logear_info("La consola (Socket:%d) va a desconectarse, sus procesos serán finalizados", socket_cliente);
+				_Bool misma_consola(void *param) {
+					miCliente *consola = param;
+					return consola->socketCliente == socket_cliente;
+				}
+				miCliente *consola = list_find(clientes, &misma_consola);
+				consola->va_a_desconectarse = true;
 				void pedir_finalizacion(void *param) {
 					Proceso *proceso = param;
 					if (proceso->consola == socket_cliente) {
@@ -384,12 +393,19 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 			} else if (operacion == PCB_COMPLETO) {
 				int pid = actualizar_PCB(socket_cliente, bytes);
 				finalizar_programa(pid);
-				logear_info("[PID:%d] Finalizó correctamente", pid);
 
 			} else if (operacion == PCB_EXCEPCION) {
 				int pid = actualizar_PCB(socket_cliente, bytes);
 				finalizar_programa(pid);
-				logear_error("[PID:%d] Finalizó debido a una excepción", false, pid);
+			} else if (operacion == DESCONEXION_CPU) {
+				_Bool mismo_cliente(void *param) {
+					miCliente *cpu = param;
+					return cpu->socketCliente == socket_cliente;
+				}
+				miCliente *cpu = list_find(clientes, &mismo_cliente);
+				if (cpu != NULL) {
+					cpu->va_a_desconectarse = true;
+				}
 			}
 			break;
 
@@ -716,23 +732,7 @@ void eliminar_proceso(int PID) {
 	enviar_header(proceso->consola, FINALIZAR_PROGRAMA, sizeof(int));
 	send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
 
-	void borrar(void *param) {
-		Entrada_stack *entrada = (Entrada_stack*) param;
-		list_destroy_and_destroy_elements(entrada->args, free);
-		list_destroy_and_destroy_elements(entrada->vars, free);
-		free(entrada);
-	}
-
-	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
-
-	free(proceso->codigo);
-	free(proceso->pcb->etiquetas);
-	free(proceso->pcb->instrucciones_serializado);
-
-	//Aún tiene memoria reservada para los otros campos.
-	//Pero como dicen que hay que mantener la traza de ejecución
-	//no los libero, ya que nos interesan saber las estadísticas de los
-	//procesos finalizados.
+	limpiar_proceso(proceso);
 
 	list_add(lista_EXIT,proceso);
 }
@@ -752,7 +752,8 @@ void finalizar_programa(int PID) {
 		int exit_code = proceso->pcb->exit_code;
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);
-		logear_info("[PID:%d] Finalizo con EXIT_CODE:%d", PID, exit_code);
+		logear_info("[PID:%d] Finalizó con EXIT_CODE:%d", PID, exit_code);
+		intentar_iniciar_proceso();
 		planificar();
 	}
 	else {
@@ -782,41 +783,76 @@ void intentar_iniciar_proceso() {
 		}
 		else {
 			char *codigo = strdup(nuevo_proceso->codigo);
-			int PID = nuevo_proceso->pcb->pid;
 
-			int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
-			if (ret == -1) {
-				logear_error("Error de conexion con la memoria.", true);
+			_Bool existe_consola_asociada(void *param) {
+				miCliente *consola = param;
+				return consola->socketCliente == nuevo_proceso->consola && !consola->va_a_desconectarse;
 			}
 
-			logear_info("[PID:%d] Pedido a memoria", PID);
-			free(codigo);
+			if (list_any_satisfy(clientes, &existe_consola_asociada)) {
+				int PID = nuevo_proceso->pcb->pid;
+				int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
+				if (ret == -1) {
+					logear_error("Error de conexion con la memoria.", true);
+				}
 
-			if (ret == 0) {
-				logear_error("[PID:%d] Memoria insuficiente.", false, PID);
+				logear_info("[PID:%d] Pedido a memoria", PID);
+				free(codigo);
+
+				if (ret == 0) {
+					logear_error("[PID:%d] Memoria insuficiente.", false, PID);
+					nuevo_proceso->estado = EXIT;
+					nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
+					list_add(lista_EXIT, nuevo_proceso);
+
+					PID = -1;
+					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+					send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
+
+					intentar_iniciar_proceso();
+				}
+
+				else {
+					nuevo_proceso->estado = READY;
+					agregar_proceso(nuevo_proceso);
+
+					printf("Proceso agregado con PID: %d\n",PID);
+
+					// Le envia el PID a la consola
+					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
+					send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
+
+					planificar();
+				}
+			} else {
+				logear_error("La consola asociada al proceso (PID:%d) no existe, finalizando proceso..", false, nuevo_proceso->pcb->pid);
 				nuevo_proceso->estado = EXIT;
-				nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
+				nuevo_proceso->pcb->exit_code = CONSOLA_INEXISTENTE;
+				limpiar_proceso(nuevo_proceso);
 				list_add(lista_EXIT, nuevo_proceso);
-
-				PID = -1;
-				enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
-				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
-			}
-
-			else {
-				nuevo_proceso->estado = READY;
-				agregar_proceso(nuevo_proceso);
-
-				printf("Proceso agregado con PID: %d\n",PID);
-
-				// Le envia el PID a la consola
-				enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
-				send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
-
-				planificar();
+				intentar_iniciar_proceso();
 			}
 		}
 	}
+}
+void limpiar_proceso(Proceso *proceso) {
+	void borrar(void *param) {
+		Entrada_stack *entrada = (Entrada_stack*) param;
+		list_destroy_and_destroy_elements(entrada->args, free);
+		list_destroy_and_destroy_elements(entrada->vars, free);
+		free(entrada);
+	}
+
+	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
+
+	free(proceso->codigo);
+	free(proceso->pcb->etiquetas);
+	free(proceso->pcb->instrucciones_serializado);
+
+	//Aún tiene memoria reservada para los otros campos.
+	//Pero como dicen que hay que mantener la traza de ejecución
+	//no los libero, ya que nos interesan saber las estadísticas de los
+	//procesos finalizados.
 }
 void peticion_para_cerrar_proceso(int PID, int exit_code) {
 	_Bool mismoPID(void *param) {
@@ -829,9 +865,20 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 	if (proceso == NULL) {
 		logear_info("El proceso (PID:%d) no existe/ya finalizó/no comenzó",PID);
 	} else {
-		logear_info("Petición para cerrar el proceso (PID:%d) recibida",PID);
-		proceso->pcb->exit_code = exit_code;
-		proceso->estado = EXIT;
+		if (proceso->estado == EXEC) {
+			logear_info("Petición para cerrar el proceso (PID:%d) recibida, espere a la devolución del PCB",PID);
+			proceso->pcb->exit_code = exit_code;
+			proceso->estado = EXIT;
+		} else {
+			logear_info("Petición resuelta ya que (PID:%d) estaba en READY",PID);
+			Proceso *proceso_a_finalizar = list_remove_by_condition(procesos, &mismoPID);
+			proceso_a_finalizar->pcb->exit_code = exit_code;
+			proceso_a_finalizar->estado = EXIT;
+			mem_finalizar_programa(PID);
+			limpiar_proceso(proceso_a_finalizar);
+			list_add(lista_EXIT, proceso_a_finalizar);
+			intentar_iniciar_proceso();
+		}
 	}
 }
 
@@ -846,6 +893,7 @@ void agregar_cliente(char identificador, int socketCliente) {
 	cliente->identificador = identificador;
 	cliente->socketCliente = socketCliente;
 	cliente->en_uso = false;
+	cliente->va_a_desconectarse = false;
 
 	list_add(clientes, cliente);
 }
@@ -878,7 +926,7 @@ int algoritmo_actual_es(char *algoritmo) {
 miCliente *algun_CPU_disponible() {
 	_Bool cpu_lista(void *param) {
 		miCliente *cliente = (miCliente*) param;
-		return cliente->identificador == CPU && !cliente->en_uso;
+		return cliente->identificador == CPU && !cliente->en_uso && !cliente->va_a_desconectarse;
 	}
 	return list_find(clientes, &cpu_lista);
 }
@@ -920,39 +968,43 @@ void planificar() {
 	miCliente *cpu = algun_CPU_disponible();
 	//socket del CPU q se va a encargar de ejecutar
 	//es NULL si no hay CPU disponible
-	if (cpu != NULL) {
-		if (cantidad_procesos(READY) > 0) {
-			//Se le envia el QUANTUM_SLEEP junto con el PCB
-			//ya que este valor es variable a lo largo de la vida del sistema
-			enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
-			send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+	if (planificacion_activa) {
+		if (cpu != NULL) {
+			if (cantidad_procesos(READY) > 0) {
+				//Se le envia el QUANTUM_SLEEP junto con el PCB
+				//ya que este valor es variable a lo largo de la vida del sistema
+				enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
+				send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
 
-			_Bool proceso_ready(void *param) {
-				Proceso *proceso = (Proceso*) param;
-				return proceso->estado == READY;
+				_Bool proceso_ready(void *param) {
+					Proceso *proceso = (Proceso*) param;
+					return proceso->estado == READY;
+				}
+				Proceso *proceso = list_remove_by_condition(procesos, &proceso_ready);
+				proceso->estado = EXEC;
+				cpu->en_uso = true;
+				proceso->cantidad_rafagas++;
+
+				logear_info("Enviando PID %d a ejecución", proceso->pcb->pid);
+
+				int buffersize;
+				void *buffer = serializar_PCB(proceso->pcb, &buffersize);
+
+				enviar_header(cpu->socketCliente, PCB_INCOMPLETO, buffersize);
+				send(cpu->socketCliente, buffer, buffersize, 0);
+				free(buffer);
+
+				list_add(procesos, proceso);
+
+				planificar(); //Vamos a intentar vaciar la cola de READY
+			} else {
+				logear_info("No hay procesos para planificar");
 			}
-			Proceso *proceso = list_remove_by_condition(procesos, &proceso_ready);
-			proceso->estado = EXEC;
-			cpu->en_uso = true;
-			proceso->cantidad_rafagas++;
-
-			logear_info("Enviando PID %d a ejecución", proceso->pcb->pid);
-
-			int buffersize;
-			void *buffer = serializar_PCB(proceso->pcb, &buffersize);
-
-			enviar_header(cpu->socketCliente, PCB_INCOMPLETO, buffersize);
-			send(cpu->socketCliente, buffer, buffersize, 0);
-			free(buffer);
-
-			list_add(procesos, proceso);
-
-			planificar(); //Vamos a intentar vaciar la cola de READY
 		} else {
-			logear_info("No hay procesos para planificar");
+			logear_info("No hay CPUs disponibles");
 		}
 	} else {
-		logear_info("No hay CPUs disponibles");
+		logear_info("La planificación está desactivada");
 	}
 }
 
