@@ -5,6 +5,7 @@
 #include <signal.h>
 #include "commons/collections/list.h"
 #include "parser/metadata_program.h"
+#include <time.h>
 
 
 //-----DEFINES-----//
@@ -88,6 +89,7 @@ posicionDeMemoriaAPedir actual_posicion_variable; // Usado para comunicarse con 
 
 int MARCO_SIZE;
 int quantum;
+int quantum_sleep;
 int tipo_devolucion = PCB_INCOMPLETO;
 
 
@@ -220,6 +222,10 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			recv(kernel.socket, &quantum, sizeof(quantum), 0);
 			break;
 
+		case QUANTUM_SLEEP:
+			recv(kernel.socket, &quantum_sleep, sizeof(quantum_sleep), 0);
+			break;
+
 		case PCB_INCOMPLETO:
 			obtener_PCB(bytes_payload);
 			trabajar();
@@ -319,6 +325,7 @@ void devolver_PCB() {
 	}
 }
 void ejecutar_instruccion() {
+	usleep(quantum_sleep * 1000);
 	int longitud = PCB_actual->instrucciones_serializado[PCB_actual->program_counter].offset+1;
 	char *instruccion_actual = malloc(longitud);
 	memcpy(instruccion_actual, buffer_solicitado, longitud);
