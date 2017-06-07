@@ -90,7 +90,7 @@ int PUERTO_KERNEL;
 char IP_FS[16];
 int PUERTO_FS;
 int QUANTUM_VALUE;
-int QUANTUM_SLEEP;
+int QUANTUM_SLEEP_VALUE;
 char ALGORITMO[5];
 int GRADO_MULTIPROG;
 t_dictionary *semaforos;
@@ -140,7 +140,7 @@ void		inicializar_proceso(int, char *, Proceso *);
 void 		intentar_iniciar_proceso();
 void 		interaccion_kernel();
 void		listar_procesos_en_estado();
-void 		peticion_para_cerrar_proceso(int);
+void 		peticion_para_cerrar_proceso(int, int);
 void		planificar();
 void 		procesar_mensaje(int, char, int);
 void*		serializar_PCB(PCB*, int*);
@@ -255,8 +255,11 @@ int main(void) {
 					else {
 						char *respuesta = "Bienvenido!";
 						send(i, respuesta, strlen(respuesta) + 1, 0);
-						if (tipo_cliente(i) == CPU)
+						if (tipo_cliente(i) == CPU){
+							enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
+							send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
 							planificar();
+						}
 					}
 				}
 				else {
@@ -340,11 +343,18 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 				PID_GLOBAL++;
 
 				intentar_iniciar_proceso();
-			}
-			else if (operacion == FINALIZAR_PROGRAMA) {
+			} else if (operacion == FINALIZAR_PROGRAMA) {
 				int PID;
 				recv(socket_cliente, &PID, sizeof(PID), 0);
-				peticion_para_cerrar_proceso(PID);
+				peticion_para_cerrar_proceso(PID, COMANDO_FINALIZAR_PROGRAMA);
+			} else if (operacion == DESCONECTAR_CONSOLA) {
+				void pedir_finalizacion(void *param) {
+					Proceso *proceso = param;
+					if (proceso->consola == socket_cliente) {
+						peticion_para_cerrar_proceso(proceso->pcb->pid, DESCONEXION_CONSOLA);
+					}
+				}
+				list_iterate(procesos, &pedir_finalizacion);
 			}
 			break;
 
@@ -522,7 +532,7 @@ void interaccion_kernel() {
 		int PID = strtol(sPID, NULL, 0);
 		free(sPID);
 
-		peticion_para_cerrar_proceso(PID);
+		peticion_para_cerrar_proceso(PID, COMANDO_FINALIZAR_PROGRAMA);
 	}
 
 	void detener(char *param) {
@@ -656,8 +666,12 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	}
 	Proceso *proceso = list_find(procesos, &mismoPID);
 	if (proceso != NULL) {
+		int exit_code = proceso->pcb->exit_code; //Con eso manejo el caso en el que se haya finalizado por consola
 		destruir_PCB(proceso->pcb);
 		proceso->pcb = pcb;
+		if (proceso->estado == EXIT) {
+			proceso->pcb->exit_code = exit_code;
+		}
 	} else {
 		logear_error("No existía el proceso con PID %d... weird", false, pcb->pid);
 	}
@@ -730,9 +744,15 @@ int existe_proceso(int PID) {
 }
 void finalizar_programa(int PID) {
 	if (existe_proceso(PID)) {
+		_Bool mismo_proceso(void *param) {
+			Proceso *proceso = param;
+			return proceso->pcb->pid == PID;
+		}
+		Proceso *proceso = list_find(procesos, &mismo_proceso);
+		int exit_code = proceso->pcb->exit_code;
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);
-		logear_info("[PID:%d] Eliminado", PID);
+		logear_info("[PID:%d] Finalizo con EXIT_CODE:%d", PID, exit_code);
 		planificar();
 	}
 	else {
@@ -798,7 +818,7 @@ void intentar_iniciar_proceso() {
 		}
 	}
 }
-void peticion_para_cerrar_proceso(int PID) {
+void peticion_para_cerrar_proceso(int PID, int exit_code) {
 	_Bool mismoPID(void *param) {
 		Proceso *proceso = param;
 		return proceso->pcb->pid == PID;
@@ -810,6 +830,7 @@ void peticion_para_cerrar_proceso(int PID) {
 		logear_info("El proceso (PID:%d) no existe/ya finalizó/no comenzó",PID);
 	} else {
 		logear_info("Petición para cerrar el proceso (PID:%d) recibida",PID);
+		proceso->pcb->exit_code = exit_code;
 		proceso->estado = EXIT;
 	}
 }
@@ -901,14 +922,10 @@ void planificar() {
 	//es NULL si no hay CPU disponible
 	if (cpu != NULL) {
 		if (cantidad_procesos(READY) > 0) {
-			if (algoritmo_actual_es("FIFO")) {
-				QUANTUM_VALUE = 0;
-				// LA VILLEREADA CÓSMICA
-				// QUANTUM = 0 => FIFO! OSEA, ES LÓGICO!
-			}
-
-			enviar_header(cpu->socketCliente, QUANTUM, sizeof(int));
-			send(cpu->socketCliente, &QUANTUM_VALUE, sizeof(int), 0);
+			//Se le envia el QUANTUM_SLEEP junto con el PCB
+			//ya que este valor es variable a lo largo de la vida del sistema
+			enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
+			send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
 
 			_Bool proceso_ready(void *param) {
 				Proceso *proceso = (Proceso*) param;
@@ -917,6 +934,7 @@ void planificar() {
 			Proceso *proceso = list_remove_by_condition(procesos, &proceso_ready);
 			proceso->estado = EXEC;
 			cpu->en_uso = true;
+			proceso->cantidad_rafagas++;
 
 			logear_info("Enviando PID %d a ejecución", proceso->pcb->pid);
 
@@ -1044,11 +1062,14 @@ void establecer_configuracion() {
 	QUANTUM_VALUE = config_get_int_value(config, "QUANTUM");
 	logear_info("QUANTUM: %d", QUANTUM_VALUE);
 
-	QUANTUM_SLEEP = config_get_int_value(config, "QUANTUM_SLEEP");
-	logear_info("QUANTUM_SLEEP: %d", QUANTUM_SLEEP);
+	QUANTUM_SLEEP_VALUE = config_get_int_value(config, "QUANTUM_SLEEP");
+	logear_info("QUANTUM_SLEEP: %d", QUANTUM_SLEEP_VALUE);
 
 	strcpy(ALGORITMO,config_get_string_value(config, "ALGORITMO"));
 	logear_info("ALGORITMO: %s",ALGORITMO);
+
+	if (algoritmo_actual_es("FIFO"))
+		QUANTUM_VALUE = 0;
 
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
 	logear_info("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
