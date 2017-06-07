@@ -39,7 +39,7 @@ int cpu_processar_operacion(int socket) {
 		} else {
 			logear_error("CPU intentó acceder a posición de memoria indebida", false);
 			enviar_header(socket, EXCEPCION, 4);
-			numero_excepcion = SEGMENTATION_FAULT;
+			numero_excepcion = FALLO_DE_SEGMENTO;
 			send(socket, &numero_excepcion, sizeof(numero_excepcion), 0);
 		}
 		return 0;
@@ -61,7 +61,7 @@ int cpu_processar_operacion(int socket) {
 		} else {
 			logear_error("CPU intentó acceder a posición de memoria indebida", false);
 			enviar_header(socket, EXCEPCION, 4);
-			numero_excepcion = SEGMENTATION_FAULT;
+			numero_excepcion = FALLO_DE_SEGMENTO;
 			send(socket, &numero_excepcion, sizeof(numero_excepcion), 0);
 		}
 		free(buffer);
