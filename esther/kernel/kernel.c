@@ -66,7 +66,6 @@ typedef struct PCB {
 typedef struct Proceso {
 	int consola; //Socket de la consola que envio este proceso
 	int cantidad_rafagas;
-	int cantidad_operaciones_privilegiadas;
 	int cantidad_paginas_heap;
 	int cantidad_alocar;
 	int bytes_alocados;
@@ -145,6 +144,10 @@ void		listar_procesos_en_estado();
 void 		peticion_para_cerrar_proceso(int, int);
 void		planificar();
 void 		procesar_mensaje(int, char, int);
+void 		procesar_operaciones_consola(int, char, int);
+void 		procesar_operaciones_CPU(int, char, int);
+void 		procesar_operaciones_filesystem(int, char, int);
+void 		procesar_operaciones_memoria(int, char, int);
 void*		serializar_PCB(PCB*, int*);
 void		terminar_kernel();
 
@@ -329,90 +332,122 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 
 	switch(tipo) {
 		case CONSOLA:
-			if (operacion == MENSAJE) {
-				recibir_mensaje(socket_cliente,bytes);
-			}
-			else if (operacion == INICIAR_PROGRAMA) {
-				char* codigo = malloc(bytes+1);
-				recv(socket_cliente, codigo, bytes, 0);
-				codigo[bytes]='\0';
-
-				Proceso* nuevo_proceso = malloc(sizeof(Proceso));
-				inicializar_proceso(socket_cliente, codigo, nuevo_proceso);
-
-				queue_push(cola_NEW,nuevo_proceso);
-				logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
-				PID_GLOBAL++;
-
-				intentar_iniciar_proceso();
-			} else if (operacion == FINALIZAR_PROGRAMA) {
-				int PID;
-				recv(socket_cliente, &PID, sizeof(PID), 0);
-				peticion_para_cerrar_proceso(PID, COMANDO_FINALIZAR_PROGRAMA);
-			} else if (operacion == DESCONECTAR_CONSOLA) {
-				logear_info("La consola (Socket:%d) va a desconectarse, sus procesos serán finalizados", socket_cliente);
-				_Bool misma_consola(void *param) {
-					miCliente *consola = param;
-					return consola->socketCliente == socket_cliente;
-				}
-				miCliente *consola = list_find(clientes, &misma_consola);
-				consola->va_a_desconectarse = true;
-				void pedir_finalizacion(void *param) {
-					Proceso *proceso = param;
-					if (proceso->consola == socket_cliente) {
-						peticion_para_cerrar_proceso(proceso->pcb->pid, DESCONEXION_CONSOLA);
-					}
-				}
-				list_iterate(procesos, &pedir_finalizacion);
-			}
+			procesar_operaciones_consola(socket_cliente, operacion, bytes);
 			break;
 
 		case MEMORIA:
-			printf("Memoria\n");
+			procesar_operaciones_memoria(socket_cliente, operacion, bytes);
 			break;
 
 		case FILESYSTEM:
-			printf("File System\n");
+			procesar_operaciones_filesystem(socket_cliente, operacion, bytes);
 			break;
 
 		case CPU:
-			if (operacion == PCB_INCOMPLETO) {
-				int pid = actualizar_PCB(socket_cliente, bytes);
-				_Bool proceso_segun_pid(void *param) {
-					Proceso *proceso = param;
-					return proceso->pcb->pid == pid;
-				}
-				Proceso *proceso = list_find(procesos, &proceso_segun_pid);
-				if (proceso->estado == EXIT) {
-					logear_info("[PID:%d] Finalización por petición de consola", pid);
-					finalizar_programa(pid);
-				} else {
-					proceso->estado = READY;
-					planificar();
-				}
-			} else if (operacion == PCB_COMPLETO) {
-				int pid = actualizar_PCB(socket_cliente, bytes);
-				finalizar_programa(pid);
-
-			} else if (operacion == PCB_EXCEPCION) {
-				int pid = actualizar_PCB(socket_cliente, bytes);
-				finalizar_programa(pid);
-			} else if (operacion == DESCONEXION_CPU) {
-				_Bool mismo_cliente(void *param) {
-					miCliente *cpu = param;
-					return cpu->socketCliente == socket_cliente;
-				}
-				miCliente *cpu = list_find(clientes, &mismo_cliente);
-				if (cpu != NULL) {
-					cpu->va_a_desconectarse = true;
-				}
-			}
+			procesar_operaciones_CPU(socket_cliente, operacion, bytes);
 			break;
 
 		default:
 			logear_error("Operación inválida de %s", true, ID_CLIENTE(tipo));
 			break;
 	}
+}
+void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes) {
+	switch (operacion) {
+
+	case MENSAJE:
+		recibir_mensaje(socket_cliente,bytes);
+		break;
+
+	case INICIAR_PROGRAMA:;
+		char* codigo = malloc(bytes+1);
+		recv(socket_cliente, codigo, bytes, 0);
+		codigo[bytes]='\0';
+
+		Proceso* nuevo_proceso = malloc(sizeof(Proceso));
+		inicializar_proceso(socket_cliente, codigo, nuevo_proceso);
+
+		queue_push(cola_NEW,nuevo_proceso);
+		logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
+		PID_GLOBAL++;
+
+		intentar_iniciar_proceso();
+		break;
+
+	case FINALIZAR_PROGRAMA:;
+		int PID;
+		recv(socket_cliente, &PID, sizeof(PID), 0);
+		peticion_para_cerrar_proceso(PID, COMANDO_FINALIZAR_PROGRAMA);
+		break;
+
+	case DESCONECTAR_CONSOLA:
+		logear_info("La consola (Socket:%d) va a desconectarse, sus procesos serán finalizados", socket_cliente);
+		_Bool misma_consola(void *param) {
+			miCliente *consola = param;
+			return consola->socketCliente == socket_cliente;
+		}
+		miCliente *consola = list_find(clientes, &misma_consola);
+		consola->va_a_desconectarse = true;
+		void pedir_finalizacion(void *param) {
+			Proceso *proceso = param;
+			if (proceso->consola == socket_cliente) {
+				peticion_para_cerrar_proceso(proceso->pcb->pid, DESCONEXION_CONSOLA);
+			}
+		}
+		list_iterate(procesos, &pedir_finalizacion);
+		break;
+
+	}
+}
+void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
+	int pid;
+
+	switch (operacion) {
+
+	case PCB_INCOMPLETO:
+		pid = actualizar_PCB(socket_cliente, bytes);
+		_Bool proceso_segun_pid(void *param) {
+			Proceso *proceso = param;
+			return proceso->pcb->pid == pid;
+		}
+		Proceso *proceso = list_find(procesos, &proceso_segun_pid);
+		if (proceso->estado == EXIT) {
+			logear_info("[PID:%d] Finalización por petición de consola", pid);
+			finalizar_programa(pid);
+		} else {
+			proceso->estado = READY;
+			planificar();
+		}
+		break;
+
+	case PCB_COMPLETO:
+		pid = actualizar_PCB(socket_cliente, bytes);
+		finalizar_programa(pid);
+		break;
+
+	case PCB_EXCEPCION:
+		pid = actualizar_PCB(socket_cliente, bytes);
+		finalizar_programa(pid);
+		break;
+
+	case DESCONEXION_CPU:;
+		_Bool mismo_cliente(void *param) {
+			miCliente *cpu = param;
+			return cpu->socketCliente == socket_cliente;
+		}
+		miCliente *cpu = list_find(clientes, &mismo_cliente);
+		if (cpu != NULL) {
+			cpu->va_a_desconectarse = true;
+		}
+		break;
+
+	}
+}
+void procesar_operaciones_filesystem(int socket_cliente, char operacion, int bytes) {
+
+}
+void procesar_operaciones_memoria(int socket_cliente, char operacion, int bytes) {
+
 }
 int recibir_handshake(int socketCliente) {
 	headerDeLosRipeados handy;
@@ -936,7 +971,6 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	nuevo_proceso->bytes_liberados = 0;
 	nuevo_proceso->cantidad_alocar = 0;
 	nuevo_proceso->cantidad_liberar = 0;
-	nuevo_proceso->cantidad_operaciones_privilegiadas = 0;
 	nuevo_proceso->cantidad_paginas_heap = 0;
 	nuevo_proceso->cantidad_rafagas = 0;
 	nuevo_proceso->cantidad_syscalls = 0;
