@@ -464,8 +464,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case ASIGNAR_VALOR_VARIABLE:
 		variable = malloc(bytes);
 		recv(socket_cliente, variable, bytes, 0);
-		int valor_nuevo;
-		recv(socket_cliente, &valor_nuevo, sizeof(int), 0);
+		int *valor_nuevo = malloc(sizeof(int));
+		recv(socket_cliente, valor_nuevo, sizeof(int), 0);
 
 		if (dictionary_has_key(variables_compartidas, variable))
 			valor = dictionary_get(variables_compartidas, variable);
@@ -475,9 +475,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
 			send(socket_cliente, &excepcion, sizeof(excepcion), 0);
 		} else {
+			memcpy(valor, valor_nuevo, sizeof(int));
 			enviar_header(socket_cliente, ASIGNAR_VALOR_VARIABLE, 0);
 			logear_info("Se cambió el valor de la variable compartida %s a %d", variable, valor_nuevo);
 		}
+		free(valor_nuevo);
 		free(variable);
 		break;
 
