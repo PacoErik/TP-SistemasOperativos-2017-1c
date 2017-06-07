@@ -83,7 +83,7 @@ bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
 
 void *buffer_solicitado = NULL;
 
-PCB *PCB_actual; // Programa corriendo
+PCB *PCB_actual = NULL; // Programa corriendo
 Posicion_memoria actual_posicion; // Actual posicion de memoria a utilizar
 posicionDeMemoriaAPedir actual_posicion_variable; // Usado para comunicarse con el proceso memoria
 
@@ -311,6 +311,9 @@ void devolver_PCB() {
 	int buffersize = 0;
 	void *buffer = serializar_PCB(PCB_actual, &buffersize);
 
+	if (signal_recibida) //Le avisamos al kernel sobre la desconexión así no nos tiene en cuenta para la próxima planificación
+		enviar_header(kernel.socket, DESCONEXION_CPU, 0);
+
 	enviar_header(kernel.socket, tipo_devolucion, buffersize);
 	send(kernel.socket, buffer, buffersize, 0);
 
@@ -399,6 +402,7 @@ void destruir_actualPCB(void) {
 	free(PCB_actual->instrucciones_serializado);
 	list_destroy_and_destroy_elements(PCB_actual->indice_stack, destruir_entrada_stack);
 	free(PCB_actual);
+	PCB_actual = NULL;
 }
 void destruir_entrada_stack(void *param) {
 	Entrada_stack *entrada = (Entrada_stack *) param;
@@ -759,14 +763,13 @@ void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valo
 }
 
 //MANEJO DE SEÑALES
-void rutina_signal(int signal) {
-	switch (signal) {
-		case SIGUSR1:
-	        printf(RED "[Señal] " RESET "Señal SIGUSR1 recibida\n");
-	        signal_recibida = true;
-	        break;
-		default:
-			printf(RED "[Señal] " RESET "Señal DESCONOCIDA recibida\n");
+void rutina_signal(int _) {
+	if (PCB_actual != NULL) {
+		logear_info("Señal de finalización recibida, se finalizará cuando se devuelva el PCB");
+		signal_recibida = true;
+	} else {
+		logear_info("No estoy ejecutando nada, nos vemos!");
+		exit(0);
 	}
 }
 
