@@ -1,0 +1,14 @@
+#!/usr/bin/ansisop
+begin
+	variables a, b, c
+	a = 3
+	b = 5
+	!Global = a
+	c = !Global
+	!UnaVar = !Global + b
+	!tiempo3 = !UnaVar + !Global
+	!estavariablelabugeaylacagaxd = 10
+	a = b + c + 12345
+end
+
+

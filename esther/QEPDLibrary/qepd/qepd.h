@@ -49,6 +49,7 @@ enum CodigoDeOperacion {
 #define FALLO_DE_SEGMENTO -13
 #define SOBRECARGA_STACK -14
 #define CONSOLA_INEXISTENTE -15
+#define VARIABLE_COMPARTIDA_INEXISTENTE -16
 #define SIN_DEFINICION -20
 
 typedef struct headerDeLosRipeados {

@@ -231,14 +231,21 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			trabajar();
 			break;
 
-		case PEDIR_MEMORIA_VARIABLE_OK:
-			obtener_posicion_memoria();
+		case OBTENER_VALOR_VARIABLE:
+			free(buffer_solicitado);
+			buffer_solicitado = malloc(bytes_payload);
+			recv(kernel.socket, buffer_solicitado, bytes_payload, 0);
 			break;
 
-		case OBTENER_VALOR_VARIABLE_OK:
-			;t_valor_variable miValor;
-			recv(kernel.socket, &miValor, sizeof(miValor), 0);
-			return miValor;
+		case ASIGNAR_VALOR_VARIABLE:
+			//Mensaje de confirmación
+			break;
+
+		case EXCEPCION:;
+			int numero_excepcion;
+			recv(kernel.socket, &numero_excepcion, sizeof(int), 0);
+			terminar_ejecucion(numero_excepcion);
+			return 0;
 			break;
 
 		case ABRIR_ARCHIVO:
@@ -576,6 +583,9 @@ t_puntero definir_variable(t_nombre_variable identificador_variable) {
 	return calcular_puntero(posicion);
 }
 t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
+	if (!programaVivitoYColeando)
+		return 0; //Una sola instrucción puede ejecutar muchas primitivas, si falla en la primera primitiva las otras no se dan cuenta
+
 	printf("Obtener posicion de la variable: %c\n", nombre);
 
 	Entrada_stack *entrada = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
@@ -624,7 +634,8 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	return 0;
 }
 void asignar(t_puntero direccion_variable, t_valor_variable valor) {
-
+	if (!programaVivitoYColeando)
+		return;
 
 	posicionDeMemoriaAPedir posicion;
 	posicion.processID = PCB_actual->pid;
@@ -640,23 +651,35 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 		printf("Se asigno una variable con el valor %i en la direccion %i.\n", valor, direccion_variable);
 	}
 }
-t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) { // TODO
-	printf("Se obtiene la variable compartida %s\n", variable);
-	/*
-	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, 0);
+t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
+	printf("Solicitando el valor de la variable compartida %s\n", variable);
 
-	t_valor_variable miValor = recibir_algo_de(kernel);
-	//También hay que pasarle el nombre de la variable compartida .-. , kek
-	printf("El valor de la variable compartida es %i.\n", miValor);
+	int longitud = strlen(variable)+1;
+	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, longitud);
+	send(kernel.socket, variable, longitud, 0);
 
-	return miValor;
-	*/
+	if (recibir_algo_de(kernel)) {
+		int *valor = buffer_solicitado;
+		printf("Valor obtenido de %s = %d\n", variable, *valor);
+		return *valor;
+	}
+	printf("No se pudo obtener el valor de %s\n", variable);
 	return 0;
 }
-t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) { // TODO
-	printf("Se asigna la variable compartida %s con el valor %d\n" ,variable, valor);
+t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) {
+	printf("Asignando el valor %d a la variable compartida %s\n", valor, variable);
 
-	return 1;
+	int longitud = strlen(variable)+1;
+	enviar_header(kernel.socket, ASIGNAR_VALOR_VARIABLE, longitud);
+	send(kernel.socket, variable, longitud, 0);
+	send(kernel.socket, &valor, sizeof(valor), 0);
+
+	if (recibir_algo_de(kernel)) {
+		printf("Se asignó satisfactoriamente %d a la variable %s\n", valor, variable);
+		return valor;
+	}
+	printf("No se pudo asignar el valor a %s\n", variable);
+	return 0;
 }
 void ir_al_label(t_nombre_etiqueta etiqueta) {
 	printf("Se va al label %s\n", etiqueta);

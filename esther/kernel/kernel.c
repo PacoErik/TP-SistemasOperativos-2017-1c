@@ -381,7 +381,7 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 		break;
 
 	case DESCONECTAR_CONSOLA:
-		logear_info("La consola (Socket:%d) va a desconectarse, sus procesos serán finalizados", socket_cliente);
+		logear_info("La consola (Socket:%d) se desconectó, sus procesos serán finalizados", socket_cliente);
 		_Bool misma_consola(void *param) {
 			miCliente *consola = param;
 			return consola->socketCliente == socket_cliente;
@@ -400,7 +400,9 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 	}
 }
 void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
-	int pid;
+	int pid, excepcion;
+	char *variable = NULL;
+	int *valor = NULL;
 
 	switch (operacion) {
 
@@ -439,6 +441,44 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		if (cpu != NULL) {
 			cpu->va_a_desconectarse = true;
 		}
+		break;
+
+	case OBTENER_VALOR_VARIABLE:
+		variable = malloc(bytes);
+		recv(socket_cliente, variable, bytes, 0);
+
+		if (dictionary_has_key(variables_compartidas, variable))
+			valor = dictionary_get(variables_compartidas, variable);
+
+		if (valor == NULL) {
+			enviar_header(socket_cliente, EXCEPCION, 4);
+			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
+			send(socket_cliente, &excepcion, 4, 0);
+		} else {
+			enviar_header(socket_cliente, OBTENER_VALOR_VARIABLE, 4);
+			send(socket_cliente, valor, 4, 0);
+		}
+		free(variable);
+		break;
+
+	case ASIGNAR_VALOR_VARIABLE:
+		variable = malloc(bytes);
+		recv(socket_cliente, variable, bytes, 0);
+		int valor_nuevo;
+		recv(socket_cliente, &valor_nuevo, sizeof(int), 0);
+
+		if (dictionary_has_key(variables_compartidas, variable))
+			valor = dictionary_get(variables_compartidas, variable);
+
+		if (valor == NULL) {
+			enviar_header(socket_cliente, EXCEPCION, 4);
+			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
+			send(socket_cliente, &excepcion, sizeof(excepcion), 0);
+		} else {
+			enviar_header(socket_cliente, ASIGNAR_VALOR_VARIABLE, 0);
+			logear_info("Se cambió el valor de la variable compartida %s a %d", variable, valor_nuevo);
+		}
+		free(variable);
 		break;
 
 	}
