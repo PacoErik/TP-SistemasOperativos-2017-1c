@@ -8,6 +8,7 @@
 #include "commons/collections/queue.h"
 #include <string.h>
 #include "parser/metadata_program.h"
+#include <sys/inotify.h>
 
 //-----DEFINES-----//
 #define ID_CLIENTE(x) ID_CLIENTES[x-CONSOLA]
@@ -17,6 +18,9 @@
 		}
 enum Estado {NEW, READY, EXEC, BLOCKED, EXIT};
 
+//Esto es para el inotify, no le den bola
+#define EVENT_SIZE  ( sizeof (struct inotify_event) )
+#define BUF_LEN     ( 1024 * ( EVENT_SIZE + 16 ) )
 
 //-----ESTRUCTURAS-----//
 typedef t_list listaCliente;
@@ -97,6 +101,7 @@ t_dictionary *semaforos;
 t_dictionary *variables_compartidas;
 int PID_GLOBAL;
 _Bool planificacion_activa = true;
+int descriptor_cambios_archivo;
 
 /* op_memoria.h */
 int socket_memoria;
@@ -204,7 +209,17 @@ int main(void) {
 
 	agregar_cliente(MEMORIA, socket_memoria);
 
-	fdmax = (socket_memoria > servidor) ? socket_memoria : servidor; // Maximo entre fd de memoria y kernel
+	descriptor_cambios_archivo = inotify_init();
+
+	fdmax = (socket_memoria > servidor) ? socket_memoria : servidor;
+
+	if (descriptor_cambios_archivo < 0 ) {
+		logear_error("No se puede detectar los cambios en el directorio", false);
+	} else {
+		fdmax = (descriptor_cambios_archivo > servidor) ? descriptor_cambios_archivo : servidor;
+		inotify_add_watch(descriptor_cambios_archivo,"./", IN_MODIFY);
+	    FD_SET(descriptor_cambios_archivo, &conectados);
+	}
 
     FD_SET(servidor, &conectados);
     FD_SET(socket_memoria, &conectados);
@@ -250,6 +265,25 @@ int main(void) {
 			else if (i == fileno(stdin)) {
 				interaccion_kernel();
 			}
+
+			else if (i == descriptor_cambios_archivo) {
+				int j = 0;
+				char *buffer_cambios_archivo = calloc(BUF_LEN, 1);
+				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
+				while (j < length) {
+					struct inotify_event *event = ( struct inotify_event * ) &buffer_cambios_archivo[j];
+					printf("Cambios detectados en %s\n", event->name);
+					if (!strcmp(event->name, RUTA_CONFIG)) {
+						t_config *nueva_config = config_create(RUTA_CONFIG);
+						QUANTUM_SLEEP_VALUE = config_get_int_value(nueva_config, "QUANTUM_SLEEP");
+						printf("NUEVO QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
+						config_destroy(nueva_config);
+					}
+					j += EVENT_SIZE + event->len;
+				}
+				free(buffer_cambios_archivo);
+			}
+
 			// Un cliente mando un mensaje
 			else {
 				if (existe_cliente(i) == 0) {			// Nuevo cliente, debe enviar un handshake
