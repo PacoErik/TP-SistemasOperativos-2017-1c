@@ -254,7 +254,7 @@ int main(void) {
 			else {
 				if (existe_cliente(i) == 0) {			// Nuevo cliente, debe enviar un handshake
 					if (recibir_handshake(i) == 0) {
-						cerrar_conexion(i, "El socket %d se desconectó\n");
+						cerrar_conexion(i, "El socket %d se desconectó");
 						FD_CLR(i, &conectados);
 					}
 					else {
@@ -263,6 +263,8 @@ int main(void) {
 						if (tipo_cliente(i) == CPU){
 							enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
 							send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
+							enviar_header(i, PAGINAS_STACK, sizeof(STACK_SIZE));
+							send(i, &STACK_SIZE, sizeof(STACK_SIZE), 0);
 							planificar();
 						}
 					}
@@ -280,7 +282,7 @@ int main(void) {
 							if (tipo == MEMORIA)
 								terminar_kernel();
 						} else {
-							cerrar_conexion(i, "El socket %d se desconectó\n");
+							cerrar_conexion(i, "El socket %d se desconectó");
 						}
 						FD_CLR(i, &conectados);
 						continue;
@@ -477,7 +479,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		} else {
 			memcpy(valor, valor_nuevo, sizeof(int));
 			enviar_header(socket_cliente, ASIGNAR_VALOR_VARIABLE, 0);
-			logear_info("Se cambió el valor de la variable compartida %s a %d", variable, valor_nuevo);
+			logear_info("Se cambió el valor de la variable compartida %s a %d", variable, *valor_nuevo);
 		}
 		free(valor_nuevo);
 		free(variable);
@@ -514,7 +516,7 @@ int recibir_mensaje(int socketCliente, int bytesDePayload) {
         int cantidad = enviar_mensaje_todos(socketCliente, mensaje);
         logear_info("Mensaje retransmitido a %i clientes", cantidad);
     } else {
-    	cerrar_conexion(socketCliente,"Error al recibir mensaje del socket %i\n");
+    	cerrar_conexion(socketCliente,"Error al recibir mensaje del socket %i");
     }
     free(mensaje);
 	return bytesRecibidos;
@@ -784,7 +786,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 void agregar_proceso(Proceso *nuevo_proceso) {
 	int pid = nuevo_proceso->pcb->pid;
 	if (existe_proceso(pid)) {
-		printf("Warning: Ya existe proceso con mismo PID\n");
+		logear_info("Warning: Ya existe proceso con mismo PID");
 	}
 	list_add(procesos, nuevo_proceso);
 }
@@ -893,7 +895,7 @@ void intentar_iniciar_proceso() {
 					nuevo_proceso->estado = READY;
 					agregar_proceso(nuevo_proceso);
 
-					printf("Proceso agregado con PID: %d\n",PID);
+					logear_info("Proceso agregado con PID: %d",PID);
 
 					// Le envia el PID a la consola
 					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
@@ -902,9 +904,9 @@ void intentar_iniciar_proceso() {
 					planificar();
 				}
 			} else {
-				logear_error("La consola asociada al proceso (PID:%d) no existe, finalizando proceso..", false, nuevo_proceso->pcb->pid);
+				logear_error("La consola asociada al proceso (PID:%d) se desconectó, finalizando proceso..", false, nuevo_proceso->pcb->pid);
 				nuevo_proceso->estado = EXIT;
-				nuevo_proceso->pcb->exit_code = CONSOLA_INEXISTENTE;
+				nuevo_proceso->pcb->exit_code = DESCONEXION_CONSOLA;
 				limpiar_proceso(nuevo_proceso);
 				list_add(lista_EXIT, nuevo_proceso);
 				intentar_iniciar_proceso();
