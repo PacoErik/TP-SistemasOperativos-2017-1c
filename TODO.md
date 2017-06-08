@@ -26,7 +26,7 @@
 
 - [x] El proceso Consola ahora reconoce todos los comandos propuestos en el enunciado. El objetivo de este checkpoint es tener una aplicación que ejecute programas simples.
 
-- [ ] A la hora de recibir un nuevo proceso, el Kernel almacenará las páginas de dicho proceso en la Memoria y guardará los valores de las mismas en el PCB, inicializando el Program Counter y cargando los datos del los índices provistos por el parser. Sumado a esto, el PCB deberá ahora contener datos del Exit Code del programa, que podrá ser 0 o un valor negativo dependiendo si la consola finalizó su conexión antes de tiempo. Además, el Kernel permitirá obtener el listado de procesos del sistema, finalizar un proceso, consultar su estado y detener la planificación.
+- [x] A la hora de recibir un nuevo proceso, el Kernel almacenará las páginas de dicho proceso en la Memoria y guardará los valores de las mismas en el PCB, inicializando el Program Counter y cargando los datos del los índices provistos por el parser. Sumado a esto, el PCB deberá ahora contener datos del Exit Code del programa, que podrá ser 0 o un valor negativo dependiendo si la consola finalizó su conexión antes de tiempo. Además, el Kernel permitirá obtener el listado de procesos del sistema, finalizar un proceso, consultar su estado y detener la planificación.
 
 - [ ] Además, existirá una regla fija ante la syscall write que permite enviar a imprimir texto a la consola siempre y cuando el FD sea 1. Caso contrario, el sistema deberá fallar.
 
@@ -56,13 +56,13 @@
 incorporando las estructuras del FileSystem y una caché que deberá aumentar ampliamente su performance.
 
 
-- [ ] El Kernel ya permite ejecutar varios programas en paralelo. Se debe prestar especial atención a la hora de sincronizar la aplicación para soportar las transiciones de múltiples programas.
+- [x] El Kernel ya permite ejecutar varios programas en paralelo. Se debe prestar especial atención a la hora de sincronizar la aplicación para soportar las transiciones de múltiples programas.
 
 - [ ] Se amplía la capa de Memoria del Kernel, encargada de administrar las syscalls que requieren acceso a la creación de memoria dinámica del programa (malloc).
 
 - [ ] Se crea la capa de FileSystem en el Kernel, encargada de manejar la tabla de archivos por proceso y tabla de archivos globales. Se implementan las syscalls de la CPU que permiten abrir y cerrar archivos, junto con los comandos de la consola del kernel que permiten manejar dichas estructuras.
 
-- [ ] Se crea la estructura de caché para la memoria.
+- [x] Se crea la estructura de caché para la memoria.
 
 - [ ] Las CPUs ahora corren en forma paralela. Además, se implementan las operaciones que requieren acceso al heap de los programas.
 
@@ -83,8 +83,8 @@ funcionando.
 
 > En caso que el equipo quiera crear una meta, se puede editar acá.
 
-- [ ] TODO 1
+- [x] Hacer un branch para tener el código funcionando
 
-- [ ] TODO 2
+- [x] Sufrir una crisis existencial
 
-- [ ] TODO 3
+- [ ] Aprobar el TP xD
