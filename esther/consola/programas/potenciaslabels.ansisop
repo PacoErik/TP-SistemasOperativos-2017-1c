@@ -1,0 +1,7 @@
+begin
+	variables a
+	a = 1
+	:potencia
+	a = a + a 
+	goto potencia
+end
