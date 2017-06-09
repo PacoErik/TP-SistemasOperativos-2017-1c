@@ -448,7 +448,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	char *nombre = NULL;
 	int *valor = NULL;
 	Proceso *proceso = NULL;
-	Semaforo_QEPD *semaforo = NULL;
+	Semaforo_QEPD *semaforo;
 	int *id_proceso = NULL;
 
 	_Bool proceso_segun_pid(void *param) {
@@ -552,7 +552,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		recv(socket_cliente, nombre, bytes, 0);
 		id_proceso = malloc(sizeof(int));
 		recv(socket_cliente, id_proceso, sizeof(int), 0);
-		Semaforo_QEPD *semaforo = NULL;
+		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
 			semaforo = dictionary_get(semaforos, nombre);
@@ -579,6 +579,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		recv(socket_cliente, nombre, bytes, 0);
 		id_proceso = malloc(sizeof(int));
 		recv(socket_cliente, id_proceso, sizeof(int), 0);
+		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
 			semaforo = dictionary_get(semaforos, nombre);
