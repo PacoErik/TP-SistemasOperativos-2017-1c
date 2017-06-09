@@ -139,6 +139,7 @@ int 		posicionAReemplazarDeCache			();
 
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
+
 int main(void) {
 	configurar("memoria");
 
@@ -209,6 +210,52 @@ int main(void) {
 
 /*------------DEFINICION DE FUNCIONES----------------*/
 
+// FUNCION DEL HILO
+
+void *fHilo(void* param) {
+	int socketCliente = (int)*((int*)param);
+	int tipoCliente = recibir_handshake(socketCliente);
+	if (tipoCliente == -1) {
+		// La memoria no conoce otro tipo de clientes ni permite hacer operaciones sin haber hecho handshake
+		cerrar_conexion(socketCliente, "Socket %d: Operacion Invalida");
+		return NULL;
+	}
+	if (tipoCliente == KERNEL) {
+		if (hayAlguienQueSea(KERNEL)) {
+			cerrar_conexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
+			return NULL;
+		}
+
+		printf("Kernel conectado\n");
+
+		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
+
+		/* Enviar tamanio de pagina (marco) al kernel */
+		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
+
+		agregar_cliente(KERNEL, socketCliente);
+		atenderKernel(socketCliente);
+	}
+	else {
+		agregar_cliente(CPU, socketCliente);
+
+		printf("Nuevo CPU conectado\n");
+		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
+		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
+		atenderCPU(socketCliente);
+	}
+	return NULL;
+}
+
+// MANEJO DE MEMORIA
+
+void crearMemoria(void) {
+	memoria = calloc(MARCOS , MARCO_SIZE);
+
+	memoria_cache = calloc(ENTRADAS_CACHE , MARCO_SIZE);
+
+}
+
 int maxLru(void){
 
 	int i,max=0;
@@ -237,6 +284,25 @@ int posicionAReemplazarDeCache(void){
 	return pos;
 }
 
+/*
+ * Aca inicializamos los pid en FRAME_LIBRE y marcamos en la tabla los frames usados por la misma FRAME_ADMIN
+ */
+void inicializarTabla(void) {
+	// Aca no necesita ningun malloc, se guarda directamente en memoria
+	tablaAdministrativa = (estructuraAdministrativa *) memoria;
+
+	int tamanioTotalTabla = sizeof(estructuraAdministrativa[MARCOS]);
+	int framesOcupadosPorTabla = DIVIDE_ROUNDUP(tamanioTotalTabla, MARCO_SIZE);
+
+	int i;
+	for (i = 0 ; i < framesOcupadosPorTabla; i++) {
+		tablaAdministrativa[i].pid = FRAME_ADMIN;
+	}
+
+	for ( ; i < MARCOS; i++) {
+		tablaAdministrativa[i].pid = FRAME_LIBRE;
+	}
+}
 
 int buscarEnMemoriaYDevolver(posicionDeMemoriaVariable posicion, int socket) {
 
@@ -289,6 +355,19 @@ int buscarEnMemoriaYDevolver(posicionDeMemoriaVariable posicion, int socket) {
 
 }
 
+void inicializarTabla_cache(void) {
+
+	int i;
+
+	tablaAdministrativa_cache = malloc(ENTRADAS_CACHE * sizeof(estructuraAdministrativa_cache));
+
+	for (i=0 ; i < ENTRADAS_CACHE; i++) {
+			tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
+			//La primer pag en cache empieza en 0 * MARCO_SIZE = 0, las sig posiciones de inicio se mueven de a MARCO_SIZE, por eso el i*MARCO_SIZE
+			tablaAdministrativa_cache[i].contenidoDeLaPag = i * MARCO_SIZE;
+		}
+
+}
 
 /*
  * Asigna frames contiguos para un proceso.
@@ -410,6 +489,81 @@ void liberar_frames(int PID) {
 	}
 }
 
+// INTERFAZ DE USUARIO
+
+void *interaccionMemoria(void * _) {
+	imprimirOpcionesDeMemoria();
+	char input[3];
+
+	while (1) {
+		scanf("%2s", input);
+
+		// limpiar buffer de entrada
+
+		int c;
+		while ((c = getchar()) != '\n' && c != EOF);
+
+		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
+
+		if ((strlen(input) != 1) || '1' > input[0] || input[0] > '6') {
+			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+			continue;
+		}
+
+		char opcion = input[0];
+		switch (opcion) {
+		case '1': {
+			configurarRetardo();
+			break;
+		}
+		case '2': {
+			logear_info("Comando de dump ejecutado");
+			dump();
+			break;
+		}
+		case '3': {
+			logear_info("Comando de flush ejecutado\n");
+			flush(); // TODO
+			break;
+		}
+		case '4': {
+			size(); // TODO
+			break;
+		}
+		case '5': {
+			limpiar_pantalla();
+			break;
+		}
+		case '6': {
+			imprimirOpcionesDeMemoria();
+			break;
+		}
+		}
+	}
+}
+
+void imprimirOpcionesDeMemoria() {
+	printf("\n--------------------\n");
+	printf("\n");
+	printf("BIEVENIDO A LA MEMORIA\n");
+	printf("SUS OPCIONES:\n");
+	printf("\n");
+	printf("1. Configurar retardo\n");
+	printf("2. Dump\n");
+	printf("3. Flush\n");
+	printf("4. Size\n");
+	printf("5. Limpiar mensajes\n");
+	printf("6. Mostrar opciones nuevamente\n");
+	printf("\n");
+	printf("--------------------\n");
+}
+
+void limpiar_pantalla() {
+	printf("\033[H\033[J");
+}
+
+// MANEJO DE CLIENTES
+
 void atenderKernel(int socketKernel) {
 	int ret;
 	while (1) {
@@ -469,6 +623,45 @@ void cerrar_conexion(int socketCliente, char* motivo) {
 	close(socketCliente);
 }
 
+int existe_cliente(int socketCliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	return list_any_satisfy(clientes, mismoSocket);
+}
+
+int hayAlguienQueSea(char identificacion) {
+	bool mismoID(void* elemento) {
+		return identificacion == ((miCliente*) elemento)->identificador;
+	}
+	return list_any_satisfy(clientes, mismoID);
+}
+
+int recibir_handshake(int socket) {
+	headerDeLosRipeados header;
+	int bytesRecibidos = recibir_header(socket, &header);
+	if (bytesRecibidos <= 0) {
+		if (bytesRecibidos == -1) {
+			cerrar_conexion(socket, "El socket %d se desconectó");
+		}
+		else {
+			cerrar_conexion(socket, "Socket %d: Error en el recv");
+		}
+		return -1;
+	}
+	char codOp = header.codigoDeOperacion;
+	return (codOp == KERNEL || codOp == CPU) ? codOp : -1;
+}
+
+int tipo_cliente(int socketCliente) {
+	DEF_MISMO_SOCKET(socketCliente);
+	miCliente *found = (miCliente*)(list_find(clientes, mismoSocket));
+	if (found == NULL) {
+		return -1;
+	}
+	return found->identificador;
+}
+
+// EXTRAS
+
 void configurarRetardo() {
 	printf("El actual retardo es %i ms\n", RETARDO);
 	printf("Coloque nuevo retardo (0ms - 9999ms):\n");
@@ -504,13 +697,6 @@ void configurarRetardo() {
 			}
 		}
 	}
-}
-
-void crearMemoria(void) {
-	memoria = calloc(MARCOS , MARCO_SIZE);
-
-	memoria_cache = calloc(ENTRADAS_CACHE , MARCO_SIZE);
-
 }
 
 void dump() {
@@ -621,46 +807,6 @@ void establecer_configuracion() {
 	}
 }
 
-int existe_cliente(int socketCliente) {
-	DEF_MISMO_SOCKET(socketCliente);
-	return list_any_satisfy(clientes, mismoSocket);
-}
-
-void *fHilo(void* param) {
-	int socketCliente = (int)*((int*)param);
-	int tipoCliente = recibir_handshake(socketCliente);
-	if (tipoCliente == -1) {
-		// La memoria no conoce otro tipo de clientes ni permite hacer operaciones sin haber hecho handshake
-		cerrar_conexion(socketCliente, "Socket %d: Operacion Invalida");
-		return NULL;
-	}
-	if (tipoCliente == KERNEL) {
-		if (hayAlguienQueSea(KERNEL)) {
-			cerrar_conexion(socketCliente, "El cliente %i intentó conectarse como Kernel ya habiendo uno");
-			return NULL;
-		}
-
-		printf("Kernel conectado\n");
-
-		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
-
-		/* Enviar tamanio de pagina (marco) al kernel */
-		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
-
-		agregar_cliente(KERNEL, socketCliente);
-		atenderKernel(socketCliente);
-	}
-	else {
-		agregar_cliente(CPU, socketCliente);
-
-		printf("Nuevo CPU conectado\n");
-		send(socketCliente, "Bienvenido!", sizeof "Bienvenido!", 0);
-		send(socketCliente, &MARCO_SIZE, sizeof(int), 0);
-		atenderCPU(socketCliente);
-	}
-	return NULL;
-}
-
 void finalizarPrograma(int numCliente, unsigned short payload) {
 	// payload "identificador del programa".
 	int PID;
@@ -673,143 +819,6 @@ void flush() {
 	// TODO
 }
 
-int hayAlguienQueSea(char identificacion) {
-	bool mismoID(void* elemento) {
-		return identificacion == ((miCliente*) elemento)->identificador;
-	}
-	return list_any_satisfy(clientes, mismoID);
-}
-
-void imprimirOpcionesDeMemoria() {
-	printf("\n--------------------\n");
-	printf("\n");
-	printf("BIEVENIDO A LA MEMORIA\n");
-	printf("SUS OPCIONES:\n");
-	printf("\n");
-	printf("1. Configurar retardo\n");
-	printf("2. Dump\n");
-	printf("3. Flush\n");
-	printf("4. Size\n");
-	printf("5. Limpiar mensajes\n");
-	printf("6. Mostrar opciones nuevamente\n");
-	printf("\n");
-	printf("--------------------\n");
-}
-
-/*
- * Aca inicializamos los pid en -2 (usado) y marcamos en la tabla los frames usados por la misma (pid -1)
- */
-void inicializarTabla(void) {
-	// Aca no necesita ningun malloc, se guarda directamente en memoria
-	tablaAdministrativa = (estructuraAdministrativa *) memoria;
-
-	int tamanioTotalTabla = sizeof(estructuraAdministrativa[MARCOS]);
-	int framesOcupadosPorTabla = DIVIDE_ROUNDUP(tamanioTotalTabla, MARCO_SIZE);
-
-	int i;
-	for (i = 0 ; i < framesOcupadosPorTabla; i++) {
-		tablaAdministrativa[i].pid = FRAME_ADMIN;
-	}
-
-	for ( ; i < MARCOS; i++) {
-		tablaAdministrativa[i].pid = FRAME_LIBRE;
-	}
-}
-
-void inicializarTabla_cache(void) {
-
-	int i;
-
-	tablaAdministrativa_cache = malloc(ENTRADAS_CACHE * sizeof(estructuraAdministrativa_cache));
-
-	for (i=0 ; i < ENTRADAS_CACHE; i++) {
-			tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
-			//La primer pag en cache empieza en 0 * MARCO_SIZE = 0, las sig posiciones de inicio se mueven de a MARCO_SIZE, por eso el i*MARCO_SIZE
-			tablaAdministrativa_cache[i].contenidoDeLaPag = i * MARCO_SIZE;
-		}
-
-}
-
-void *interaccionMemoria(void * _) {
-	imprimirOpcionesDeMemoria();
-	char input[3];
-
-	while (1) {
-		scanf("%2s", input);
-
-		// limpiar buffer de entrada
-
-		int c;
-		while ((c = getchar()) != '\n' && c != EOF);
-
-		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-
-		if ((strlen(input) != 1) || '1' > input[0] || input[0] > '6') {
-			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
-			continue;
-		}
-
-		char opcion = input[0];
-		switch (opcion) {
-		case '1': {
-			configurarRetardo();
-			break;
-		}
-		case '2': {
-			logear_info("Comando de dump ejecutado");
-			dump();
-			break;
-		}
-		case '3': {
-			logear_info("Comando de flush ejecutado\n");
-			flush(); // TODO
-			break;
-		}
-		case '4': {
-			size(); // TODO
-			break;
-		}
-		case '5': {
-			limpiar_pantalla();
-			break;
-		}
-		case '6': {
-			imprimirOpcionesDeMemoria();
-			break;
-		}
-		}
-	}
-}
-
-int recibir_handshake(int socket) {
-	headerDeLosRipeados header;
-	int bytesRecibidos = recibir_header(socket, &header);
-	if (bytesRecibidos <= 0) {
-		if (bytesRecibidos == -1) {
-			cerrar_conexion(socket, "El socket %d se desconectó");
-		}
-		else {
-			cerrar_conexion(socket, "Socket %d: Error en el recv");
-		}
-		return -1;
-	}
-	char codOp = header.codigoDeOperacion;
-	return (codOp == KERNEL || codOp == CPU) ? codOp : -1;
-}
-
-void limpiar_pantalla() {
-	printf("\033[H\033[J");
-}
-
 void size() {
 	// TODO
-}
-
-int tipo_cliente(int socketCliente) {
-	DEF_MISMO_SOCKET(socketCliente);
-	miCliente *found = (miCliente*)(list_find(clientes, mismoSocket));
-	if (found == NULL) {
-		return -1;
-	}
-	return found->identificador;
 }

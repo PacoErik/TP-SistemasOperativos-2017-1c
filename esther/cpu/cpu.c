@@ -200,6 +200,7 @@ void obtenerPCB(unsigned short bytesDePayload);
 void obtenerPosicionDeMemoria();
 void solicitarInstruccion();
 void* serializar_PCB(PCB *pcb, int* buffersize);
+void agregarALasEtiquetas(t_nombre_variable identificador_variable);
 
 /*
  * ↓ Señales ↓
@@ -400,6 +401,10 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 		case RETORNAR_VARIABLE_OK:
 			break;
 
+		case PEDIR_MEMORIA_OK:
+			recv(kernel.socket, buffer_solicitado, sizeof(bytesDePayload), 0);
+			break;
+
 		case ABRIR_ARCHIVO:
 			// TODO
 			break;
@@ -562,19 +567,36 @@ void obtenerPosicionDeMemoria() {
 
 }
 
+void agregarALasEtiquetas(t_nombre_variable identificador_variable) {
+	actualPCB->etiquetas[actualPCB->etiquetas_size] = identificador_variable;
+	actualPCB->etiquetas_size++;
+}
+
 void agregarAlStack(t_nombre_variable identificador_variable, Posicion_memoria posicionDeMemoria) {
-	Variable *nuevaVariable;
-
-	nuevaVariable = malloc(sizeof(Variable));
-
-	nuevaVariable->identificador = identificador_variable;
-	nuevaVariable->posicion.numero_pagina = posicionDeMemoria.numero_pagina;
-	nuevaVariable->posicion.offset = posicionDeMemoria.offset;
-	nuevaVariable->posicion.size = posicionDeMemoria.size;
 
 	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
 
-	list_add(entrada->vars, nuevaVariable);
+	if(identificador_variable >= '0' && identificador_variable <= '9') {
+
+		Variable *nuevaVariable;
+		nuevaVariable = malloc(sizeof(Variable));
+		nuevaVariable->identificador = identificador_variable;
+		nuevaVariable->posicion.numero_pagina = posicionDeMemoria.numero_pagina;
+		nuevaVariable->posicion.offset = posicionDeMemoria.offset;
+		nuevaVariable->posicion.size = posicionDeMemoria.size;
+		list_add(entrada->vars, nuevaVariable);
+		agregarALasEtiquetas(identificador_variable);
+
+	} else {
+
+		Posicion_memoria *nuevaPosicion;
+		nuevaPosicion = malloc(sizeof(Posicion_memoria));
+		nuevaPosicion->numero_pagina = posicionDeMemoria.numero_pagina;
+		nuevaPosicion->offset = posicionDeMemoria.offset;
+		nuevaPosicion->size = posicionDeMemoria.size;
+		list_add(entrada->args, nuevaPosicion);
+
+	}
 
 }
 
@@ -768,11 +790,11 @@ t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	printf("definirVariable: %c\n", identificador_variable);
 
 	if(pedirMemoria() == 1) {
-		printf(WHT "[Memoria] " RESET "Devolvió exitosamente una posición de memoria.\n");
+		printf(CYN "[Kernel] " RESET "Devolvió exitosamente una posición de memoria.\n");
 		agregarAlStack(identificador_variable, actualPosicion);
 		return calcularPuntero(actualPosicion);
 	} else {
-		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
+		printf(CYN "[Kernel] " RESET RED "Acceso invalido a la memoria.\n" RESET);
 		return 0;
 	}
 
@@ -791,55 +813,56 @@ t_puntero obtenerPosicionVariable(t_nombre_variable identificador_variable) {
 
 	Variable *miVariable = list_find(entrada->vars, &mismo_identificador);
 
+	t_puntero miPuntero;
+
 	if(miVariable == NULL) {
-		printf(RED "No se pudo obtener la posición de la variable" RESET);
-		programaVivitoYColeando = false;
-		actualPCB->exit_code = EXCEPCION_MEMORIA;
-		return 0;
+
+		Posicion_memoria *posicion = list_get(entrada->args, atoi(&identificador_variable));
+
+		if(posicion == NULL) {
+
+			printf(RED "No se pudo obtener la posición de la variable.\n" RESET);
+			programaVivitoYColeando = false;
+			actualPCB->exit_code = VARIABLE_SIN_DECLARAR;
+			return 0;
+
+		} else {
+
+			miPuntero = calcularPuntero(*posicion);
+
+		}
+
+	} else {
+
+		miPuntero = calcularPuntero(miVariable -> posicion);
+
 	}
 
-	t_puntero miPuntero = calcularPuntero(miVariable -> posicion);
-
-	printf("La posición de la variable es %i\n", miPuntero);
+	printf("La posición de la variable es %i.\n", miPuntero);
 	return miPuntero;
 }
 
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	printf("Dereferenciar: %i\n", direccion_variable);
 
-	t_valor_variable miValor;
 	posicionDeMemoriaAPedir posicion;
-
-	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
-
-	_Bool compararDireccionVariable(void* param) {
-		Variable* var = (Variable*) param;
-		return direccion_variable == calcularPuntero(var->posicion);
-	}
-
-	Variable *miVariable = list_find(entrada->vars, &compararDireccionVariable);
-
 	posicion.processID = actualPCB->pid;
-	posicion.numero_pagina = miVariable->posicion.numero_pagina;
-	posicion.offset = miVariable->posicion.offset;
-	posicion.size = miVariable->posicion.size;
+	posicion.numero_pagina = direccion_variable / MARCO_SIZE;
+	posicion.offset = direccion_variable % MARCO_SIZE;
+	posicion.size = 4;
 
-	headerDeLosRipeados header;
-	header.codigoDeOperacion = SOLICITAR_BYTES;
-	header.bytesDePayload = sizeof(posicion);
-
-	send(memoria.socket, &header, sizeof(header), 0);
+	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
 
 	if (recibirAlgoDe(memoria)) {
-		miValor = (t_valor_variable) buffer_solicitado;
+		t_valor_variable *miValor = buffer_solicitado;
 		printf(WHT "[Memoria] " RESET "Devolvió exitosamente un valor de la memoria.\n");
-		printf("Valor dereferenciado: %i", miValor);
-		return miValor;
-	} else {
-		printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
-		return 0; // Esto devuelve 0 porque algo tiene que devolver. Aun así, el programa deja de correr y se le envia el PCB al Kernel
+		printf("Valor dereferenciado: %i.\n", *miValor);
+		return *miValor;
 	}
+
+	printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
+	return 0;
 
 }
 
@@ -880,9 +903,9 @@ t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) {
 	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, 0);
 
 	if(recibirAlgoDe(kernel)) {
-		t_valor_variable miValor = (t_valor_variable) buffer_solicitado;
-		printf("El valor de la variable compartida es %i.\n", miValor);
-		return miValor;
+		t_valor_variable *miValor = buffer_solicitado;
+		printf("El valor de la variable compartida es %i.\n", *miValor);
+		return *miValor;
 	}
 
 	printf(CYN "[Kernel] " RESET RED "Fallecio feo la obtención de valor compartida.\n" RESET);
@@ -912,49 +935,85 @@ t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_va
 	return valor;
 }
 
-void irAlLabel(t_nombre_etiqueta etiqueta) { // TODO no sé si funciona
+void irAlLabel(t_nombre_etiqueta etiqueta) {
+
 	printf("Se va al label %s.\n", etiqueta);
-	actualPCB->program_counter = metadata_buscar_etiqueta(etiqueta,	actualPCB->etiquetas, actualPCB->etiquetas_size); // Tengo mis dudas con esta linea. El program_counter me hace ruido cambiarlo así, porque despues se suma encima. Medio turbiex
+
+	int nuevo_program_counter = metadata_buscar_etiqueta(etiqueta, actualPCB->etiquetas, actualPCB->etiquetas_size);
+
+	if (nuevo_program_counter < 0) {
+
+		actualPCB->exit_code = ETIQUETA_INEXISTENTE;
+		printf(RED "[Excepcion]" RESET "El label %s no existe.\n", etiqueta);
+
+	} else {
+
+		printf("Se pudo ir al label correctamente.\n");
+		actualPCB->program_counter = nuevo_program_counter - 1;
+		//Ese -1 místico es porque luego voy a incrementar el program counter
+		//en 1, entonces se anula.. osea... -1 + 1 = 0, understand? meh
+
+	}
+
 }
 
-void llamarSinRetorno(t_nombre_etiqueta etiqueta) { // TODO y esto? WTF
-	printf("Se llama sin retorno hacia %s\n", etiqueta);
-	/*Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+void llamarSinRetorno(t_nombre_etiqueta etiqueta) {
+	printf("Se llama sin retorno hacia %s.\n", etiqueta);
 
-	// Se guarda el indice de codigo actual como posicion de retorno de la funcion
-	nueva_entrada->retPos = actualPCB->program_counter;
+	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
 
-	//list_add(nueva_entrada->args, ARGUMENTOS!!!);
+	nueva_entrada->args = list_create();
+	nueva_entrada->vars = list_create();
+
+	nueva_entrada->retPos = actualPCB->program_counter + 1;
+	//Hay que volver a la instrucción siguiente de la que partí
 
 	list_add(actualPCB->indice_stack, nueva_entrada);
 	actualPCB->puntero_stack++;
 
-	irAlLabel(etiqueta);*/
+	irAlLabel(etiqueta);
+
 }
 
-void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) { // TODO y esto? WTF
-	printf("Se llama con retorno hacia %s\n", etiqueta);
-	/*Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+void llamarConRetorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) {
+	printf("Se llama con retorno hacia %s.\n", etiqueta);
 
-	nueva_entrada->retPos = actualPCB->program_counter;
+	Entrada_stack *nuevaEntrada = malloc(sizeof(Entrada_stack));
 
-	nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
-	nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
-	nueva_entrada->retVar.size = sizeof(int);		// Tamanio fijo?
+	nuevaEntrada->args = list_create();
+	nuevaEntrada->vars = list_create();
+	nuevaEntrada->retPos = actualPCB->program_counter + 1;
+	nuevaEntrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
+	nuevaEntrada->retVar.offset = donde_retornar % MARCO_SIZE;
+	nuevaEntrada->retVar.size = 4;
 
-	//list_add(nueva_entrada->args, ARGUMENTOS!!!);
-
-	list_add(actualPCB->indice_stack, nueva_entrada);
+	list_add(actualPCB->indice_stack, nuevaEntrada);
 	actualPCB->puntero_stack++;
 
-	irAlLabel(etiqueta);*/
+	irAlLabel(etiqueta);
+
 }
 
 void finalizar(void) {
-	printf("Programa finalizado correctamente.\n");
+	if (actualPCB->puntero_stack > 0) {
 
-	actualPCB->exit_code = 0;
-	elProgramaNoFinalizo = false;
+		printf("Llamado a función finalizado correctamente.\n");
+
+		Entrada_stack *entrada = list_remove(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+		actualPCB->puntero_stack--;
+		actualPCB->program_counter = entrada->retPos - 1;
+
+		destruir_entrada_stack(entrada);
+
+	} else {
+
+		printf("Programa finalizado correctamente.\n");
+		actualPCB->exit_code = 0;
+		elProgramaNoFinalizo = false;
+
+	}
+
 }
 
 void retornar(t_valor_variable retorno) {
@@ -965,10 +1024,16 @@ void retornar(t_valor_variable retorno) {
 	send(kernel.socket, &retorno, sizeof(retorno), 0);
 
 	if(recibirAlgoDe(kernel)) {
-		// Habría que almacenarlo en retVar
-		printf("Se pudo retornar exitosamente el valor %i.\n", retorno);
+
+		Entrada_stack *entrada = list_remove(actualPCB->indice_stack, actualPCB->puntero_stack);
+		asignar(calcularPuntero(entrada->retVar), retorno);
+		printf(CYN "[Kernel] " RESET "Se pudo retornar exitosamente el valor %i.\n", retorno);
+		destruir_entrada_stack(entrada);
+
 	} else {
-		printf(CYN "[Kernel] " RESET RED "No se pudo retornar correctamente el valor." RESET);
+
+		printf(CYN "[Kernel] " RESET RED "No se pudo retornar el valor %i.\n" RESET, retorno);
+
 	}
 
 }
@@ -989,8 +1054,16 @@ void parser_signal(t_nombre_semaforo identificador_semaforo) { // TODO
 
 }
 
-t_puntero reservar(t_valor_variable espacio) { // TODO
-	return 1;
+t_puntero reservar(t_valor_variable espacio) {
+
+	enviar_header(kernel.socket, PEDIR_MEMORIA, espacio);
+	recibirAlgoDe(kernel);
+
+	Posicion_memoria *miPosicion = buffer_solicitado;
+
+	//Habria que guardar la posicion de la reserva de memoria ¿?
+
+	return calcularPuntero(*miPosicion);
 }
 
 void liberar(t_puntero puntero) { // TODO
@@ -1009,17 +1082,28 @@ void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
 
 }
 
+
+
+
 void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
 
 }
+
+
+
 
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
 
 }
 
+
+
+
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
 
 }
+
+
 
 /*
  * ↑ Parsear Kernel ↑
