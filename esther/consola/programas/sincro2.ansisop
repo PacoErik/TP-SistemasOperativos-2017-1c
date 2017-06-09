@@ -1,0 +1,6 @@
+begin
+	variables a
+	a = 99
+	!Global = a + 1 
+	signal SEM1
+end
