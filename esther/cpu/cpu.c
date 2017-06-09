@@ -192,6 +192,7 @@ int analizar_header(servidor servidor, headerDeLosRipeados header) {
 	return 0;
 }
 int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
+	int numero_excepcion;
 	switch(operacion) {
 		case MENSAJE:
 			leer_mensaje(kernel, bytes_payload);
@@ -224,12 +225,17 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			//Mensaje de confirmación
 			break;
 
-		case EXCEPCION:;
-			int numero_excepcion;
+		case EXCEPCION:
 			recv(kernel.socket, &numero_excepcion, sizeof(int), 0);
 			terminar_ejecucion(numero_excepcion);
 			return 0;
+
+		case WAIT:
+			//Confirmacion
 			break;
+
+		case BLOQUEAR:
+			return 0;
 
 		case ABRIR_ARCHIVO:
 			// TODO
@@ -719,11 +725,32 @@ void retornar(t_valor_variable valor_retorno) {
 }
 
 //DEFINICIÓN DE OPERACIONES KERNEL
-void kernel_wait(t_nombre_semaforo identificador_semaforo) { // TODO
+void kernel_wait(t_nombre_semaforo identificador_semaforo) {
+	int longitud = strlen(identificador_semaforo) + 1;
+	enviar_header(kernel.socket, WAIT, longitud);
+	send(kernel.socket, identificador_semaforo, longitud, 0);
+	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
+	if (recibir_algo_de(kernel)) {
+		logear_info("Permiso del semaforo %s otorgado", identificador_semaforo);
+		return;
+	}
+
+	if (programaVivitoYColeando) {
+		logear_info("Se bloquea el proceso");
+		programaVivitoYColeando = false;
+		tipo_devolucion = PCB_BLOQUEADO;
+	}
 }
-void kernel_signal(t_nombre_semaforo identificador_semaforo) { // TODO
+void kernel_signal(t_nombre_semaforo identificador_semaforo) {
+	int longitud = strlen(identificador_semaforo) + 1;
+	enviar_header(kernel.socket, SIGNAL, longitud);
+	send(kernel.socket, identificador_semaforo, longitud, 0);
+	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
+	if (recibir_algo_de(kernel)) {
+		logear_info("Se libera el semaforo %s", identificador_semaforo);
+	}
 }
 t_puntero reservar(t_valor_variable espacio) { // TODO
 	return 1;
