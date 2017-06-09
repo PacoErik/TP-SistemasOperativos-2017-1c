@@ -234,6 +234,10 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			//Confirmacion
 			break;
 
+		case SIGNAL:
+			//Confirmación
+			break;
+
 		case BLOQUEAR:
 			return 0;
 
@@ -726,13 +730,14 @@ void retornar(t_valor_variable valor_retorno) {
 
 //DEFINICIÓN DE OPERACIONES KERNEL
 void kernel_wait(t_nombre_semaforo identificador_semaforo) {
+	logear_info("Pidiendo acceso al semáforo %s...", identificador_semaforo);
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, WAIT, longitud);
 	send(kernel.socket, identificador_semaforo, longitud, 0);
 	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
 	if (recibir_algo_de(kernel)) {
-		logear_info("Permiso del semaforo %s otorgado", identificador_semaforo);
+		logear_info("Permiso del semáforo %s otorgado", identificador_semaforo);
 		return;
 	}
 
@@ -743,6 +748,7 @@ void kernel_wait(t_nombre_semaforo identificador_semaforo) {
 	}
 }
 void kernel_signal(t_nombre_semaforo identificador_semaforo) {
+	logear_info("Liberando al semáforo %s...", identificador_semaforo);
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, SIGNAL, longitud);
 	send(kernel.socket, identificador_semaforo, longitud, 0);
