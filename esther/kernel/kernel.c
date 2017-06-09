@@ -80,6 +80,10 @@ typedef struct Proceso {
 	int estado;
 	PCB *pcb;
 } Proceso;
+typedef struct Semaforo_QEPD {
+	int valor;
+	t_list *bloqueados;
+} Semaforo_QEPD;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
@@ -143,9 +147,11 @@ void 		finalizar_programa(int);
 void 		hacer_pedido_memoria(datosMemoria);
 void		inicializar_proceso(int, char *, Proceso *);
 void 		intentar_iniciar_proceso();
+void		intentar_desbloquear_proceso(char*);
 void 		interaccion_kernel();
 void		limpiar_proceso(Proceso*);
 void		listar_procesos_en_estado();
+void		remover_de_semaforos(int);
 void 		peticion_para_cerrar_proceso(int, int);
 void		planificar();
 void 		procesar_mensaje(int, char, int);
@@ -267,6 +273,7 @@ int main(void) {
 			}
 
 			else if (i == descriptor_cambios_archivo) {
+				/* watafak, es imposible esto, se bugea por todos lados la puta madre
 				int j = 0;
 				char *buffer_cambios_archivo = calloc(BUF_LEN, 1);
 				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
@@ -282,6 +289,7 @@ int main(void) {
 					j += EVENT_SIZE + event->len;
 				}
 				free(buffer_cambios_archivo);
+				*/
 			}
 
 			// Un cliente mando un mensaje
@@ -437,23 +445,43 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 }
 void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	int pid, excepcion;
-	char *variable = NULL;
+	char *nombre = NULL;
 	int *valor = NULL;
+	Proceso *proceso = NULL;
+	Semaforo_QEPD *semaforo = NULL;
+	int *id_proceso = NULL;
+
+	_Bool proceso_segun_pid(void *param) {
+		Proceso *un_proceso = param;
+		return un_proceso->pcb->pid == pid;
+	}
 
 	switch (operacion) {
 
 	case PCB_INCOMPLETO:
 		pid = actualizar_PCB(socket_cliente, bytes);
-		_Bool proceso_segun_pid(void *param) {
-			Proceso *proceso = param;
-			return proceso->pcb->pid == pid;
-		}
+
 		Proceso *proceso = list_find(procesos, &proceso_segun_pid);
+
 		if (proceso->estado == EXIT) {
 			logear_info("[PID:%d] Finalización por petición de consola", pid);
 			finalizar_programa(pid);
 		} else {
 			proceso->estado = READY;
+			planificar();
+		}
+		break;
+
+	case PCB_BLOQUEADO:
+		pid = actualizar_PCB(socket_cliente, bytes);
+
+		proceso = list_find(procesos, &proceso_segun_pid);
+
+		if (proceso->estado == EXIT) {
+			logear_info("[PID:%d] Finalización por petición de consola", pid);
+			finalizar_programa(pid);
+		} else {
+			proceso->estado = BLOCKED;
 			planificar();
 		}
 		break;
@@ -480,43 +508,94 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		break;
 
 	case OBTENER_VALOR_VARIABLE:
-		variable = malloc(bytes);
-		recv(socket_cliente, variable, bytes, 0);
+		nombre = malloc(bytes);
+		recv(socket_cliente, nombre, bytes, 0);
 
-		if (dictionary_has_key(variables_compartidas, variable))
-			valor = dictionary_get(variables_compartidas, variable);
+		if (dictionary_has_key(variables_compartidas, nombre))
+			valor = dictionary_get(variables_compartidas, nombre);
 
 		if (valor == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, 4);
+			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
 			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
-			send(socket_cliente, &excepcion, 4, 0);
+			send(socket_cliente, &excepcion, sizeof(int), 0);
 		} else {
-			enviar_header(socket_cliente, OBTENER_VALOR_VARIABLE, 4);
-			send(socket_cliente, valor, 4, 0);
+			enviar_header(socket_cliente, OBTENER_VALOR_VARIABLE, sizeof(int));
+			send(socket_cliente, valor, sizeof(int), 0);
 		}
-		free(variable);
+		free(nombre);
 		break;
 
 	case ASIGNAR_VALOR_VARIABLE:
-		variable = malloc(bytes);
-		recv(socket_cliente, variable, bytes, 0);
+		nombre = malloc(bytes);
+		recv(socket_cliente, nombre, bytes, 0);
 		int *valor_nuevo = malloc(sizeof(int));
 		recv(socket_cliente, valor_nuevo, sizeof(int), 0);
 
-		if (dictionary_has_key(variables_compartidas, variable))
-			valor = dictionary_get(variables_compartidas, variable);
+		if (dictionary_has_key(variables_compartidas, nombre))
+			valor = dictionary_get(variables_compartidas, nombre);
 
 		if (valor == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, 4);
+			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
 			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
 			send(socket_cliente, &excepcion, sizeof(excepcion), 0);
 		} else {
 			memcpy(valor, valor_nuevo, sizeof(int));
 			enviar_header(socket_cliente, ASIGNAR_VALOR_VARIABLE, 0);
-			logear_info("Se cambió el valor de la variable compartida %s a %d", variable, *valor_nuevo);
+			logear_info("Se cambió el valor de la variable compartida %s a %d", nombre, *valor_nuevo);
 		}
 		free(valor_nuevo);
-		free(variable);
+		free(nombre);
+		break;
+
+	case WAIT:
+		nombre = malloc(bytes);
+		recv(socket_cliente, nombre, bytes, 0);
+		id_proceso = malloc(sizeof(int));
+		recv(socket_cliente, id_proceso, sizeof(int), 0);
+		Semaforo_QEPD *semaforo = NULL;
+
+		if (dictionary_has_key(semaforos, nombre))
+			semaforo = dictionary_get(semaforos, nombre);
+
+		if (semaforo == NULL) {
+			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
+			excepcion = SEMAFORO_INEXISTENTE;
+			send(socket_cliente, &excepcion, sizeof(int), 0);
+		} else {
+			semaforo->valor--;
+			logear_info("Semaforo %s cambia su valor a %d debido al proceso (PID:%d)", nombre, semaforo->valor, *id_proceso);
+			if (semaforo->valor < 0) {
+				enviar_header(socket_cliente, BLOQUEAR, 0);
+				list_add(semaforo->bloqueados, id_proceso);
+			} else {
+				enviar_header(socket_cliente, WAIT, 0);
+			}
+		}
+		free(nombre);
+		break;
+
+	case SIGNAL:
+		nombre = malloc(bytes);
+		recv(socket_cliente, nombre, bytes, 0);
+		id_proceso = malloc(sizeof(int));
+		recv(socket_cliente, id_proceso, sizeof(int), 0);
+
+		if (dictionary_has_key(semaforos, nombre))
+			semaforo = dictionary_get(semaforos, nombre);
+
+		if (semaforo == NULL) {
+			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
+			excepcion = SEMAFORO_INEXISTENTE;
+			send(socket_cliente, &excepcion, sizeof(int), 0);
+		} else {
+			semaforo->valor++;
+			logear_info("Semaforo %s cambia su valor a %d debido al proceso (PID:%d)", nombre, semaforo->valor, *id_proceso);
+			enviar_header(socket_cliente, SIGNAL, 0);
+			if (semaforo->valor >= 0) {
+				intentar_desbloquear_proceso(nombre);
+			}
+		}
+		free(nombre);
 		break;
 
 	}
@@ -635,6 +714,7 @@ void interaccion_kernel() {
 		if (nuevo_grado > 0) {
 			GRADO_MULTIPROG = nuevo_grado;
 			logear_info("[Nuevo grado de multiprogramacion: %d]", GRADO_MULTIPROG);
+			intentar_iniciar_proceso();
 		} else {
 			logear_info("[Grado de multiprogramacion inválido]");
 		}
@@ -861,11 +941,13 @@ void finalizar_programa(int PID) {
 			Proceso *proceso = param;
 			return proceso->pcb->pid == PID;
 		}
+
 		Proceso *proceso = list_find(procesos, &mismo_proceso);
 		int exit_code = proceso->pcb->exit_code;
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);
 		logear_info("[PID:%d] Finalizó con EXIT_CODE:%d", PID, exit_code);
+		remover_de_semaforos(PID);
 		intentar_iniciar_proceso();
 		planificar();
 	}
@@ -887,6 +969,25 @@ void hacer_pedido_memoria(datosMemoria datosMem) {
 	send(socket_memoria, buffer, tamanioTotal, 0);
 
 	free(buffer);
+}
+void intentar_desbloquear_proceso(char *nombre_semaforo) {
+	Semaforo_QEPD *semaforo = dictionary_get(semaforos, nombre_semaforo);
+	int *pid = list_remove(semaforo->bloqueados, 0);
+	if (pid == NULL) {
+		logear_info("No hay procesos para desbloquear");
+	} else {
+		_Bool mismo_pid(void *param) {
+			Proceso *proceso = param;
+			return proceso->pcb->pid == *pid;
+		}
+		Proceso *proceso = list_remove_by_condition(procesos, &mismo_pid);
+		proceso->estado = READY;
+		logear_info("Se desbloquea el proceso (PID:%d)", *pid);
+		list_add(procesos, proceso);
+		free(pid);
+
+		planificar();
+	}
 }
 void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
@@ -983,16 +1084,36 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 			proceso->pcb->exit_code = exit_code;
 			proceso->estado = EXIT;
 		} else {
-			logear_info("Petición resuelta ya que (PID:%d) estaba en READY",PID);
+			logear_info("Petición resuelta ya que (PID:%d) estaba en READY/BLOCKED",PID);
 			Proceso *proceso_a_finalizar = list_remove_by_condition(procesos, &mismoPID);
 			proceso_a_finalizar->pcb->exit_code = exit_code;
 			proceso_a_finalizar->estado = EXIT;
 			mem_finalizar_programa(PID);
+			remover_de_semaforos(PID);
 			limpiar_proceso(proceso_a_finalizar);
 			list_add(lista_EXIT, proceso_a_finalizar);
 			intentar_iniciar_proceso();
 		}
 	}
+}
+void remover_de_semaforos(int PID) {
+	_Bool mismo_pid(void *param) {
+		int *pid = param;
+		return *pid == PID;
+	}
+
+	void buscar_pid(char *key, void *data) {
+		char *nombre = key;
+		Semaforo_QEPD *semaforo = data;
+		int *pid = list_remove_by_condition(semaforo->bloqueados, &mismo_pid);
+		if (pid != NULL) {
+			semaforo->valor++;
+			logear_info("Semaforo %s aumenta a %d debido a finalizacion de (PID:%d)", nombre, semaforo->valor, PID);
+			intentar_desbloquear_proceso(nombre);
+			free(pid);
+		}
+	}
+	dictionary_iterator(semaforos, &buscar_pid);
 }
 
 //MANEJO DE CLIENTES//
@@ -1242,8 +1363,9 @@ void establecer_configuracion() {
 	char **array_semaforos_valores = config_get_array_value(config, "SEM_INIT");
     int i = 0;
     while (array_semaforos[i] != NULL) {
-    	int *data = malloc(4);
-    	*data = atoi(array_semaforos_valores[i]);
+    	Semaforo_QEPD *data = malloc(sizeof(Semaforo_QEPD));
+    	data->valor = atoi(array_semaforos_valores[i]);
+    	data->bloqueados = list_create();
 	    dictionary_put(semaforos, array_semaforos[i], data);
 	    free(array_semaforos_valores[i]);
 	    i++;
@@ -1256,21 +1378,26 @@ void establecer_configuracion() {
     while (compartidas[i] != NULL) {
     	int *data = malloc(4);
     	*data = 0;
-	    dictionary_put(variables_compartidas, compartidas[i], (void*)data);
+	    dictionary_put(variables_compartidas, compartidas[i], data);
 	    i++;
     }
     free(compartidas);
 
-    void imprimir(char *key, void *value) {
-    	int *valor = value;
-    	logear_info("[%s:%d]", key, *valor);
+    void imprimir(char *key, void *param) {
+    	Semaforo_QEPD *semaforo = param;
+    	logear_info("[%s:%d]", key, semaforo->valor);
     }
 
     logear_info("Semáforos:");
     dictionary_iterator(semaforos, &imprimir);
 
+    void imprimir2(char *key, void *value) {
+    	int *valor = value;
+    	logear_info("[%s:%d]", key, *valor);
+    }
+
     logear_info("Variables compartidas:");
-    dictionary_iterator(variables_compartidas, &imprimir);
+    dictionary_iterator(variables_compartidas, &imprimir2);
 
 	STACK_SIZE = config_get_int_value(config, "STACK_SIZE");
 	logear_info("STACK_SIZE: %d", STACK_SIZE);
