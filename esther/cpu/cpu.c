@@ -6,6 +6,7 @@
 #include "commons/collections/list.h"
 #include "parser/metadata_program.h"
 #include <time.h>
+#include <math.h>
 
 //-----ESTRUCTURAS-----//
 typedef struct Posicion_memoria {
@@ -138,7 +139,6 @@ t_puntero 	calcular_puntero(Posicion_memoria);
 void 		destruir_actualPCB(void);
 void 		destruir_entrada_stack(void*);
 void 		devolver_PCB();
-void 		ejecutar_instruccion();
 void 		establecer_configuracion();
 void 		leer_mensaje(servidor, unsigned short);
 void 		obtener_PCB(unsigned short);
@@ -327,15 +327,6 @@ void devolver_PCB() {
 		exit(EXIT_SUCCESS);
 	}
 }
-void ejecutar_instruccion() {
-	usleep(quantum_sleep * 1000);
-	int longitud = PCB_actual->instrucciones_serializado[PCB_actual->program_counter].offset+1;
-	char *instruccion_actual = malloc(longitud);
-	memcpy(instruccion_actual, buffer_solicitado, longitud);
-	instruccion_actual[longitud-2] = '\0';
-	analizadorLinea(instruccion_actual, &funciones, &funcionesnucleo);
-	free(instruccion_actual);
-}
 void obtener_PCB(unsigned short bytes_payload) {
 	void *buffer_PCB = malloc(bytes_payload);
 	int bytes_recibidos = recv(kernel.socket, buffer_PCB, bytes_payload, 0);
@@ -357,16 +348,38 @@ void solicitar_instruccion() {
 	t_intructions instruction = PCB_actual->instrucciones_serializado[PCB_actual->program_counter];
 
 	posicion.processID = PCB_actual->pid;
-	posicion.numero_pagina = 0;
-	posicion.size = instruction.offset;
-	posicion.offset = instruction.start;
+	posicion.numero_pagina = instruction.start / MARCO_SIZE;
 
-	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
-	send(memoria.socket, &posicion, sizeof(posicion), 0);
+	int size;
+	int bytes = instruction.offset;
+	posicion.offset = instruction.start % MARCO_SIZE;
 
-	// Ahora esperamos la instruccion
+	char *instruccion = malloc(bytes);
+	int offset = 0;
 
-	recibir_algo_de(memoria); //Se asume que recibir una instrucción siempre va a salir bien
+	while (bytes > 0) {
+		posicion.size = (MARCO_SIZE-posicion.offset)>bytes?(bytes<MARCO_SIZE?bytes:MARCO_SIZE):(MARCO_SIZE-posicion.offset);
+		//I had to do it v:
+		bytes -= posicion.size;
+
+		enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
+		send(memoria.socket, &posicion, sizeof(posicion), 0);
+
+		recibir_algo_de(memoria);
+
+		memcpy(instruccion + offset, buffer_solicitado, posicion.size);
+		offset += posicion.size;
+
+		posicion.numero_pagina++;
+		posicion.offset = 0;
+	}
+
+	instruccion[instruction.offset - 1] = '\0';
+
+	usleep(quantum_sleep * 1000);
+
+	analizadorLinea(instruccion, &funciones, &funcionesnucleo);
+	free(instruccion);
 }
 void trabajar() {
 	tipo_devolucion = PCB_INCOMPLETO;
@@ -375,14 +388,12 @@ void trabajar() {
 	if (quantum == 0) {
 		while (programaVivitoYColeando) {
 			solicitar_instruccion();
-			ejecutar_instruccion();
 			PCB_actual->program_counter++;
 		}
 	} else {
 		int i;
 		for(i = 0; i < quantum; i++) {
 			solicitar_instruccion();
-			ejecutar_instruccion();
 			PCB_actual->program_counter++;
 			if(!programaVivitoYColeando) {
 				break;
@@ -590,6 +601,9 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	return 0;
 }
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Dereferenciar: %i", direccion_variable);
 
 	posicionDeMemoriaAPedir posicion;
@@ -627,6 +641,9 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Solicitando el valor de la variable compartida %s", variable);
 
 	int longitud = strlen(variable)+1;
@@ -642,6 +659,9 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 	return 0;
 }
 t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Asignando el valor %d a la variable compartida %s", valor, variable);
 
 	int longitud = strlen(variable)+1;
