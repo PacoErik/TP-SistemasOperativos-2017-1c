@@ -39,7 +39,7 @@ enum CodigoDeOperacion {
 
 	//Kernel - CPU - File system (Aún sin utilizar)
 	ABRIR_ARCHIVO, LEER_ARCHIVO, ESCRIBIR_ARCHIVO,
-	CERRAR_ARCHIVO,
+	CERRAR_ARCHIVO, VALIDAR_ARCHIVO, CREAR_ARCHIVO,
 
 	//CPU - Memoria
 	INSTRUCCION,
