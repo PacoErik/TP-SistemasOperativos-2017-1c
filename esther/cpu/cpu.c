@@ -86,8 +86,6 @@ AnSISOP_kernel funcionesnucleo = {
  * ↑ Parser Ansisop ↑
  */
 
-#define VIVITO_Y_COLEANDO 1; // No se pueden revisar los exit code previo a que ripee
-
 /*
  * Colores:
  *
@@ -177,8 +175,11 @@ Posicion_memoria actualPosicion; // Actual posicion de memoria a utilizar
 posicionDeMemoriaAPedir actualPosicionVariable; // Usado para comunicarse con el proceso memoria
 
 int MARCO_SIZE;
+int STACK_SIZE;
 
 char quantum;
+
+t_list misSemaforos;
 
 int analizarHeader(servidor servidor, headerDeLosRipeados header);
 int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
@@ -201,6 +202,7 @@ void obtenerPosicionDeMemoria();
 void solicitarInstruccion();
 void* serializar_PCB(PCB *pcb, int* buffersize);
 void agregarALasEtiquetas(t_nombre_variable identificador_variable);
+bool esAtomico();
 
 /*
  * ↓ Señales ↓
@@ -271,7 +273,12 @@ void trabajar() {
 		} else {
 			printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
 			codigo = PCB_EXCEPCION;
+			list_clean(&misSemaforos); // Limpio los semaforos porque capaz rompio dentro de un semaforo.
 			break;
+		}
+
+		if(esAtomico()) {
+			i--; // De esta forma aseguras que el programa corra hasta que deje de ser atomico.
 		}
 	};
 
@@ -403,6 +410,16 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 
 		case PEDIR_MEMORIA_OK:
 			recv(kernel.socket, buffer_solicitado, sizeof(bytesDePayload), 0);
+			break;
+
+		case WAIT_SIN_BLOQUEO:
+			break;
+
+		case WAIT_CON_BLOQUEO:
+			return 2;
+			break;
+
+		case SIGNAL_OK:
 			break;
 
 		case ABRIR_ARCHIVO:
@@ -664,8 +681,27 @@ int existeArchivo(const char *ruta)
     return false;
 }
 
+bool hay_stack_overflow_si_agrego_otra_variable() {
+
+	Entrada_stack *miEntradaStack = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+	Entrada_stack miEntradaDefinitiva = *miEntradaStack;
+
+	return 4 * (miEntradaDefinitiva.args->elements_count + miEntradaDefinitiva.vars->elements_count + 1) >= STACK_SIZE;
+
+	/*
+	 * 4Bytes *
+	 * (La cantidad de argumentos que tengo + La cantidad de variables que tengo + El elemento que pienso agregar)
+	 * >= El tamaño del stack.
+	 */
+}
+
 t_puntero calcularPuntero(Posicion_memoria posicion) {
 	return posicion.numero_pagina * MARCO_SIZE + posicion.offset;
+}
+
+bool esAtomico() {
+	return misSemaforos.elements_count > 0;
 }
 
 void *list_serialize(t_list* list, int element_size, int *buffersize) {
@@ -787,15 +823,23 @@ void destruir_actualPCB(void) {
  */
 
 t_puntero definirVariable(t_nombre_variable identificador_variable) {
-	printf("definirVariable: %c\n", identificador_variable);
+	printf("definirVariable: %c.\n", identificador_variable);
 
-	if(pedirMemoria() == 1) {
-		printf(CYN "[Kernel] " RESET "Devolvió exitosamente una posición de memoria.\n");
-		agregarAlStack(identificador_variable, actualPosicion);
-		return calcularPuntero(actualPosicion);
+	if(hay_stack_overflow_si_agrego_otra_variable()) {
+
+		printf(RED "STACK OVERFLOW.\n" RESET);
+		actualPCB->exit_code = SEGMENTATION_FAULT;
+
 	} else {
-		printf(CYN "[Kernel] " RESET RED "Acceso invalido a la memoria.\n" RESET);
-		return 0;
+
+		if(pedirMemoria() == 1) {
+			printf(CYN "[Kernel] " RESET "Devolvió exitosamente una posición de memoria.\n");
+			agregarAlStack(identificador_variable, actualPosicion);
+			return calcularPuntero(actualPosicion);
+		} else {
+			printf(CYN "[Kernel] " RESET RED "Acceso invalido a la memoria.\n" RESET);
+		}
+
 	}
 
 	return 0;
@@ -943,6 +987,7 @@ void irAlLabel(t_nombre_etiqueta etiqueta) {
 
 	if (nuevo_program_counter < 0) {
 
+		programaVivitoYColeando = false;
 		actualPCB->exit_code = ETIQUETA_INEXISTENTE;
 		printf(RED "[Excepcion]" RESET "El label %s no existe.\n", etiqueta);
 
@@ -1046,12 +1091,61 @@ void retornar(t_valor_variable retorno) {
  * ↓ Parsear Kernel ↓
  */
 
-void wait(t_nombre_semaforo identificador_semaforo) { // TODO
+void wait(t_nombre_semaforo identificador_semaforo) {
+	printf("El semaforo %s utiliza wait.\n", identificador_semaforo);
 
+	enviar_header(kernel.socket, WAIT, sizeof(identificador_semaforo));
+	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo), 0);
+
+	int devolucionDeKernel = recibirAlgoDe(kernel);
+
+	if(devolucionDeKernel == 1) { // No esta bloqueado
+		printf("El semaforo %s utilizo wait sin quedar bloqueado.\n", identificador_semaforo);
+	}
+
+	if(devolucionDeKernel == 2) { // Esta bloqueado
+		printf("El semaforo %s utilizo wait y quedo bloqueado.\n", identificador_semaforo);
+	}
+
+	if(devolucionDeKernel == 0) {
+		printf(CYN "[Kernel] " RESET RED "Fallo en la utilización de wait.\n" RESET);
+	}
+
+	list_add(&misSemaforos, identificador_semaforo);
 }
 
-void parser_signal(t_nombre_semaforo identificador_semaforo) { // TODO
+void parser_signal(t_nombre_semaforo identificador_semaforo) { // No contemplo que en un proceso un semaforo haga SIGNAL sin haber hecho WAIT
+	printf("El semaforo %s utiliza signal.\n", identificador_semaforo);
 
+	_Bool tienenMismoIdentificador(void* identificador) {
+		t_nombre_semaforo* miIdentificador = (t_nombre_semaforo*) identificador;
+		return strcmp(identificador_semaforo, *miIdentificador);
+	}
+
+	// Corroboro que el semaforo exista
+
+
+	if(!list_any_satisfy(&misSemaforos, &tienenMismoIdentificador)) {
+		printf(RED "[Excepcion] " RESET "Semaforo inexistente.\n");
+		actualPCB->exit_code = SEMAFORO_INEXISTENTE;
+		return;
+	}
+
+	// Procedo
+
+	enviar_header(kernel.socket, SIGNAL, sizeof(identificador_semaforo));
+	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo), 0);
+
+	if(recibirAlgoDe(kernel)) {
+
+		printf("El semaforo %s utilizo signal exitosamente.\n", identificador_semaforo);
+		list_remove_by_condition(&misSemaforos, &tienenMismoIdentificador);
+
+	} else {
+
+		printf(CYN "[Kernel] " RESET RED "Fallo en la utilizacion de signal.\n" RESET);
+
+	}
 }
 
 t_puntero reservar(t_valor_variable espacio) {
@@ -1061,7 +1155,7 @@ t_puntero reservar(t_valor_variable espacio) {
 
 	Posicion_memoria *miPosicion = buffer_solicitado;
 
-	//Habria que guardar la posicion de la reserva de memoria ¿?
+	// Habria que guardar la posicion de la reserva de memoria ¿?
 
 	return calcularPuntero(*miPosicion);
 }
@@ -1082,28 +1176,17 @@ void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
 
 }
 
-
-
-
 void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
 
 }
-
-
-
 
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
 
 }
 
-
-
-
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
 
 }
-
-
 
 /*
  * ↑ Parsear Kernel ↑
