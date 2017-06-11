@@ -166,6 +166,8 @@ servidor memoria;
 bool programaVivitoYColeando; 	// Si el programa fallecio o no
 bool elProgramaNoFinalizo; 		// Si el programa finalizo correctamente o sigue en curso
 bool signalRecibida = false; 	// Si se recibe o no una señal SIGUSR1
+bool tratarAtomicamente;
+bool programaBloqueado;
 
 char* actualInstruccion; // Lo modelo como variable global porque se me hace menos codigo analizar los header y demas.
 void *buffer_solicitado;
@@ -178,8 +180,6 @@ int MARCO_SIZE;
 int STACK_SIZE;
 
 char quantum;
-
-t_list misSemaforos;
 
 int analizarHeader(servidor servidor, headerDeLosRipeados header);
 int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload);
@@ -259,22 +259,28 @@ void trabajar() {
 		ejecutarInstruccion();
 		actualPCB->program_counter++;
 
-		if(programaVivitoYColeando) {
-			if(elProgramaNoFinalizo) {
-				printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
-				codigo = PCB_INCOMPLETO;
+		if(programaBloqueado) {
+			printf(YEL "[Programa] " RESET "El programa PID %i está bloqueado.\n", actualPCB->pid);
+			codigo = PCB_BLOQUEADO;
+		} else {
+
+			if(programaVivitoYColeando) {
+
+				if(elProgramaNoFinalizo) {
+					printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
+					codigo = PCB_INCOMPLETO;
+				} else {
+					printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
+					codigo = PCB_COMPLETO;
+					break;
+				}
 
 			} else {
-				printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
-				codigo = PCB_COMPLETO;
+				printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
+				codigo = PCB_EXCEPCION;
 				break;
 			}
 
-		} else {
-			printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
-			codigo = PCB_EXCEPCION;
-			list_clean(&misSemaforos); // Limpio los semaforos porque capaz rompio dentro de un semaforo.
-			break;
 		}
 
 		if(esAtomico()) {
@@ -388,6 +394,7 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 
 		case PCB_INCOMPLETO:
 			obtenerPCB(bytesDePayload);
+			recv(kernel.socket, &tratarAtomicamente, sizeof(bool), 0);
 			trabajar();
 			recibirAlgoDe(kernel);
 			break;
@@ -420,6 +427,7 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 			break;
 
 		case SIGNAL_OK:
+			recv(kernel.socket, &tratarAtomicamente, sizeof(bool), 0);
 			break;
 
 		case ABRIR_ARCHIVO:
@@ -701,7 +709,7 @@ t_puntero calcularPuntero(Posicion_memoria posicion) {
 }
 
 bool esAtomico() {
-	return misSemaforos.elements_count > 0;
+	return tratarAtomicamente;
 }
 
 void *list_serialize(t_list* list, int element_size, int *buffersize) {
@@ -1094,8 +1102,9 @@ void retornar(t_valor_variable retorno) {
 void wait(t_nombre_semaforo identificador_semaforo) {
 	printf("El semaforo %s utiliza wait.\n", identificador_semaforo);
 
-	enviar_header(kernel.socket, WAIT, sizeof(identificador_semaforo));
-	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo), 0);
+	enviar_header(kernel.socket, WAIT, sizeof(identificador_semaforo) + 1);
+	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo) +1, 0);
+	send(kernel.socket, &actualPCB->pid, sizeof(int), 0);
 
 	int devolucionDeKernel = recibirAlgoDe(kernel);
 
@@ -1105,41 +1114,26 @@ void wait(t_nombre_semaforo identificador_semaforo) {
 
 	if(devolucionDeKernel == 2) { // Esta bloqueado
 		printf("El semaforo %s utilizo wait y quedo bloqueado.\n", identificador_semaforo);
+		programaBloqueado = true;
 	}
 
 	if(devolucionDeKernel == 0) {
 		printf(CYN "[Kernel] " RESET RED "Fallo en la utilización de wait.\n" RESET);
 	}
 
-	list_add(&misSemaforos, identificador_semaforo);
+	tratarAtomicamente = true;
 }
 
 void parser_signal(t_nombre_semaforo identificador_semaforo) { // No contemplo que en un proceso un semaforo haga SIGNAL sin haber hecho WAIT
 	printf("El semaforo %s utiliza signal.\n", identificador_semaforo);
 
-	_Bool tienenMismoIdentificador(void* identificador) {
-		t_nombre_semaforo* miIdentificador = (t_nombre_semaforo*) identificador;
-		return strcmp(identificador_semaforo, *miIdentificador);
-	}
-
-	// Corroboro que el semaforo exista
-
-
-	if(!list_any_satisfy(&misSemaforos, &tienenMismoIdentificador)) {
-		printf(RED "[Excepcion] " RESET "Semaforo inexistente.\n");
-		actualPCB->exit_code = SEMAFORO_INEXISTENTE;
-		return;
-	}
-
-	// Procedo
-
-	enviar_header(kernel.socket, SIGNAL, sizeof(identificador_semaforo));
-	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo), 0);
+	enviar_header(kernel.socket, SIGNAL, sizeof(identificador_semaforo) + 1);
+	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo) + 1, 0);
+	send(kernel.socket, &actualPCB->pid, sizeof(int), 0);
 
 	if(recibirAlgoDe(kernel)) {
 
 		printf("El semaforo %s utilizo signal exitosamente.\n", identificador_semaforo);
-		list_remove_by_condition(&misSemaforos, &tienenMismoIdentificador);
 
 	} else {
 
@@ -1158,6 +1152,7 @@ t_puntero reservar(t_valor_variable espacio) {
 	// Habria que guardar la posicion de la reserva de memoria ¿?
 
 	return calcularPuntero(*miPosicion);
+
 }
 
 void liberar(t_puntero puntero) { // TODO
