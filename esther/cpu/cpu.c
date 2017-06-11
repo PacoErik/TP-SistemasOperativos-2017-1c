@@ -6,7 +6,9 @@
 #include "commons/collections/list.h"
 #include "parser/metadata_program.h"
 #include <time.h>
-#include <math.h>
+
+//-----DEFINES-----//
+enum Algoritmo {RR, FIFO};
 
 //-----ESTRUCTURAS-----//
 typedef struct Posicion_memoria {
@@ -71,7 +73,8 @@ PCB *PCB_actual = NULL; // Programa corriendo
 
 int MARCO_SIZE;
 int STACK_SIZE;
-int quantum;
+int algoritmo_actual;
+int quantum = 0;
 int quantum_sleep;
 int tipo_devolucion;
 
@@ -196,6 +199,10 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 	switch(operacion) {
 		case MENSAJE:
 			leer_mensaje(kernel, bytes_payload);
+			return recibir_algo_de(kernel);
+
+		case ALGORITMO_ACTUAL:
+			recv(kernel.socket, &algoritmo_actual, sizeof(algoritmo_actual), 0);
 			break;
 
 		case QUANTUM:
@@ -317,7 +324,7 @@ void devolver_PCB() {
 	enviar_header(kernel.socket, tipo_devolucion, buffersize);
 	send(kernel.socket, buffer, buffersize, 0);
 
-	logear_info("PCB devuelto");
+	logear_info("[PID:%d] PCB devuelto", PCB_actual->pid);
 
 	free(buffer);
 	destruir_actualPCB();
@@ -337,12 +344,12 @@ void obtener_PCB(unsigned short bytes_payload) {
 
 	PCB_actual = deserializar_PCB(buffer_PCB);
 
-	logear_info("PCB obtenido");
+	logear_info("[PID:%d] PCB obtenido", PCB_actual->pid);
 
 	free(buffer_PCB);
 }
 void solicitar_instruccion() {
-	logear_info("Solicitando instruccion...");
+	logear_info("[PID:%d] Solicitando instrucción...", PCB_actual->pid);
 
 	posicionDeMemoriaAPedir posicion;
 	t_intructions instruction = PCB_actual->instrucciones_serializado[PCB_actual->program_counter];
@@ -376,7 +383,8 @@ void solicitar_instruccion() {
 
 	instruccion[instruction.offset - 1] = '\0';
 
-	usleep(quantum_sleep * 1000);
+	if (quantum > 0)
+		usleep(quantum_sleep * 1000);
 
 	analizadorLinea(instruccion, &funciones, &funcionesnucleo);
 	free(instruccion);
@@ -384,14 +392,18 @@ void solicitar_instruccion() {
 void trabajar() {
 	tipo_devolucion = PCB_INCOMPLETO;
 	programaVivitoYColeando = true;
+	int i;
 
-	if (quantum == 0) {
+	switch (algoritmo_actual) {
+
+	case FIFO:
 		while (programaVivitoYColeando) {
 			solicitar_instruccion();
 			PCB_actual->program_counter++;
 		}
-	} else {
-		int i;
+		break;
+
+	case RR:
 		for(i = 0; i < quantum; i++) {
 			solicitar_instruccion();
 			PCB_actual->program_counter++;
@@ -399,6 +411,8 @@ void trabajar() {
 				break;
 			}
 		}
+		break;
+
 	}
 
 	devolver_PCB(tipo_devolucion);
@@ -436,7 +450,7 @@ int obtener_tamanio_stack() {
 }
 
 void terminar_ejecucion(int exit_code) {
-	logear_error("Se finalizó la ejecución con el EXIT CODE (%d)", false, exit_code);
+	logear_info("Se finalizó la ejecución de (PID:%d) con el EXIT CODE (%d)", PCB_actual->pid, exit_code);
 	programaVivitoYColeando = false;
 	PCB_actual->exit_code = exit_code;
 	if (exit_code < 0) {
@@ -572,7 +586,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	if (!programaVivitoYColeando)
 		return 0; //Una sola instrucción puede ejecutar muchas primitivas, si falla en la primera primitiva las otras no se dan cuenta
 
-	logear_info("Obtener posicion de la variable: %c", nombre);
+	logear_info("Obtener posición de la variable: %c", nombre);
 
 	Entrada_stack *entrada = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
 
@@ -637,7 +651,7 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	send(memoria.socket, &valor, sizeof(valor), 0);
 
 	if (recibir_algo_de(memoria)) {
-		logear_info("Se asigno una variable con el valor %i en la direccion %i.", valor, direccion_variable);
+		logear_info("Se asignó una variable con el valor %i en la dirección %i.", valor, direccion_variable);
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
@@ -775,32 +789,35 @@ void kernel_signal(t_nombre_semaforo identificador_semaforo) {
 	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
 	if (recibir_algo_de(kernel)) {
-		logear_info("Se libera el semaforo %s", identificador_semaforo);
+		logear_info("Se libera el semáforo %s", identificador_semaforo);
 	}
 }
 t_puntero reservar(t_valor_variable espacio) { // TODO
-	return 1;
+	logear_info("Reservar %d bytes", espacio);
+	return 0;
 }
 void liberar(t_puntero puntero) { // TODO
-
+	logear_info("Liberar memoria en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
-	return 1;
+	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
+	return 0;
 }
 void borrar(t_descriptor_archivo direccion) { // TODO
-
+	logear_info("Borrar archivo con el descriptor (FD:%d)", direccion);
+	//[WARNING] direccion debería ser t_direccion_archivo...
 }
 void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
-
+	logear_info("Cerrar archivo con el descriptor (FD:%d)", descriptor_archivo);
 }
 void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
-
+	logear_info("Mover cursor de (FD:%d) a la posición %d", descriptor_archivo, posicion);
 }
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
-
+	logear_info("Escribir %d bytes de información en el descriptor (FD:%d)", tamanio, descriptor_archivo);
 }
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
-
+	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, informacion / MARCO_SIZE, informacion % MARCO_SIZE);
 }
 
 //MANEJO DE SEÑALES
