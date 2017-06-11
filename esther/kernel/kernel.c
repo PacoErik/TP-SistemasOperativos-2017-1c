@@ -223,7 +223,7 @@ int main(void) {
 		logear_error("No se puede detectar los cambios en el directorio", false);
 	} else {
 		fdmax = (descriptor_cambios_archivo > servidor) ? descriptor_cambios_archivo : servidor;
-		inotify_add_watch(descriptor_cambios_archivo,"./", IN_MODIFY);
+		inotify_add_watch(descriptor_cambios_archivo,"./", /*IN_MODIFY*/ IN_CLOSE_WRITE);
 	    FD_SET(descriptor_cambios_archivo, &conectados);
 	}
 
@@ -273,7 +273,6 @@ int main(void) {
 			}
 
 			else if (i == descriptor_cambios_archivo) {
-				/* watafak, es imposible esto, se bugea por todos lados la puta madre
 				int j = 0;
 				char *buffer_cambios_archivo = calloc(BUF_LEN, 1);
 				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
@@ -289,7 +288,6 @@ int main(void) {
 					j += EVENT_SIZE + event->len;
 				}
 				free(buffer_cambios_archivo);
-				*/
 			}
 
 			// Un cliente mando un mensaje
