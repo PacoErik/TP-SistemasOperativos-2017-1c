@@ -88,18 +88,18 @@ void desconectar_consola() {
 	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
 	enviar_header(servidor, DESCONECTAR_CONSOLA, 0);
 	close(servidor);
-
+	list_destroy_and_destroy_elements(procesos, free);
 	logear_info("Chau!");
 
 	exit(0);
 }
 void desconectar_programa(int PID) {
-	logear_info("[PID:%d] Peticion de finalizacion enviada", PID);
 	pthread_t TID = hiloID_programa(PID);
 	if (TID == 0) {
 		logear_error("No existe PID %d", false, PID);
 		return;
 	}
+	logear_info("[PID:%d] Peticion de finalizacion enviada", PID);
 	enviar_header(servidor, FINALIZAR_PROGRAMA, sizeof PID);
 	send(servidor, &PID, sizeof PID, 0);
 
