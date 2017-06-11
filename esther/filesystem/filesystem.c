@@ -6,8 +6,8 @@
 
 #include "qepd/qepd.h"
 
-#define ROUNDUP(x,y) ((x - 1) / y + 1)			// Redondear hacia arriba
-#define CANTIDAD_BLOQUES_ARCHIVO(FILE_SIZE, BLOCK_SIZE) ((FILE_SIZE > 0) ? ROUNDUP(FILE_SIZE, BLOCK_SIZE) : 1)
+#define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)			// Redondear hacia arriba
+#define CANTIDAD_BLOQUES_ARCHIVO(FILE_SIZE, BLOCK_SIZE) ((FILE_SIZE > 0) ? DIVIDE_ROUNDUP(FILE_SIZE, BLOCK_SIZE) : 1)
 
 int servidor;	// Socket Kernel
 
@@ -304,11 +304,13 @@ bool _crear_directorios(char *ruta) {
 
 		strncpy(dir, ruta, i);
 
-		if (access(_ruta_desde_archivos(dir), F_OK) == 0) {
+		char *ruta_dir = _ruta_desde_archivos(dir);
+
+		if (access(ruta_dir, F_OK) == 0) {
 			continue;
 		}
 
-		if (mkdir(_ruta_desde_archivos(dir), 777) == -1) {
+		if (mkdir(ruta_dir, 0777) == -1) {
 			if (errno == ENOTDIR) {
 				logear_error("\"%s\" no es un directorio.\n", false, dir);
 
@@ -316,6 +318,8 @@ bool _crear_directorios(char *ruta) {
 				return 0;
 			}
 		}
+
+		free(ruta_dir);
 	}
 
 	free(dir);
@@ -668,7 +672,7 @@ t_bitarray *leer_bitmap(void) {
 		return NULL;
 	}
 
-	size_t bitarray_size = ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT); // CHAR_BIT = cantidad bits x char
+	size_t bitarray_size = DIVIDE_ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT); // CHAR_BIT = cantidad bits x char
 
 	char *bitarray = malloc(bitarray_size);
 
@@ -692,7 +696,7 @@ t_bitarray *limpiar_bitmap(void) {
 }
 
 t_bitarray *crear_bitmap_vacio(void) {
-	size_t bytes = ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT);
+	size_t bytes = DIVIDE_ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT);
 	char *bitarray = calloc(bytes, sizeof(char));
 	return bitarray_create_with_mode(bitarray, bytes, LSB_FIRST);
 }
@@ -734,7 +738,7 @@ int *_asignar_bloques(int n, int **bloques) {
 	int i;
 	int found_n; // Cantidad de bloques encontrados
 
-	for (i = 0, found_n = 0; i < bitarray_get_max_bit(bitmap) && found_n < n; i++) {
+	for (i = 0, found_n = 0; i < FSMetadata.CANTIDAD_BLOQUES && found_n < n; i++) {
 		/* Encuentra bloques libres */
 		if (bitarray_test_bit(bitmap, i) == 0) {
 			tmp[found_n] = i + 1;
