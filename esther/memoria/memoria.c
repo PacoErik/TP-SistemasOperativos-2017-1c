@@ -146,7 +146,6 @@ int main(void) {
 
 	crearMemoria(); // Creacion de la memoria general y cache
 
-
 	clientes = list_create();
 
 	inicializarTabla();
@@ -204,6 +203,8 @@ int main(void) {
 
 		pthread_create(&tid, &atributos, &fHilo, param);
 
+		pthread_attr_destroy(&atributos);
+
 		logear_info("Nueva conexión desde %s en el socket %d",
 				inet_ntoa(clienteInfo.sin_addr), nuevoCliente);
 	}
@@ -258,29 +259,30 @@ void crearMemoria(void) {
 }
 
 int maxLru(void){
+	int i, max = 0;
 
-	int i,max=0;
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		if (tablaAdministrativa_cache[i].lru > max)
+			max = tablaAdministrativa_cache[i].lru;
+	}
 
-		for (i = 0; i < ENTRADAS_CACHE; i++) {
-			if(tablaAdministrativa_cache[i].lru > max)max=tablaAdministrativa_cache[i].lru;
-		}
-
-		return max;
+	return max;
 }
 
 int posicionAReemplazarDeCache(void){
-
-	int i,min=1000,pos=0;
+	int i, min = 1000, pos = 0;
 
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		if(tablaAdministrativa_cache[i].pid == FRAME_LIBRE)return i;
+		if (tablaAdministrativa_cache[i].pid == FRAME_LIBRE)
+			return i;
 	}
+
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
-			if(tablaAdministrativa_cache[i].lru < min){
-				min = tablaAdministrativa_cache[i].lru;
-				pos=i;
-			}
+		if (tablaAdministrativa_cache[i].lru < min) {
+			min = tablaAdministrativa_cache[i].lru;
+			pos = i;
 		}
+	}
 
 	return pos;
 }
@@ -546,6 +548,8 @@ void *interaccionMemoria(void * _) {
 		if (i == (sizeof comandos / sizeof *comandos)) {
 			logear_error("Error: %s no es un comando", false, cmd);
 		}
+
+		free(inputline);
 	}
 
 }
@@ -849,8 +853,7 @@ void finalizarPrograma(int numCliente, unsigned short payload) {
 
 void flush() {
 	int i;
-	for(i=0;i<ENTRADAS_CACHE;i++)
-	{
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
 		tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
 	}
 }
@@ -858,18 +861,20 @@ void flush() {
 void size(char *param) {
 	string_trim(&param);
 
-	if(!strcmp(param,"memory")){
-		printf("Cantidad de Frames de la memoria: %i\n",MARCOS);
-		int framesLibres=0,i;
-		for(i=0;i<MARCOS;i++){
-			if(tablaAdministrativa[i].pid==FRAME_LIBRE)
+	if (!strcmp(param, "memory")) {
+		printf("Cantidad de Frames de la memoria: %i\n", MARCOS);
+		int framesLibres = 0, i;
+		for (i = 0; i < MARCOS; i++) {
+			if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
 				framesLibres++;
+			}
 		}
 		printf("Cantidad de frames libres %i\n", framesLibres);
 		printf("Cantidad de frames ocupados %i\n", MARCOS - framesLibres);
-	} else {
-		if (!strncmp(param, "pid ", 4)) {
+	}
 
+	else {
+		if (!strncmp(param, "pid ", 4)) {
 			int pid;
 			char *pid_c = malloc(3);
 			pid_c = string_substring_from(param, 4);
@@ -882,14 +887,17 @@ void size(char *param) {
 					frames_usados++;
 			}
 
-			if(frames_usados == 0){
+			if (frames_usados == 0) {
 				printf("No existe el proceso\n");
-			}else
-			{
-			printf("Tamanio total del proceso (PID = %i) = %i Bytes\n", pid,
-					frames_usados * MARCO_SIZE);
 			}
-		} else {
+
+			else {
+				printf("Tamanio total del proceso (PID = %i) = %i Bytes\n", pid,
+						frames_usados * MARCO_SIZE);
+			}
+		}
+
+		else {
 			logear_error("Comando invalido", false);
 		}
 	}
