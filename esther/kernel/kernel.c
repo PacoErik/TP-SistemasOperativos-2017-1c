@@ -17,6 +17,7 @@
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
 		}
 enum Estado {NEW, READY, EXEC, BLOCKED, EXIT};
+enum Algoritmo {RR, FIFO};
 
 //Esto es para el inotify, no le den bola
 #define EVENT_SIZE  ( sizeof (struct inotify_event) )
@@ -100,6 +101,7 @@ int PUERTO_FS;
 int QUANTUM_VALUE;
 int QUANTUM_SLEEP_VALUE;
 char ALGORITMO[5];
+int algoritmo_actual;
 int GRADO_MULTIPROG;
 t_dictionary *semaforos;
 t_dictionary *variables_compartidas;
@@ -278,11 +280,10 @@ int main(void) {
 				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
 				while (j < length) {
 					struct inotify_event *event = ( struct inotify_event * ) &buffer_cambios_archivo[j];
-					printf("Cambios detectados en %s\n", event->name);
 					if (!strcmp(event->name, RUTA_CONFIG)) {
 						t_config *nueva_config = config_create(RUTA_CONFIG);
 						QUANTUM_SLEEP_VALUE = config_get_int_value(nueva_config, "QUANTUM_SLEEP");
-						printf("NUEVO QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
+						printf("Nuevo QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
 						config_destroy(nueva_config);
 					}
 					j += EVENT_SIZE + event->len;
@@ -301,8 +302,13 @@ int main(void) {
 						char *respuesta = "Bienvenido!";
 						send(i, respuesta, strlen(respuesta) + 1, 0);
 						if (tipo_cliente(i) == CPU){
-							enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
-							send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
+
+							enviar_header(i, ALGORITMO_ACTUAL, sizeof(algoritmo_actual));
+							send(i, &algoritmo_actual, sizeof(algoritmo_actual), 0);
+							if (algoritmo_actual_es("RR")) {
+								enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
+								send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
+							}
 							enviar_header(i, PAGINAS_STACK, sizeof(STACK_SIZE));
 							send(i, &STACK_SIZE, sizeof(STACK_SIZE), 0);
 							planificar();
@@ -1090,14 +1096,9 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 			proceso->estado = EXIT;
 		} else {
 			logear_info("Petición resuelta ya que (PID:%d) estaba en READY/BLOCKED",PID);
-			Proceso *proceso_a_finalizar = list_remove_by_condition(procesos, &mismoPID);
+			Proceso *proceso_a_finalizar = list_find(procesos, &mismoPID);
 			proceso_a_finalizar->pcb->exit_code = exit_code;
-			proceso_a_finalizar->estado = EXIT;
-			mem_finalizar_programa(PID);
-			remover_de_semaforos(PID);
-			limpiar_proceso(proceso_a_finalizar);
-			list_add(lista_EXIT, proceso_a_finalizar);
-			intentar_iniciar_proceso();
+			finalizar_programa(PID);
 		}
 	}
 }
@@ -1214,8 +1215,10 @@ void planificar() {
 			if (cantidad_procesos(READY) > 0) {
 				//Se le envia el QUANTUM_SLEEP junto con el PCB
 				//ya que este valor es variable a lo largo de la vida del sistema
-				enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
-				send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+				if (algoritmo_actual_es("RR")) {
+					enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
+					send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+				}
 
 				_Bool proceso_ready(void *param) {
 					Proceso *proceso = (Proceso*) param;
@@ -1362,7 +1365,12 @@ void establecer_configuracion() {
 	logear_info("ALGORITMO: %s",ALGORITMO);
 
 	if (algoritmo_actual_es("FIFO"))
-		QUANTUM_VALUE = 0;
+		algoritmo_actual = FIFO;
+	else if (algoritmo_actual_es("RR"))
+		algoritmo_actual = RR;
+	else
+		logear_error("Algoritmo desconocido, finalizando...", true);
+
 
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
 	logear_info("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
@@ -1389,7 +1397,7 @@ void establecer_configuracion() {
 	char **compartidas = config_get_array_value(config, "SHARED_VARS");
 
 	for (i = 0; compartidas[i] != NULL; i++) {
-    	int *data = malloc(4);
+    	int *data = malloc(sizeof(int));
     	*data = 0;
 
 	    dictionary_put(variables_compartidas, compartidas[i], data);
@@ -1473,7 +1481,7 @@ void terminar_kernel() {
 		list_destroy_and_destroy_elements(bloqueados, free);
 		free(semaforo);
 	}
-	dictionary_destroy_and_destroy_elements(semaforos, free_semaforo);
+	dictionary_destroy_and_destroy_elements(semaforos, &free_semaforo);
 
 	dictionary_destroy_and_destroy_elements(variables_compartidas, free);
 	printf("Adiós!\n");
