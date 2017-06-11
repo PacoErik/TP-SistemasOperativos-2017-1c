@@ -819,6 +819,8 @@ void interaccion_kernel() {
 	if (i == (sizeof comandos / sizeof *comandos)) {
 		logear_error("Error: %s no es un comando", false, cmd);
 	}
+
+	free(inputline);
 }
 inline void limpiar_buffer_entrada() {
 	int c;
@@ -1016,8 +1018,12 @@ void intentar_iniciar_proceso() {
 					logear_error("[PID:%d] Memoria insuficiente.", false, PID);
 					nuevo_proceso->estado = EXIT;
 					nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
+
+					limpiar_proceso(nuevo_proceso);
+
 					list_add(lista_EXIT, nuevo_proceso);
 
+					/* TODO: Aca se deberia enviar una excepcion a la consola */
 					PID = -1;
 					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
 					send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
@@ -1190,6 +1196,9 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	//Entrada inicial del stack, no importa inicializar retPos y retVar
 	//ya que es el contexto principal y no retorna nada
 	Entrada_stack *entrada = malloc(sizeof(Entrada_stack));
+
+	memset(entrada, 0, sizeof(Entrada_stack));
+
 	entrada->args = list_create();
 	entrada->vars = list_create();
 	list_add(nuevo_proceso->pcb->indice_stack,entrada);
@@ -1360,26 +1369,34 @@ void establecer_configuracion() {
 
 	char **array_semaforos = config_get_array_value(config, "SEM_IDS");
 	char **array_semaforos_valores = config_get_array_value(config, "SEM_INIT");
-    int i = 0;
-    while (array_semaforos[i] != NULL) {
+
+    int i;
+    for (i = 0; array_semaforos[i] != NULL; i++) {
     	Semaforo_QEPD *data = malloc(sizeof(Semaforo_QEPD));
+
     	data->valor = atoi(array_semaforos_valores[i]);
     	data->bloqueados = list_create();
+
 	    dictionary_put(semaforos, array_semaforos[i], data);
+
+	    free(array_semaforos[i]);
 	    free(array_semaforos_valores[i]);
-	    i++;
     }
+
     free(array_semaforos);
     free(array_semaforos_valores);
 
 	char **compartidas = config_get_array_value(config, "SHARED_VARS");
-	i = 0;
-    while (compartidas[i] != NULL) {
+
+	for (i = 0; compartidas[i] != NULL; i++) {
     	int *data = malloc(4);
     	*data = 0;
+
 	    dictionary_put(variables_compartidas, compartidas[i], data);
-	    i++;
+
+	    free(compartidas[i]);
     }
+
     free(compartidas);
 
     void imprimir(char *key, void *param) {
@@ -1443,8 +1460,21 @@ void terminar_kernel() {
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 	queue_clean_and_destroy_elements(cola_NEW, &borrar_proceso);
-	list_destroy_and_destroy_elements(lista_EXIT, free);
-	dictionary_destroy_and_destroy_elements(semaforos, free);
+
+	void borrar_proceso_exit(void *param) {
+		Proceso *proceso = (Proceso*) param;
+		free(proceso->pcb);
+		free(proceso);
+	}
+	list_destroy_and_destroy_elements(lista_EXIT, &borrar_proceso_exit);
+
+	void free_semaforo(void *semaforo) {
+		t_list *bloqueados = ((Semaforo_QEPD *)semaforo)->bloqueados;
+		list_destroy_and_destroy_elements(bloqueados, free);
+		free(semaforo);
+	}
+	dictionary_destroy_and_destroy_elements(semaforos, free_semaforo);
+
 	dictionary_destroy_and_destroy_elements(variables_compartidas, free);
 	printf("Adiós!\n");
 	exit(0);
