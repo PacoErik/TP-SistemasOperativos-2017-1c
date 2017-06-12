@@ -73,7 +73,7 @@
 	 */
 
 	void		establecer_configuracion		(void);
-	void		leer_mensaje					(void);
+/*	void		leer_mensaje					(void);*/
 	void		interaccion_FS					(void);
 
 

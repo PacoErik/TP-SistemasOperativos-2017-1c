@@ -1,16 +1,13 @@
 #include "filesystem.h"
 
-int servidor;	// Socket Kernel
+int socket_kernel;
 
 t_log* 			logger;
 t_config* 		config;
 t_bitarray*		bitmap;
 
 struct {
-	char IP_KERNEL[sizeof "255.255.255.255"];
-	char IP_MEMORIA[sizeof "255.255.255.255"];
-	int PUERTO_KERNEL;
-	int PUERTO_MEMORIA;
+	int PUERTO;
 	char PUNTO_MONTAJE[64];
 } FSConfig;
 
@@ -33,13 +30,54 @@ int main(void) {
 	leer_metadata();
 
 	bitmap = leer_bitmap();
-	//limpiar_bitmap();
 
 	interaccion_FS();
 
 	destruir_bitmap();
 
 	return 0;
+}
+
+void recibir_conexion_kernel(void) {
+	int servidor = socket(AF_INET, SOCK_STREAM, 0);	// Socket de escucha
+
+	if (servidor == -1) {
+		logear_error("No se pudo crear el socket", true);
+	}
+
+	int activado = 1;
+	setsockopt(servidor, SOL_SOCKET, SO_REUSEADDR, &activado, sizeof(activado));
+
+	struct sockaddr_in servidor_info;
+
+	servidor_info.sin_family = AF_INET;
+	servidor_info.sin_port = htons(FSConfig.PUERTO);
+	servidor_info.sin_addr.s_addr = INADDR_ANY;
+	bzero(&(servidor_info.sin_zero), 8);
+
+	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
+		logear_error("Fallo al bindear el puerto", true);
+	}
+
+    if (listen(servidor, 10) == -1) {
+		logear_error("Fallo al escuchar", true);
+    }
+
+	logear_info("Estoy escuchando");
+
+	for(;;) {
+		int cliente;					// Socket del nuevo cliente conectado
+
+		struct sockaddr_in clienteInfo;
+		socklen_t addrlen = sizeof clienteInfo;
+
+		cliente = accept(servidor, (struct sockaddr *) &clienteInfo, &addrlen);
+
+		if (cliente == -1) {
+			logear_error("Fallo en el accept", false);
+		}
+
+	}
 }
 
 bool validar_archivo(char *ruta) {
@@ -547,28 +585,12 @@ cleanup:
 }
 
 void establecer_configuracion(void) {
-	if (config_has_property(config, "PUERTO_KERNEL")) {
-		FSConfig.PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
-		logear_info("Puerto Kernel: %d", FSConfig.PUERTO_KERNEL);
+	if (config_has_property(config, "PUERTO")) {
+		FSConfig.PUERTO = config_get_int_value(config, "PUERTO");
+		logear_info("Puerto Kernel: %d", FSConfig.PUERTO);
 	}
 	else {
 		logear_error("Error al leer el puerto del Kernel", true);
-	}
-
-	if (config_has_property(config, "IP_KERNEL")) {
-		strcpy(FSConfig.IP_KERNEL, config_get_string_value(config, "IP_KERNEL"));
-		logear_info("IP Kernel: %s", FSConfig.IP_KERNEL);
-	}
-	else {
-		logear_error("Error al leer la IP del Kernel", true);
-	}
-
-	if (config_has_property(config, "PUERTO_MEMORIA")) {
-		FSConfig.PUERTO_MEMORIA = config_get_int_value(config, "PUERTO_MEMORIA");
-		logear_info("Puerto Memoria: %d", FSConfig.PUERTO_MEMORIA);
-	}
-	else {
-		logear_error("Error al leer el puerto de la Memoria", true);
 	}
 
 	if (config_has_property(config, "PUNTO_MONTAJE")) {
@@ -580,6 +602,7 @@ void establecer_configuracion(void) {
 	}
 }
 
+/*
 void leer_mensaje(void) {
 	int bytesRecibidos;
 	char mensaje[512];
@@ -590,7 +613,7 @@ void leer_mensaje(void) {
 		logear_error("Servidor desconectado luego de intentar leer mensaje", true);
 	}
 	logear_info("Mensaje recibido: %s", mensaje);
-}
+}*/
 
 void interaccion_FS(void) {
 	char input_comando[10];
@@ -710,4 +733,3 @@ bool _crear_directorios(char *ruta) {
 	free(dir);
 	return 1;
 }
-
