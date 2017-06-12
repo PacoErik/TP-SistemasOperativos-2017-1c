@@ -7,6 +7,9 @@
 #include "parser/metadata_program.h"
 #include <time.h>
 
+//-----DEFINES-----//
+enum Algoritmo {RR, FIFO};
+
 //-----ESTRUCTURAS-----//
 typedef struct Posicion_memoria {
 	int numero_pagina;
@@ -70,7 +73,8 @@ PCB *PCB_actual = NULL; // Programa corriendo
 
 int MARCO_SIZE;
 int STACK_SIZE;
-int quantum;
+int algoritmo_actual;
+int quantum = 0;
 int quantum_sleep;
 int tipo_devolucion;
 
@@ -138,7 +142,6 @@ t_puntero 	calcular_puntero(Posicion_memoria);
 void 		destruir_actualPCB(void);
 void 		destruir_entrada_stack(void*);
 void 		devolver_PCB();
-void 		ejecutar_instruccion();
 void 		establecer_configuracion();
 void 		leer_mensaje(servidor, unsigned short);
 void 		obtener_PCB(unsigned short);
@@ -196,6 +199,10 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 	switch(operacion) {
 		case MENSAJE:
 			leer_mensaje(kernel, bytes_payload);
+			return recibir_algo_de(kernel);
+
+		case ALGORITMO_ACTUAL:
+			recv(kernel.socket, &algoritmo_actual, sizeof(algoritmo_actual), 0);
 			break;
 
 		case QUANTUM:
@@ -317,7 +324,7 @@ void devolver_PCB() {
 	enviar_header(kernel.socket, tipo_devolucion, buffersize);
 	send(kernel.socket, buffer, buffersize, 0);
 
-	logear_info("PCB devuelto");
+	logear_info("[PID:%d] PCB devuelto", PCB_actual->pid);
 
 	free(buffer);
 	destruir_actualPCB();
@@ -326,15 +333,6 @@ void devolver_PCB() {
 		logear_info("[CPU] Finalización del proceso.");
 		exit(EXIT_SUCCESS);
 	}
-}
-void ejecutar_instruccion() {
-	usleep(quantum_sleep * 1000);
-	int longitud = PCB_actual->instrucciones_serializado[PCB_actual->program_counter].offset+1;
-	char *instruccion_actual = malloc(longitud);
-	memcpy(instruccion_actual, buffer_solicitado, longitud);
-	instruccion_actual[longitud-2] = '\0';
-	analizadorLinea(instruccion_actual, &funciones, &funcionesnucleo);
-	free(instruccion_actual);
 }
 void obtener_PCB(unsigned short bytes_payload) {
 	void *buffer_PCB = malloc(bytes_payload);
@@ -346,48 +344,75 @@ void obtener_PCB(unsigned short bytes_payload) {
 
 	PCB_actual = deserializar_PCB(buffer_PCB);
 
-	logear_info("PCB obtenido");
+	logear_info("[PID:%d] PCB obtenido", PCB_actual->pid);
 
 	free(buffer_PCB);
 }
 void solicitar_instruccion() {
-	logear_info("Solicitando instruccion...");
+	logear_info("[PID:%d] Solicitando instrucción...", PCB_actual->pid);
 
 	posicionDeMemoriaAPedir posicion;
 	t_intructions instruction = PCB_actual->instrucciones_serializado[PCB_actual->program_counter];
 
 	posicion.processID = PCB_actual->pid;
-	posicion.numero_pagina = 0;
-	posicion.size = instruction.offset;
-	posicion.offset = instruction.start;
+	posicion.numero_pagina = instruction.start / MARCO_SIZE;
 
-	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
-	send(memoria.socket, &posicion, sizeof(posicion), 0);
+	int size;
+	int bytes = instruction.offset;
+	posicion.offset = instruction.start % MARCO_SIZE;
 
-	// Ahora esperamos la instruccion
+	char *instruccion = malloc(bytes);
+	int offset = 0;
 
-	recibir_algo_de(memoria); //Se asume que recibir una instrucción siempre va a salir bien
+	while (bytes > 0) {
+		posicion.size = (MARCO_SIZE-posicion.offset)>bytes?(bytes<MARCO_SIZE?bytes:MARCO_SIZE):(MARCO_SIZE-posicion.offset);
+		//I had to do it v:
+		bytes -= posicion.size;
+
+		enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
+		send(memoria.socket, &posicion, sizeof(posicion), 0);
+
+		recibir_algo_de(memoria);
+
+		memcpy(instruccion + offset, buffer_solicitado, posicion.size);
+		offset += posicion.size;
+
+		posicion.numero_pagina++;
+		posicion.offset = 0;
+	}
+
+	instruccion[instruction.offset - 1] = '\0';
+
+	if (quantum > 0)
+		usleep(quantum_sleep * 1000);
+
+	analizadorLinea(instruccion, &funciones, &funcionesnucleo);
+	free(instruccion);
 }
 void trabajar() {
 	tipo_devolucion = PCB_INCOMPLETO;
 	programaVivitoYColeando = true;
+	int i;
 
-	if (quantum == 0) {
+	switch (algoritmo_actual) {
+
+	case FIFO:
 		while (programaVivitoYColeando) {
 			solicitar_instruccion();
-			ejecutar_instruccion();
 			PCB_actual->program_counter++;
 		}
-	} else {
-		int i;
+		break;
+
+	case RR:
 		for(i = 0; i < quantum; i++) {
 			solicitar_instruccion();
-			ejecutar_instruccion();
 			PCB_actual->program_counter++;
 			if(!programaVivitoYColeando) {
 				break;
 			}
 		}
+		break;
+
 	}
 
 	devolver_PCB(tipo_devolucion);
@@ -425,7 +450,7 @@ int obtener_tamanio_stack() {
 }
 
 void terminar_ejecucion(int exit_code) {
-	logear_error("Se finalizó la ejecución con el EXIT CODE (%d)", false, exit_code);
+	logear_info("Se finalizó la ejecución de (PID:%d) con el EXIT CODE (%d)", PCB_actual->pid, exit_code);
 	programaVivitoYColeando = false;
 	PCB_actual->exit_code = exit_code;
 	if (exit_code < 0) {
@@ -561,7 +586,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	if (!programaVivitoYColeando)
 		return 0; //Una sola instrucción puede ejecutar muchas primitivas, si falla en la primera primitiva las otras no se dan cuenta
 
-	logear_info("Obtener posicion de la variable: %c", nombre);
+	logear_info("Obtener posición de la variable: %c", nombre);
 
 	Entrada_stack *entrada = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
 
@@ -590,6 +615,9 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	return 0;
 }
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Dereferenciar: %i", direccion_variable);
 
 	posicionDeMemoriaAPedir posicion;
@@ -623,10 +651,13 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	send(memoria.socket, &valor, sizeof(valor), 0);
 
 	if (recibir_algo_de(memoria)) {
-		logear_info("Se asigno una variable con el valor %i en la direccion %i.", valor, direccion_variable);
+		logear_info("Se asignó una variable con el valor %i en la dirección %i.", valor, direccion_variable);
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Solicitando el valor de la variable compartida %s", variable);
 
 	int longitud = strlen(variable)+1;
@@ -642,6 +673,9 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 	return 0;
 }
 t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) {
+	if (!programaVivitoYColeando)
+		return 0;
+
 	logear_info("Asignando el valor %d a la variable compartida %s", valor, variable);
 
 	int longitud = strlen(variable)+1;
@@ -755,32 +789,35 @@ void kernel_signal(t_nombre_semaforo identificador_semaforo) {
 	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
 	if (recibir_algo_de(kernel)) {
-		logear_info("Se libera el semaforo %s", identificador_semaforo);
+		logear_info("Se libera el semáforo %s", identificador_semaforo);
 	}
 }
 t_puntero reservar(t_valor_variable espacio) { // TODO
-	return 1;
+	logear_info("Reservar %d bytes", espacio);
+	return 0;
 }
 void liberar(t_puntero puntero) { // TODO
-
+	logear_info("Liberar memoria en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
-	return 1;
+	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
+	return 0;
 }
 void borrar(t_descriptor_archivo direccion) { // TODO
-
+	logear_info("Borrar archivo con el descriptor (FD:%d)", direccion);
+	//[WARNING] direccion debería ser t_direccion_archivo...
 }
 void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
-
+	logear_info("Cerrar archivo con el descriptor (FD:%d)", descriptor_archivo);
 }
 void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
-
+	logear_info("Mover cursor de (FD:%d) a la posición %d", descriptor_archivo, posicion);
 }
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
-
+	logear_info("Escribir %d bytes de información en el descriptor (FD:%d)", tamanio, descriptor_archivo);
 }
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
-
+	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, informacion / MARCO_SIZE, informacion % MARCO_SIZE);
 }
 
 //MANEJO DE SEÑALES

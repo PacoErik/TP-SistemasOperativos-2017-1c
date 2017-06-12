@@ -355,7 +355,7 @@ t_bitarray *leer_bitmap(void) {
 		return NULL;
 	}
 
-	size_t bitarray_size = ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT); // CHAR_BIT = cantidad bits x char
+	size_t bitarray_size = DIVIDE_ROUNDUP(FSMetadata.CANTIDAD_BLOQUES, CHAR_BIT); // CHAR_BIT = cantidad bits x char
 
 	char *bitarray = malloc(bitarray_size);
 
@@ -414,7 +414,7 @@ int *asignar_bloques(int n, int **bloques) {
 	int i;
 	int found_n; // Cantidad de bloques encontrados
 
-	for (i = 0, found_n = 0; i < bitarray_get_max_bit(bitmap) && found_n < n; i++) {
+	for (i = 0, found_n = 0; i < FSMetadata.CANTIDAD_BLOQUES && found_n < n; i++) {
 		/* Encuentra bloques libres */
 		if (bitarray_test_bit(bitmap, i) == 0) {
 			tmp[found_n] = i + 1;

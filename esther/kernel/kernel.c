@@ -17,6 +17,7 @@
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
 		}
 enum Estado {NEW, READY, EXEC, BLOCKED, EXIT};
+enum Algoritmo {RR, FIFO};
 
 //Esto es para el inotify, no le den bola
 #define EVENT_SIZE  ( sizeof (struct inotify_event) )
@@ -100,6 +101,7 @@ int PUERTO_FS;
 int QUANTUM_VALUE;
 int QUANTUM_SLEEP_VALUE;
 char ALGORITMO[5];
+int algoritmo_actual;
 int GRADO_MULTIPROG;
 t_dictionary *semaforos;
 t_dictionary *variables_compartidas;
@@ -223,7 +225,7 @@ int main(void) {
 		logear_error("No se puede detectar los cambios en el directorio", false);
 	} else {
 		fdmax = (descriptor_cambios_archivo > servidor) ? descriptor_cambios_archivo : servidor;
-		inotify_add_watch(descriptor_cambios_archivo,"./", IN_MODIFY);
+		inotify_add_watch(descriptor_cambios_archivo,"./", /*IN_MODIFY*/ IN_CLOSE_WRITE);
 	    FD_SET(descriptor_cambios_archivo, &conectados);
 	}
 
@@ -273,23 +275,20 @@ int main(void) {
 			}
 
 			else if (i == descriptor_cambios_archivo) {
-				/* watafak, es imposible esto, se bugea por todos lados la puta madre
 				int j = 0;
 				char *buffer_cambios_archivo = calloc(BUF_LEN, 1);
 				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
 				while (j < length) {
 					struct inotify_event *event = ( struct inotify_event * ) &buffer_cambios_archivo[j];
-					printf("Cambios detectados en %s\n", event->name);
 					if (!strcmp(event->name, RUTA_CONFIG)) {
 						t_config *nueva_config = config_create(RUTA_CONFIG);
 						QUANTUM_SLEEP_VALUE = config_get_int_value(nueva_config, "QUANTUM_SLEEP");
-						printf("NUEVO QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
+						printf("Nuevo QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
 						config_destroy(nueva_config);
 					}
 					j += EVENT_SIZE + event->len;
 				}
 				free(buffer_cambios_archivo);
-				*/
 			}
 
 			// Un cliente mando un mensaje
@@ -303,8 +302,13 @@ int main(void) {
 						char *respuesta = "Bienvenido!";
 						send(i, respuesta, strlen(respuesta) + 1, 0);
 						if (tipo_cliente(i) == CPU){
-							enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
-							send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
+
+							enviar_header(i, ALGORITMO_ACTUAL, sizeof(algoritmo_actual));
+							send(i, &algoritmo_actual, sizeof(algoritmo_actual), 0);
+							if (algoritmo_actual_es("RR")) {
+								enviar_header(i, QUANTUM, sizeof(QUANTUM_VALUE));
+								send(i, &QUANTUM_VALUE, sizeof(QUANTUM_VALUE), 0);
+							}
 							enviar_header(i, PAGINAS_STACK, sizeof(STACK_SIZE));
 							send(i, &STACK_SIZE, sizeof(STACK_SIZE), 0);
 							planificar();
@@ -821,6 +825,8 @@ void interaccion_kernel() {
 	if (i == (sizeof comandos / sizeof *comandos)) {
 		logear_error("Error: %s no es un comando", false, cmd);
 	}
+
+	free(inputline);
 }
 inline void limpiar_buffer_entrada() {
 	int c;
@@ -1018,8 +1024,12 @@ void intentar_iniciar_proceso() {
 					logear_error("[PID:%d] Memoria insuficiente.", false, PID);
 					nuevo_proceso->estado = EXIT;
 					nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
+
+					limpiar_proceso(nuevo_proceso);
+
 					list_add(lista_EXIT, nuevo_proceso);
 
+					/* TODO: Aca se deberia enviar una excepcion a la consola */
 					PID = -1;
 					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
 					send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
@@ -1086,14 +1096,9 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 			proceso->estado = EXIT;
 		} else {
 			logear_info("Petición resuelta ya que (PID:%d) estaba en READY/BLOCKED",PID);
-			Proceso *proceso_a_finalizar = list_remove_by_condition(procesos, &mismoPID);
+			Proceso *proceso_a_finalizar = list_find(procesos, &mismoPID);
 			proceso_a_finalizar->pcb->exit_code = exit_code;
-			proceso_a_finalizar->estado = EXIT;
-			mem_finalizar_programa(PID);
-			remover_de_semaforos(PID);
-			limpiar_proceso(proceso_a_finalizar);
-			list_add(lista_EXIT, proceso_a_finalizar);
-			intentar_iniciar_proceso();
+			finalizar_programa(PID);
 		}
 	}
 }
@@ -1192,6 +1197,9 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	//Entrada inicial del stack, no importa inicializar retPos y retVar
 	//ya que es el contexto principal y no retorna nada
 	Entrada_stack *entrada = malloc(sizeof(Entrada_stack));
+
+	memset(entrada, 0, sizeof(Entrada_stack));
+
 	entrada->args = list_create();
 	entrada->vars = list_create();
 	list_add(nuevo_proceso->pcb->indice_stack,entrada);
@@ -1207,8 +1215,10 @@ void planificar() {
 			if (cantidad_procesos(READY) > 0) {
 				//Se le envia el QUANTUM_SLEEP junto con el PCB
 				//ya que este valor es variable a lo largo de la vida del sistema
-				enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
-				send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+				if (algoritmo_actual_es("RR")) {
+					enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
+					send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+				}
 
 				_Bool proceso_ready(void *param) {
 					Proceso *proceso = (Proceso*) param;
@@ -1355,33 +1365,46 @@ void establecer_configuracion() {
 	logear_info("ALGORITMO: %s",ALGORITMO);
 
 	if (algoritmo_actual_es("FIFO"))
-		QUANTUM_VALUE = 0;
+		algoritmo_actual = FIFO;
+	else if (algoritmo_actual_es("RR"))
+		algoritmo_actual = RR;
+	else
+		logear_error("Algoritmo desconocido, finalizando...", true);
+
 
 	GRADO_MULTIPROG = config_get_int_value(config, "GRADO_MULTIPROG");
 	logear_info("GRADO_MULTIPROG: %d", GRADO_MULTIPROG);
 
 	char **array_semaforos = config_get_array_value(config, "SEM_IDS");
 	char **array_semaforos_valores = config_get_array_value(config, "SEM_INIT");
-    int i = 0;
-    while (array_semaforos[i] != NULL) {
+
+    int i;
+    for (i = 0; array_semaforos[i] != NULL; i++) {
     	Semaforo_QEPD *data = malloc(sizeof(Semaforo_QEPD));
+
     	data->valor = atoi(array_semaforos_valores[i]);
     	data->bloqueados = list_create();
+
 	    dictionary_put(semaforos, array_semaforos[i], data);
+
+	    free(array_semaforos[i]);
 	    free(array_semaforos_valores[i]);
-	    i++;
     }
+
     free(array_semaforos);
     free(array_semaforos_valores);
 
 	char **compartidas = config_get_array_value(config, "SHARED_VARS");
-	i = 0;
-    while (compartidas[i] != NULL) {
-    	int *data = malloc(4);
+
+	for (i = 0; compartidas[i] != NULL; i++) {
+    	int *data = malloc(sizeof(int));
     	*data = 0;
+
 	    dictionary_put(variables_compartidas, compartidas[i], data);
-	    i++;
+
+	    free(compartidas[i]);
     }
+
     free(compartidas);
 
     void imprimir(char *key, void *param) {
@@ -1445,8 +1468,21 @@ void terminar_kernel() {
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 	queue_clean_and_destroy_elements(cola_NEW, &borrar_proceso);
-	list_destroy_and_destroy_elements(lista_EXIT, free);
-	dictionary_destroy_and_destroy_elements(semaforos, free);
+
+	void borrar_proceso_exit(void *param) {
+		Proceso *proceso = (Proceso*) param;
+		free(proceso->pcb);
+		free(proceso);
+	}
+	list_destroy_and_destroy_elements(lista_EXIT, &borrar_proceso_exit);
+
+	void free_semaforo(void *semaforo) {
+		t_list *bloqueados = ((Semaforo_QEPD *)semaforo)->bloqueados;
+		list_destroy_and_destroy_elements(bloqueados, free);
+		free(semaforo);
+	}
+	dictionary_destroy_and_destroy_elements(semaforos, &free_semaforo);
+
 	dictionary_destroy_and_destroy_elements(variables_compartidas, free);
 	printf("Adiós!\n");
 	exit(0);
