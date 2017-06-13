@@ -27,11 +27,15 @@ comando comandos[] = {
 
 int main(void) {
 	configurar("filesystem");
+
 	leer_metadata();
+
+	recibir_conexion_kernel();
 
 	bitmap = leer_bitmap();
 
-	interaccion_FS();
+/*	interaccion_FS();*/
+	procesar_operacion_kernel();
 
 	destruir_bitmap();
 
@@ -65,7 +69,7 @@ void recibir_conexion_kernel(void) {
 
 	logear_info("Estoy escuchando");
 
-	for(;;) {
+	for (;;) {
 		int cliente;					// Socket del nuevo cliente conectado
 
 		struct sockaddr_in clienteInfo;
@@ -77,7 +81,29 @@ void recibir_conexion_kernel(void) {
 			logear_error("Fallo en el accept", false);
 		}
 
+		else if (recibir_handshake(cliente)) {
+			socket_kernel = cliente;
+			logear_info("Kernel conectado.");
+
+			send(socket_kernel, "Bienvenido!", sizeof "Bienvenido!", 0);
+
+			break;
+		}
 	}
+}
+
+bool recibir_handshake(int socket) {
+	headerDeLosRipeados header;
+	int bytes = recibir_header(socket, &header);
+
+	if (bytes <= 0) {
+		logear_info("Cliente desconectado.");
+		close(socket);
+
+		return -1;
+	}
+
+	return header.codigoDeOperacion == KERNEL;
 }
 
 bool validar_archivo(char *ruta) {
@@ -732,4 +758,120 @@ bool _crear_directorios(char *ruta) {
 
 	free(dir);
 	return 1;
+}
+
+void procesar_operacion_kernel(void) {
+	headerDeLosRipeados header;
+
+	for (;;) {
+		int bytes = recv(socket_kernel, &header, sizeof header, 0);
+		if (bytes <= 0) {
+			/* TODO: Clean up */
+			logear_error("Error de conexion con Kernel.", true);
+		}
+
+		switch (header.codigoDeOperacion) {
+		case VALIDAR_ARCHIVO:
+			kernel_validar(header.bytesDePayload);
+			break;
+
+		case CREAR_ARCHIVO:
+			kernel_crear(header.bytesDePayload);
+			break;
+
+		case BORRAR_ARCHIVO:
+			kernel_borrar(header.bytesDePayload);
+			break;
+
+		case LEER_ARCHIVO:
+			kernel_leer(header.bytesDePayload);
+			break;
+
+		case ESCRIBIR_ARCHIVO:
+			kernel_escribir(header.bytesDePayload);
+			break;
+
+		default:
+			/* TODO: Clean up */
+			logear_error("El Kernel hizo una operacion invalida.", true);
+			break;
+		}
+	}
+}
+
+void kernel_validar(unsigned short bytes) {
+	char *path = calloc(bytes + 1, sizeof(char));
+	recv(socket_kernel, path, bytes, 0);
+
+	bool respuesta = validar_archivo(path);
+	send(socket_kernel, &respuesta, sizeof respuesta, 0);
+
+	logear_info("Validar archivo %s: %s", path, respuesta ? "true" : "false");
+
+	free(path);
+}
+
+void kernel_borrar(unsigned short bytes) {
+	char *path = calloc(bytes + 1, sizeof(char));
+	recv(socket_kernel, path, bytes, 0);
+
+	bool respuesta = eliminar_archivo(path);
+	send(socket_kernel, &respuesta, sizeof respuesta, 0);
+
+	logear_info("Borrar archivo %s: %s", path, respuesta ? "OK" : "Error");
+
+	free(path);
+}
+
+void kernel_crear(unsigned short bytes) {
+	char *path = calloc(bytes + 1, sizeof(char));
+	recv(socket_kernel, path, bytes, 0);
+
+	bool respuesta = crear_archivo(path);
+	send(socket_kernel, &respuesta, sizeof respuesta, 0);
+
+	logear_info("Crear archivo %s: %s", path, respuesta ? "OK" : "Error");
+
+	free(path);
+}
+
+void kernel_leer(unsigned short bytes) {
+	char *path = calloc(bytes + 1, sizeof(char));
+	recv(socket_kernel, path, bytes, 0);
+
+	off_t offset;
+	recv(socket_kernel, &offset, sizeof offset, 0);
+
+	size_t size;
+	recv(socket_kernel, &size, sizeof size, 0);
+
+	void *data = leer_archivo(path, offset, size);
+
+	bool respuesta = data != NULL;
+	send(socket_kernel, &respuesta, sizeof respuesta, 0);
+
+	logear_info("Leer archivo %s: %s", path, respuesta ? "OK" : "Error");
+
+	if (data != NULL) {
+		send(socket_kernel, data, size, 0);
+	}
+}
+
+void kernel_escribir(unsigned short bytes) {
+	char *path = calloc(bytes + 1, sizeof(char));
+	recv(socket_kernel, path, bytes, 0);
+
+	off_t offset;
+	recv(socket_kernel, &offset, sizeof offset, 0);
+
+	size_t size;
+	recv(socket_kernel, &size, sizeof size, 0);
+
+	void *buffer = malloc(size);
+	recv(socket_kernel, buffer, size, 0);
+
+	bool respuesta = escribir_archivo(path, offset, size, buffer);
+	send(socket_kernel, &respuesta, sizeof respuesta, 0);
+
+	logear_info("Escribir archivo %s: %s", path, respuesta ? "OK" : "Error");
 }
