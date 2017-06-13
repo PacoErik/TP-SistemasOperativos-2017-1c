@@ -1051,6 +1051,7 @@ void limpiar_proceso(Proceso *proceso) {
 	}
 
 	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
+	destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 
 	free(proceso->codigo);
 	free(proceso->pcb->etiquetas);
@@ -1175,6 +1176,7 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	nuevo_proceso->pcb->puntero_stack = 0;
 	nuevo_proceso->pcb->cantidad_paginas_codigo = DIVIDE_ROUNDUP(strlen(codigo),tamanio_pagina);
 	nuevo_proceso->pcb->indice_stack = list_create();
+	nuevo_proceso->pcb->tabla_archivos = list_create();
 
 	//Entrada inicial del stack, no importa inicializar retPos y retVar
 	//ya que es el contexto principal y no retorna nada
@@ -1432,6 +1434,7 @@ void destruir_PCB(PCB *pcb) {
 		free(entrada);
 	}
 	list_destroy_and_destroy_elements(pcb->indice_stack, &destruir_entrada_stack);
+	destroy_tabla_archivos_proceso(pcb->tabla_archivos);
 	free(pcb->etiquetas);
 	free(pcb->instrucciones_serializado);
 	free(pcb);
