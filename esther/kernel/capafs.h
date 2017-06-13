@@ -9,8 +9,10 @@
 	#include "commons/collections/list.h"
 	#include "qepd/qepd.h"
 
+	extern char IP_FS[16];
+	extern int PUERTO_FS;
+
 	typedef t_list* global_file_table;
-	typedef t_list* file_table_list;
 	typedef t_list* process_file_table;
 
 	typedef int file_descriptor_t;
@@ -40,25 +42,20 @@
 	} info_pft;
 
 	/*
-	 * Relaciona un proceso con su tabla de archivos.
-	 */
-	typedef struct {
-		int PID;
-		process_file_table tabla_archivos;
-	} list_file_table;
-
-
-	/*
 	 * Operaciones del File System
 	 */
 
-	void fs_abrir_archivo(int PID, char *path, flags_t banderas);
+	int fs_conectar(void);
 
-	void fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio);
+	file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas);
 
-	void fs_cerrar_archivo(int PID, file_descriptor_t fd);
+	bool fs_borrar_archivo(char *path);
 
-	void fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t tamanio);
+	void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorcode);
+
+	bool fs_cerrar_archivo(int PID, file_descriptor_t fd);
+
+	int fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t tamanio);
 
 	/*
 	 * Inicializar la tabla global de archivos y la lista de tablas para cada proceso.
@@ -68,6 +65,6 @@
 	/*
 	 * Elimina la tabla de archivos de un proceso.
 	 */
-	void destroy_tabla_archivos_proceso(int PID);
+	void destroy_tabla_archivos_proceso(process_file_table tabla);
 
 #endif /* CAPAFS_H_ */

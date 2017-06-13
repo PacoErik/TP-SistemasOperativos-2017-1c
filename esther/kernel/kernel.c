@@ -9,6 +9,8 @@
 #include <string.h>
 #include "parser/metadata_program.h"
 #include <sys/inotify.h>
+#include "kernel.h"
+#include "capafs.h"
 
 //-----DEFINES-----//
 #define ID_CLIENTE(x) ID_CLIENTES[x-CONSOLA]
@@ -52,35 +54,6 @@ typedef struct Entrada_stack {
 	int retPos;
 	Posicion_memoria retVar;
 } Entrada_stack;
-typedef struct PCB {
-	int pid;
-	int program_counter;
-	int cantidad_paginas_codigo;
-
-	t_size cantidad_instrucciones;
-	t_intructions *instrucciones_serializado;
-
-	t_size etiquetas_size;
-	char *etiquetas;
-
-	int	puntero_stack;
-	t_list *indice_stack;
-
-	int exit_code;
-} PCB;
-typedef struct Proceso {
-	int consola; //Socket de la consola que envio este proceso
-	int cantidad_rafagas;
-	int cantidad_paginas_heap;
-	int cantidad_alocar;
-	int bytes_alocados;
-	int cantidad_liberar;
-	int bytes_liberados;
-	int cantidad_syscalls; //sí, me encantan los int
-	char* codigo;
-	int estado;
-	PCB *pcb;
-} Proceso;
 typedef struct Semaforo_QEPD {
 	int valor;
 	t_list *bloqueados;
@@ -96,8 +69,6 @@ t_list* lista_EXIT;
 
 static const char *ID_CLIENTES[] = {"Consola", "Memoria", "File System", "CPU"};
 int PUERTO_KERNEL;
-char IP_FS[16];
-int PUERTO_FS;
 int QUANTUM_VALUE;
 int QUANTUM_SLEEP_VALUE;
 char ALGORITMO[5];
@@ -116,6 +87,9 @@ char IP_MEMORIA[16];
 int PUERTO_MEMORIA;
 int STACK_SIZE;
 
+/* capafs.h */
+char IP_FS[16];
+int PUERTO_FS;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
 char*		remover_salto_linea(char*);
@@ -177,6 +151,8 @@ int main(void) {
 	procesos = list_create();
 	lista_EXIT = list_create();
 
+	init_tabla_archivos();
+
 	int servidor = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (servidor == -1) {
@@ -216,6 +192,12 @@ int main(void) {
     }
 
 	agregar_cliente(MEMORIA, socket_memoria);
+
+	int socket_fs = fs_conectar();
+	if (socket_fs == -1) {
+    	logear_error("No se pudo conectar al file system.", true);
+	}
+	agregar_cliente(FILESYSTEM, socket_fs);
 
 	descriptor_cambios_archivo = inotify_init();
 
