@@ -49,7 +49,7 @@
 
 	file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas);
 
-	bool fs_borrar_archivo(char *path);
+	bool fs_borrar_archivo(int PID, file_descriptor_t fd);
 
 	void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorcode);
 

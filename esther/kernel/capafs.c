@@ -94,7 +94,14 @@ file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas) {
 	return fd;
 }
 
-bool fs_borrar_archivo(char *path) {
+bool fs_borrar_archivo(int PID, file_descriptor_t fd) {
+	info_gft *info_global = list_get(global_file_table, get_fd_info(PID, fd)->fd_global);
+	if (info_global->cantidad > 1) {
+		return 0;
+	}
+
+	char *path = get_fd_path(PID, fd);
+
 	size_t paquete_size;
 	void *paquete = serialize_paquete_borrar(path, &paquete_size);
 
