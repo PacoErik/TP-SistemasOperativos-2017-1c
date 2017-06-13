@@ -1,0 +1,8 @@
+begin
+	variables a,b
+	a = 50
+	b = a + 50
+	wait SEM1
+	!Global = !Global + b
+	!Global = 0
+end

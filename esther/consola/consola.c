@@ -85,33 +85,25 @@ void configurar_programa(char *ruta) {
 	pthread_attr_destroy(&attr);
 }
 void desconectar_consola() {
-	void _finalizar(void *element) {
-		proceso *proc = (proceso*) element;
-		int PID = proc->PID;
-		desconectar_programa(PID);
-	}
-	list_destroy_and_destroy_elements(procesos, _finalizar);
+	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
+	enviar_header(servidor, DESCONECTAR_CONSOLA, 0);
 	close(servidor);
-
+	list_destroy_and_destroy_elements(procesos, free);
 	logear_info("Chau!");
 
 	exit(0);
 }
 void desconectar_programa(int PID) {
-	logear_info("[PID:%d] Finalizando...", PID);
 	pthread_t TID = hiloID_programa(PID);
 	if (TID == 0) {
 		logear_error("No existe PID %d", false, PID);
 		return;
 	}
+	logear_info("[PID:%d] Peticion de finalizacion enviada", PID);
 	enviar_header(servidor, FINALIZAR_PROGRAMA, sizeof PID);
 	send(servidor, &PID, sizeof PID, 0);
 
 	pthread_cancel(TID);
-
-	eliminar_proceso(PID);
-
-	logear_info("[PID:%d] Proceso finalizado", PID);
 }
 void eliminar_proceso(int PID) {
 	_Bool mismoPID(void* elemento) {
@@ -303,7 +295,7 @@ void interaccion_consola() {
 		logear_info("Comando de apagado de consola ejecutado");
 		string_trim(&param);
 		if (strlen(param) != 0) {
-			logear_error("El comando \"desconectar\" no recibe nungun parametro", false);
+			logear_error("El comando \"desconectar\" no recibe ningun parametro", false);
 			free(param);
 			return;
 		}
@@ -330,7 +322,7 @@ void interaccion_consola() {
 	void opciones(char *param) {
 		string_trim(&param);
 		if (strlen(param) != 0) {
-			logear_error("El comando \"opciones\" no recibe nungun parametro", false);
+			logear_error("El comando \"opciones\" no recibe parámetros", false);
 			free(param);
 			return;
 		}
@@ -359,7 +351,7 @@ void interaccion_consola() {
 		}
 
 		if (input[strlen(input) - 1] != '\n') {
-			logear_error("Un comando no puede tener mas de 100 digitos", false);
+			logear_error("Un comando no puede tener mas de 100 caracteres", false);
 			limpiar_buffer_entrada();
 			continue;
 		}

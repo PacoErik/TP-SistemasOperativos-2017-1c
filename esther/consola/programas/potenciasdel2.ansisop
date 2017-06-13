@@ -1,0 +1,11 @@
+begin
+	variables a
+	a = 1
+	potencia a
+end
+
+function potencia
+	variables b
+	b = $0 + $0
+	potencia b
+end

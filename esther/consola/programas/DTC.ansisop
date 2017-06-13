@@ -1,0 +1,29 @@
+#Doble del triple del cuadruple de 10.. debe ser 240
+begin
+	variables a,b
+	a = 10
+	b <- dobtricuad a
+end
+
+function dobtricuad
+	variables a
+	a <- cuadruple $0
+	a <- triple a
+	a = a + a
+	return a
+end
+
+function triple
+	variables b
+	b = $0 + $0 + $0
+	return b
+end
+
+function cuadruple
+	variables a
+	a = $0 + $0 + $0 + $0
+	return a
+end
+	
+
+
