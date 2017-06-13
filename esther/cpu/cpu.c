@@ -26,6 +26,7 @@ typedef struct Entrada_stack {
 	int retPos;
 	Posicion_memoria retVar;
 } Entrada_stack;
+typedef t_list* process_file_table;
 typedef struct PCB {
 	int pid;
 	int program_counter;
@@ -40,6 +41,8 @@ typedef struct PCB {
 	int	puntero_stack;
 	t_list *indice_stack;
 
+	process_file_table tabla_archivos;
+
 	int exit_code;
 } PCB;
 typedef struct posicionDeMemoriaAPedir {
@@ -52,6 +55,18 @@ typedef struct servidor { // Esto es más que nada una cheteada para poder usar 
 	int socket;
 	char identificador;
 } servidor;
+typedef int file_descriptor_t;
+typedef int cursor_t;
+typedef struct {
+	bool lectura;
+	bool escritura;
+	bool creacion;
+} flags_t;
+typedef struct {
+	flags_t banderas;
+	cursor_t posicion;
+	file_descriptor_t fd_global;
+} info_pft;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
@@ -507,7 +522,9 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 		free(vars_buffer);
 	}
 	list_iterate(pcb->indice_stack,&copy);
-	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size;
+	int file_table_size;
+	void *file_table_buffer = list_serialize(pcb->tabla_archivos,sizeof(info_pft), &file_table_size);
+	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size + file_table_size;
 	void *buffer = malloc(*buffersize);
 	int offset = 0;
 	memcpy(buffer+offset, pcb, sizeof(PCB));
@@ -517,8 +534,10 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 	memcpy(buffer + offset, pcb->etiquetas, pcb->etiquetas_size);
 	offset += pcb->etiquetas_size;
 	memcpy(buffer + offset, stack_buffer, stack_size);
+	offset += stack_size;
+	memcpy(buffer + offset, file_table_buffer, file_table_size);
 	free(stack_buffer);
-
+	free(file_table_buffer);
 	return buffer;
 }
 PCB *deserializar_PCB(void *buffer) {
@@ -545,6 +564,7 @@ PCB *deserializar_PCB(void *buffer) {
 		offset += vars_size;
 	}
 	list_iterate(pcb->indice_stack,&copy);
+	pcb->tabla_archivos = list_deserialize(buffer + offset);
 	return pcb;
 }
 

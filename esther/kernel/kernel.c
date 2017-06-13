@@ -1175,6 +1175,7 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	nuevo_proceso->pcb->puntero_stack = 0;
 	nuevo_proceso->pcb->cantidad_paginas_codigo = DIVIDE_ROUNDUP(strlen(codigo),tamanio_pagina);
 	nuevo_proceso->pcb->indice_stack = list_create();
+	nuevo_proceso->pcb->tabla_archivos = list_create();
 
 	//Entrada inicial del stack, no importa inicializar retPos y retVar
 	//ya que es el contexto principal y no retorna nada
@@ -1279,7 +1280,9 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 		free(vars_buffer);
 	}
 	list_iterate(pcb->indice_stack,&copy);
-	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size;
+	int file_table_size;
+	void *file_table_buffer = list_serialize(pcb->tabla_archivos,sizeof(info_pft), &file_table_size);
+	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size + file_table_size;
 	void *buffer = malloc(*buffersize);
 	int offset = 0;
 	memcpy(buffer+offset, pcb, sizeof(PCB));
@@ -1289,8 +1292,10 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 	memcpy(buffer + offset, pcb->etiquetas, pcb->etiquetas_size);
 	offset += pcb->etiquetas_size;
 	memcpy(buffer + offset, stack_buffer, stack_size);
+	offset += stack_size;
+	memcpy(buffer + offset, file_table_buffer, file_table_size);
 	free(stack_buffer);
-
+	free(file_table_buffer);
 	return buffer;
 }
 PCB *deserializar_PCB(void *buffer) {
@@ -1317,6 +1322,7 @@ PCB *deserializar_PCB(void *buffer) {
 		offset += vars_size;
 	}
 	list_iterate(pcb->indice_stack,&copy);
+	pcb->tabla_archivos = list_deserialize(buffer + offset);
 	return pcb;
 }
 
