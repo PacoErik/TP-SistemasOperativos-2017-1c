@@ -36,7 +36,7 @@ typedef struct datosMemoria {
 typedef struct miCliente {
     short socketCliente;
     char identificador;
-    _Bool en_uso;
+    Proceso *proceso_asociado;
     _Bool va_a_desconectarse;
 } miCliente;
 typedef struct Posicion_memoria {
@@ -109,6 +109,8 @@ int			solo_numeros(char*);
 int 		tipo_cliente(int);
 
 miCliente*	algun_CPU_disponible();
+
+Proceso* 	proceso_segun_cpu(int);
 
 PCB*		deserializar_PCB(void*);
 
@@ -305,6 +307,14 @@ int main(void) {
 						int tipo = tipo_cliente(i);
 						if (tipo >= 0) {
 							logear_info("Cliente [%s] desconectado", ID_CLIENTE(tipo));
+							if (tipo == CPU) {
+								Proceso *proceso = proceso_segun_cpu(i);
+								if (proceso != NULL) {
+									logear_info("Se desconectó la CPU que ejecutaba (PID:%d), finalizando proceso..", proceso->pcb->pid);
+									proceso->pcb->exit_code = DESCONEXION_FORZADA_CPU;
+									finalizar_programa(proceso->pcb->pid);
+								}
+							}
 							borrar_cliente(i);
 							close(i);
 							if (tipo == MEMORIA)
@@ -433,7 +443,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	int pid, excepcion;
 	char *nombre = NULL;
 	int *valor = NULL;
-	Proceso *proceso = NULL;
+	Proceso *proceso = proceso_segun_cpu(socket_cliente);
 	Semaforo_QEPD *semaforo;
 	int *id_proceso = NULL;
 
@@ -447,8 +457,6 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case PCB_INCOMPLETO:
 		pid = actualizar_PCB(socket_cliente, bytes);
 
-		Proceso *proceso = list_find(procesos, &proceso_segun_pid);
-
 		if (proceso->estado == EXIT) {
 			logear_info("[PID:%d] Finalización por petición de consola", pid);
 			finalizar_programa(pid);
@@ -460,8 +468,6 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 	case PCB_BLOQUEADO:
 		pid = actualizar_PCB(socket_cliente, bytes);
-
-		proceso = list_find(procesos, &proceso_segun_pid);
 
 		if (proceso->estado == EXIT) {
 			logear_info("[PID:%d] Finalización por petición de consola", pid);
@@ -494,6 +500,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		break;
 
 	case OBTENER_VALOR_VARIABLE:
+		proceso->cantidad_syscalls++;
+
 		nombre = malloc(bytes);
 		recv(socket_cliente, nombre, bytes, 0);
 
@@ -512,6 +520,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		break;
 
 	case ASIGNAR_VALOR_VARIABLE:
+		proceso->cantidad_syscalls++;
+
 		nombre = malloc(bytes);
 		recv(socket_cliente, nombre, bytes, 0);
 		int *valor_nuevo = malloc(sizeof(int));
@@ -526,7 +536,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			send(socket_cliente, &excepcion, sizeof(excepcion), 0);
 		} else {
 			memcpy(valor, valor_nuevo, sizeof(int));
-			enviar_header(socket_cliente, ASIGNAR_VALOR_VARIABLE, 0);
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 			logear_info("Se cambió el valor de la variable compartida %s a %d", nombre, *valor_nuevo);
 		}
 		free(valor_nuevo);
@@ -534,10 +544,12 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		break;
 
 	case WAIT:
+		proceso->cantidad_syscalls++;
+
 		nombre = malloc(bytes);
 		recv(socket_cliente, nombre, bytes, 0);
 		id_proceso = malloc(sizeof(int));
-		recv(socket_cliente, id_proceso, sizeof(int), 0);
+		*id_proceso = proceso->pcb->pid;
 		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
@@ -554,17 +566,17 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 				enviar_header(socket_cliente, BLOQUEAR, 0);
 				list_add(semaforo->bloqueados, id_proceso);
 			} else {
-				enviar_header(socket_cliente, WAIT, 0);
+				enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 			}
 		}
 		free(nombre);
 		break;
 
 	case SIGNAL:
+		proceso->cantidad_syscalls++;
+
 		nombre = malloc(bytes);
 		recv(socket_cliente, nombre, bytes, 0);
-		id_proceso = malloc(sizeof(int));
-		recv(socket_cliente, id_proceso, sizeof(int), 0);
 		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
@@ -576,8 +588,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			send(socket_cliente, &excepcion, sizeof(int), 0);
 		} else {
 			semaforo->valor++;
-			logear_info("Semaforo %s cambia su valor a %d debido al proceso (PID:%d)", nombre, semaforo->valor, *id_proceso);
-			enviar_header(socket_cliente, SIGNAL, 0);
+			logear_info("Semaforo %s cambia su valor a %d debido al proceso (PID:%d)", nombre, semaforo->valor, proceso->pcb->pid);
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 			if (semaforo->valor >= 0) {
 				intentar_desbloquear_proceso(nombre);
 			}
@@ -585,6 +597,26 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		free(nombre);
 		break;
 
+	case ESCRIBIR_ARCHIVO:;
+		void *informacion = malloc(bytes);
+		recv(socket_cliente, informacion, bytes, 0);
+		int fd;
+		recv(socket_cliente, &fd, sizeof(t_descriptor_archivo), 0);
+
+		if (fd == 1) {
+			Proceso *proceso = proceso_segun_cpu(socket_cliente);
+			enviar_header(proceso->consola, IMPRIMIR, bytes);
+			send(proceso->consola, informacion, bytes, 0);
+			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
+			logear_info("[PID:%d] Se mandó a imprimir un texto a la consola", proceso->pcb->pid);
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		} else {
+			//Escribir toda la wea en FS en caso de que exista el archivo y tenga permisos
+			//Y mandar excepción en caso de ser necesario
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		}
+		free(informacion);
+		break;
 	}
 }
 void procesar_operaciones_filesystem(int socket_cliente, char operacion, int bytes) {
@@ -881,7 +913,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 		return cpu->socketCliente == socket_cliente;
 	}
 	miCliente *cpu = list_find(clientes, &mismoCPU);
-	cpu->en_uso = false;
+	cpu->proceso_asociado = NULL;
 	logear_info("CPU con socket %d liberada.", cpu->socketCliente);
 
 	return pcb->pid;
@@ -1084,6 +1116,14 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 		}
 	}
 }
+Proceso* proceso_segun_cpu(int socket) {
+	_Bool mismo_socket(void *param) {
+		miCliente *cpu = param;
+		return cpu->socketCliente == socket;
+	}
+	miCliente *cpu = list_find(clientes, &mismo_socket);
+	return cpu->proceso_asociado;
+}
 void remover_de_semaforos(int PID) {
 	_Bool mismo_pid(void *param) {
 		int *pid = param;
@@ -1114,7 +1154,7 @@ void agregar_cliente(char identificador, int socketCliente) {
 	miCliente *cliente = malloc(sizeof (miCliente));
 	cliente->identificador = identificador;
 	cliente->socketCliente = socketCliente;
-	cliente->en_uso = false;
+	cliente->proceso_asociado = NULL;
 	cliente->va_a_desconectarse = false;
 
 	list_add(clientes, cliente);
@@ -1148,7 +1188,7 @@ int algoritmo_actual_es(char *algoritmo) {
 miCliente *algun_CPU_disponible() {
 	_Bool cpu_lista(void *param) {
 		miCliente *cliente = (miCliente*) param;
-		return cliente->identificador == CPU && !cliente->en_uso && !cliente->va_a_desconectarse;
+		return cliente->identificador == CPU && cliente->proceso_asociado == NULL && !cliente->va_a_desconectarse;
 	}
 	return list_find(clientes, &cpu_lista);
 }
@@ -1180,12 +1220,18 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	//Entrada inicial del stack, no importa inicializar retPos y retVar
 	//ya que es el contexto principal y no retorna nada
 	Entrada_stack *entrada = malloc(sizeof(Entrada_stack));
-
 	memset(entrada, 0, sizeof(Entrada_stack));
-
 	entrada->args = list_create();
 	entrada->vars = list_create();
 	list_add(nuevo_proceso->pcb->indice_stack,entrada);
+
+	//File descriptors iniciales
+	int i;
+	for (i = 0; i < 3; i++) {
+		info_pft *entrada = malloc(sizeof(info_pft));
+		memset(entrada, 0, sizeof(info_pft));
+		list_add(nuevo_proceso->pcb->tabla_archivos, entrada);
+	}
 
 	free(info);
 }
@@ -1209,7 +1255,7 @@ void planificar() {
 				}
 				Proceso *proceso = list_remove_by_condition(procesos, &proceso_ready);
 				proceso->estado = EXEC;
-				cpu->en_uso = true;
+				cpu->proceso_asociado = proceso;
 				proceso->cantidad_rafagas++;
 
 				logear_info("Enviando PID %d a ejecución", proceso->pcb->pid);
@@ -1280,9 +1326,7 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 		free(vars_buffer);
 	}
 	list_iterate(pcb->indice_stack,&copy);
-	int file_table_size;
-	void *file_table_buffer = list_serialize(pcb->tabla_archivos,sizeof(info_pft), &file_table_size);
-	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size + file_table_size;
+	*buffersize = sizeof(PCB) + instrucciones_size + pcb->etiquetas_size + stack_size;
 	void *buffer = malloc(*buffersize);
 	int offset = 0;
 	memcpy(buffer+offset, pcb, sizeof(PCB));
@@ -1292,10 +1336,7 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 	memcpy(buffer + offset, pcb->etiquetas, pcb->etiquetas_size);
 	offset += pcb->etiquetas_size;
 	memcpy(buffer + offset, stack_buffer, stack_size);
-	offset += stack_size;
-	memcpy(buffer + offset, file_table_buffer, file_table_size);
 	free(stack_buffer);
-	free(file_table_buffer);
 	return buffer;
 }
 PCB *deserializar_PCB(void *buffer) {
@@ -1322,7 +1363,6 @@ PCB *deserializar_PCB(void *buffer) {
 		offset += vars_size;
 	}
 	list_iterate(pcb->indice_stack,&copy);
-	pcb->tabla_archivos = list_deserialize(buffer + offset);
 	return pcb;
 }
 
