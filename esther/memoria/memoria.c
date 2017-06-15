@@ -137,6 +137,8 @@ int			tipo_cliente						(int);
 int 		maxLru								();
 int 		posicionAReemplazarDeCache			();
 char*		remover_salto_linea					(char*);
+int 		inicializar_programa				(int, int);
+void		copiarAMemoria						(int,size_t,void*);
 
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
@@ -370,6 +372,48 @@ void inicializarTabla_cache(void) {
 			tablaAdministrativa_cache[i].contenidoDeLaPag = i * MARCO_SIZE;
 		}
 
+}
+
+int inicializar_programa(int PID, int paginas_requeridas) {
+
+	int i;
+	int frames_encontrados;		// Contador frames libres encontrados
+	int frames_totales = paginas_requeridas;
+
+	for (i = 0, frames_encontrados = 0;
+			i < MARCOS && frames_encontrados < frames_totales; i++) {
+		if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+			frames_encontrados++;
+		} else {
+			frames_encontrados = 0;
+		}
+	}
+
+	/* No hay frames disponibles */
+	if (frames_encontrados != frames_totales) {
+		return 0;
+	}
+
+	/* Asignar frames al proceso */
+
+	int frame_inicial = i - frames_totales;		// Indice primer frame
+	int frame_final = i;				// Indice ultimo frame
+
+	for (i = frame_inicial; i < frame_final; i++) {
+		tablaAdministrativa[i].pid = PID;
+		tablaAdministrativa[i].pag = i - frame_inicial;
+	}
+
+	return 1;
+}
+
+void copiarAMemoria(int PID,size_t bytes,void* datos){
+	int frame_inicial = 0;
+		while(tablaAdministrativa[frame_inicial].pid != PID )
+			frame_inicial++;
+
+		/* Escribir datos a la memoria */
+			memcpy(ir_a_frame(frame_inicial),datos, bytes);
 }
 
 /*
@@ -861,7 +905,7 @@ void flush() {
 void size(char *param) {
 	string_trim(&param);
 
-	if (!strcmp(param, "memory")) {
+	if (!strcmp(param, "memory")) { 	// Se compara lo ingresado con "memory", y se lo niega para que entre al if.
 		printf("Cantidad de Frames de la memoria: %i\n", MARCOS);
 		int framesLibres = 0, i;
 		for (i = 0; i < MARCOS; i++) {
