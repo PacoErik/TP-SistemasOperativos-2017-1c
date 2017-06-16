@@ -73,7 +73,7 @@ enum CodigoDeOperacion {
 #define SEMAFORO_INEXISTENTE -15
 #define VARIABLE_COMPARTIDA_INEXISTENTE -16
 #define DESCONEXION_FORZADA_CPU -17
-#define REDEFINICION_VARIABLE -18
+#define REDECLARACION_VARIABLE -18
 #define SIN_DEFINICION -20
 
 typedef struct headerDeLosRipeados {

@@ -3,7 +3,7 @@
 
 static int socket_fs;
 
-static global_file_table tabla_archivos_global;
+global_file_table tabla_archivos_global;
 
 listaProcesos *procesos;
 

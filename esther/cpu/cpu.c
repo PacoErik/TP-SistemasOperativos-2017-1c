@@ -565,7 +565,7 @@ t_puntero definir_variable(t_nombre_variable identificador_variable) {
 	}
 
 	if (existe_variable(identificador_variable)) {
-		terminar_ejecucion(REDEFINICION_VARIABLE);
+		terminar_ejecucion(REDECLARACION_VARIABLE);
 		logear_error("Redefinición de la variable %c", false, identificador_variable);
 		return 0;
 	}

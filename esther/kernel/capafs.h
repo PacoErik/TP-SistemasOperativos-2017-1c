@@ -9,14 +9,15 @@
 	#include "commons/collections/list.h"
 	#include "qepd/qepd.h"
 
-	extern char IP_FS[16];
-	extern int PUERTO_FS;
-
 	typedef t_list* global_file_table;
 	typedef t_list* process_file_table;
 
 	typedef int file_descriptor_t;
 	typedef int cursor_t;
+
+	extern char IP_FS[16];
+	extern int PUERTO_FS;
+	extern global_file_table tabla_archivos_global;
 
 	/*
 	 * Estructura de un elemento de la tabla global de archivos.
