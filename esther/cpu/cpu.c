@@ -70,6 +70,8 @@ bool programaVivitoYColeando; 	// Si el programa fallecio o no
 bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
 
 void *buffer_solicitado = NULL;
+int valor_compartida_solicitada;
+int fd_solicitado;
 
 PCB *PCB_actual = NULL; // Programa corriendo
 
@@ -225,9 +227,7 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			break;
 
 		case OBTENER_VALOR_VARIABLE:
-			free(buffer_solicitado);
-			buffer_solicitado = malloc(bytes_payload);
-			recv(kernel.socket, buffer_solicitado, bytes_payload, 0);
+			recv(kernel.socket, &valor_compartida_solicitada, bytes_payload, 0);
 			break;
 
 		case PETICION_CORRECTA:
@@ -243,7 +243,7 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			return 0;
 
 		case ABRIR_ARCHIVO:
-			// TODO
+			recv(kernel.socket, &fd_solicitado, bytes_payload, 0);
 			break;
 
 		case LEER_ARCHIVO:
@@ -736,17 +736,17 @@ void llamar_con_retorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) {
 	ir_al_label(etiqueta);
 
 	if (programaVivitoYColeando) {
-	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+		Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
 
-	nueva_entrada->args = list_create();
-	nueva_entrada->vars = list_create();
-	nueva_entrada->retPos = program_counter_regreso;
-	nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
-	nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
-	nueva_entrada->retVar.size = 4;
+		nueva_entrada->args = list_create();
+		nueva_entrada->vars = list_create();
+		nueva_entrada->retPos = program_counter_regreso;
+		nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
+		nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
+		nueva_entrada->retVar.size = 4;
 
-	list_add(PCB_actual->indice_stack, nueva_entrada);
-	PCB_actual->puntero_stack++;
+		list_add(PCB_actual->indice_stack, nueva_entrada);
+		PCB_actual->puntero_stack++;
 	}
 }
 void finalizar(void) {
@@ -814,6 +814,16 @@ void liberar(t_puntero puntero) { // TODO
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
 	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
+
+	int longitud = strlen(direccion) + 1;
+	enviar_header(kernel.socket, ABRIR_ARCHIVO, longitud);
+	send(kernel.socket, direccion, longitud, 0);
+	send(kernel.socket, &flags, sizeof(t_banderas), 0);
+
+	if (recibir_algo_de(kernel)) {
+		return fd_solicitado;
+	}
+	logear_info("Error al abrir el archivo");
 	return 0;
 }
 void borrar(t_descriptor_archivo direccion) { // TODO

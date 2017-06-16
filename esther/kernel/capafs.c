@@ -59,8 +59,7 @@ file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas) {
 		if (existe_archivo) {
 			logear_info("Error al crear archivo \"%s\": el archivo ya existe.", path);
 
-			/* Que exit code le corresponde aca?? */
-			return SIN_DEFINICION;
+			return ARCHIVO_YA_EXISTE;
 		}
 
 		logear_info("Creando archivo %s", path);
@@ -77,7 +76,7 @@ file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas) {
 
 			/* Esto suele pasar cuando intenta crear un archivo
 			 * cuando ya hay un directorio con el mismo nombre */
-			return SIN_DEFINICION;
+			return NO_SE_PUDO_CREAR_ARCHIVO;
 		}
 
 		logear_info("Archivo creado: \"%s\"", path);
@@ -128,7 +127,7 @@ void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorc
 
 	if (!respuesta) {
 		/* Esto ocurre cuando intenta leer mas datos que lo que el archivo contiene */
-		*errorcode = SIN_DEFINICION;
+		*errorcode = ERROR_LECTURA_ARCHIVO;
 		return NULL;
 	}
 
@@ -219,10 +218,11 @@ static file_descriptor_t add_archivo_proceso(int PID, flags_t banderas, file_des
 	info_pft *elemento = malloc(sizeof(info_pft));
 	elemento->banderas = banderas;
 	elemento->fd_global = fd_global;
+	elemento->posicion = 0;
 
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
 
-	return list_add(tabla_archivos, elemento) + 1;
+	return list_add(tabla_archivos, elemento);
 }
 
 static void cerrar_fd_global(file_descriptor_t fd_global) {
@@ -230,7 +230,10 @@ static void cerrar_fd_global(file_descriptor_t fd_global) {
 	info_fd_global->cantidad--;
 
 	if (info_fd_global->cantidad == 0) {
-		free(list_remove(tabla_archivos_global, fd_global));
+		logear_info("[Archivo global] Se cierra %s", info_fd_global->path);
+		free(info_fd_global->path);
+		free(info_fd_global);
+		info_fd_global = NULL;
 	}
 }
 
@@ -253,7 +256,7 @@ static info_pft *get_fd_info(int PID, file_descriptor_t fd) {
 		return NULL;
 	}
 
-	return list_get(tabla_archivos, fd - 1);
+	return list_get(tabla_archivos, fd);
 }
 
 static char *get_fd_path(int PID, file_descriptor_t fd) {
@@ -273,12 +276,13 @@ static file_descriptor_t get_global_fd(char *path) {
 		return strcmp(path, _path) == 0;
 	}
 
-	file_descriptor_t index;
 	info_gft *p;
+	file_descriptor_t i;
 
-	for (index = 0; (p = list_get(tabla_archivos_global, index)) != NULL; index++) {
-		if (match_path(p)) {
-			return index;
+	for (i = 0; i < list_size(tabla_archivos_global); i++) {
+		p = list_get(tabla_archivos_global, i);
+		if (p != NULL) {
+			if (match_path(p)) return i;
 		}
 	}
 

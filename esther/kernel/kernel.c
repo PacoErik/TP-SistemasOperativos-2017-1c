@@ -598,14 +598,15 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		free(nombre);
 		break;
 
-	case ESCRIBIR_ARCHIVO:;
+	case ESCRIBIR_ARCHIVO:
+		proceso->cantidad_syscalls++;
+
 		void *informacion = malloc(bytes);
 		recv(socket_cliente, informacion, bytes, 0);
 		int fd;
 		recv(socket_cliente, &fd, sizeof(t_descriptor_archivo), 0);
 
 		if (fd == 1) {
-			Proceso *proceso = proceso_segun_cpu(socket_cliente);
 			enviar_header(proceso->consola, IMPRIMIR, bytes);
 			send(proceso->consola, informacion, bytes, 0);
 			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
@@ -618,6 +619,25 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		}
 		free(informacion);
 		break;
+
+	case ABRIR_ARCHIVO:
+		proceso->cantidad_syscalls++;
+
+		t_direccion_archivo direccion = malloc(bytes);
+		recv(socket_cliente, direccion, bytes, 0);
+		flags_t flags;
+		recv(socket_cliente, &flags, sizeof(flags_t), 0);
+
+		int respuesta = fs_abrir_archivo(proceso->pcb->pid, direccion, flags);
+		if (respuesta < 0) {
+			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
+			excepcion = respuesta;
+			send(socket_cliente, &excepcion, sizeof(int), 0);
+		} else {
+			enviar_header(socket_cliente, ABRIR_ARCHIVO, sizeof(int));
+			send(socket_cliente, &respuesta, sizeof(int), 0);
+		}
+
 	}
 }
 void procesar_operaciones_filesystem(int socket_cliente, char operacion, int bytes) {

@@ -74,7 +74,9 @@ enum CodigoDeOperacion {
 #define VARIABLE_COMPARTIDA_INEXISTENTE -16
 #define DESCONEXION_FORZADA_CPU -17
 #define REDECLARACION_VARIABLE -18
-#define SIN_DEFINICION -20
+#define ARCHIVO_YA_EXISTE -19
+#define NO_SE_PUDO_CREAR_ARCHIVO -20
+#define ERROR_LECTURA_ARCHIVO -21
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;
