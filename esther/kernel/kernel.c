@@ -143,7 +143,6 @@ void		terminar_kernel();
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
-	tabla_archivos_global = list_create();
 	semaforos = dictionary_create();
 	variables_compartidas = dictionary_create();
 
@@ -1269,12 +1268,14 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	list_add(nuevo_proceso->pcb->indice_stack,entrada);
 
 	//File descriptors iniciales
+	/*
 	int i;
 	for (i = 0; i < 3; i++) {
 		info_pft *entrada = malloc(sizeof(info_pft));
 		memset(entrada, 0, sizeof(info_pft));
 		list_add(nuevo_proceso->pcb->tabla_archivos, entrada);
 	}
+	*/
 
 	free(info);
 }
@@ -1516,7 +1517,6 @@ void destruir_PCB(PCB *pcb) {
 		free(entrada);
 	}
 	list_destroy_and_destroy_elements(pcb->indice_stack, &destruir_entrada_stack);
-	destroy_tabla_archivos_proceso(pcb->tabla_archivos);
 	free(pcb->etiquetas);
 	free(pcb->instrucciones_serializado);
 	free(pcb);
@@ -1529,7 +1529,8 @@ void terminar_kernel() {
 	list_destroy_and_destroy_elements(clientes, free);
 	void borrar_proceso(void *param) {
 		Proceso *proceso = (Proceso*) param;
-		list_destroy_and_destroy_elements(proceso->pcb->tabla_archivos, free);
+/*		list_destroy_and_destroy_elements(proceso->pcb->tabla_archivos, free);*/
+		destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 		destruir_PCB(proceso->pcb);
 		free(proceso->codigo);
 		free(proceso);
@@ -1543,6 +1544,8 @@ void terminar_kernel() {
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(lista_EXIT, &borrar_proceso_exit);
+
+	list_destroy_and_destroy_elements(tabla_archivos_global, free);
 
 	void free_semaforo(void *semaforo) {
 		t_list *bloqueados = ((Semaforo_QEPD *)semaforo)->bloqueados;
