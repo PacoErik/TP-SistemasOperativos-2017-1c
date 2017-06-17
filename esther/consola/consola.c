@@ -87,7 +87,7 @@ void configurar_programa(char *ruta) {
 void desconectar_consola() {
 	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
 	enviar_header(servidor, DESCONECTAR_CONSOLA, 0);
-	close(servidor);
+
 	list_destroy_and_destroy_elements(procesos, free);
 	logear_info("Chau!");
 
@@ -425,6 +425,22 @@ void procesar_operacion(char operacion, int bytes) {
 		case FINALIZAR_PROGRAMA:
 			recv(servidor, &PID, sizeof(PID), 0);
 			eliminar_proceso(PID);
+			break;
+		case IMPRIMIR:;
+			char *informacion = malloc(bytes);
+			recv(servidor, informacion, bytes, 0);
+			recv(servidor, &PID, sizeof(PID), 0);
+
+			_Bool mismo_proceso(void *param) {
+				proceso *proceso_auxiliar = param;
+				return proceso_auxiliar->PID == PID;
+			}
+
+			proceso *un_proceso = list_find(procesos, &mismo_proceso);
+
+			un_proceso->cantidadImpresiones++;
+
+			logear_info("[PID:%d] Imprimir: %s", PID, informacion);
 			break;
 		default:
 			logear_error("Operación inválida", false);

@@ -40,6 +40,8 @@ typedef struct PCB {
 	int	puntero_stack;
 	t_list *indice_stack;
 
+	t_list *tabla_archivos;
+
 	int exit_code;
 } PCB;
 typedef struct posicionDeMemoriaAPedir {
@@ -68,6 +70,8 @@ bool programaVivitoYColeando; 	// Si el programa fallecio o no
 bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
 
 void *buffer_solicitado = NULL;
+int valor_compartida_solicitada;
+int fd_solicitado;
 
 PCB *PCB_actual = NULL; // Programa corriendo
 
@@ -223,13 +227,11 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			break;
 
 		case OBTENER_VALOR_VARIABLE:
-			free(buffer_solicitado);
-			buffer_solicitado = malloc(bytes_payload);
-			recv(kernel.socket, buffer_solicitado, bytes_payload, 0);
+			recv(kernel.socket, &valor_compartida_solicitada, bytes_payload, 0);
 			break;
 
-		case ASIGNAR_VALOR_VARIABLE:
-			//Mensaje de confirmación
+		case PETICION_CORRECTA:
+			//Confirmación
 			break;
 
 		case EXCEPCION:
@@ -237,19 +239,11 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 			terminar_ejecucion(numero_excepcion);
 			return 0;
 
-		case WAIT:
-			//Confirmacion
-			break;
-
-		case SIGNAL:
-			//Confirmación
-			break;
-
 		case BLOQUEAR:
 			return 0;
 
 		case ABRIR_ARCHIVO:
-			// TODO
+			recv(kernel.socket, &fd_solicitado, bytes_payload, 0);
 			break;
 
 		case LEER_ARCHIVO:
@@ -318,9 +312,9 @@ void devolver_PCB() {
 	int buffersize = 0;
 	void *buffer = serializar_PCB(PCB_actual, &buffersize);
 
-	if (signal_recibida) //Le avisamos al kernel sobre la desconexión así no nos tiene en cuenta para la próxima planificación
+	if (signal_recibida) {//Le avisamos al kernel sobre la desconexión así no nos tiene en cuenta para la próxima planificación
 		enviar_header(kernel.socket, DESCONEXION_CPU, 0);
-
+	}
 	enviar_header(kernel.socket, tipo_devolucion, buffersize);
 	send(kernel.socket, buffer, buffersize, 0);
 
@@ -438,7 +432,16 @@ void destruir_entrada_stack(void *param) {
 _Bool es_parametro(char nombre) {
 	return (nombre >= '0' && nombre <= '9');
 }
+_Bool existe_variable(char identificador) {
+	_Bool mismo_identificador(void *param) {
+		Variable *var = param;
+		return var->identificador == identificador;
+	}
+	Entrada_stack *entrada_actual = list_get(PCB_actual->indice_stack, PCB_actual->puntero_stack);
 
+	return list_any_satisfy(entrada_actual->vars, &mismo_identificador);
+	//Se asume que los argumentos nunca se van a repetir.
+}
 int obtener_tamanio_stack() {
 	int total = 0;
 	void calcular(void* param) {
@@ -448,7 +451,6 @@ int obtener_tamanio_stack() {
 	list_iterate(PCB_actual->indice_stack, &calcular);
 	return total;
 }
-
 void terminar_ejecucion(int exit_code) {
 	logear_info("Se finalizó la ejecución de (PID:%d) con el EXIT CODE (%d)", PCB_actual->pid, exit_code);
 	programaVivitoYColeando = false;
@@ -518,7 +520,6 @@ void *serializar_PCB(PCB *pcb, int* buffersize) {
 	offset += pcb->etiquetas_size;
 	memcpy(buffer + offset, stack_buffer, stack_size);
 	free(stack_buffer);
-
 	return buffer;
 }
 PCB *deserializar_PCB(void *buffer) {
@@ -560,6 +561,12 @@ t_puntero definir_variable(t_nombre_variable identificador_variable) {
 	if (tamanio_stack + 4 > STACK_SIZE * MARCO_SIZE) {
 		terminar_ejecucion(SOBRECARGA_STACK);
 		logear_error("Está coverflow!", false);
+		return 0;
+	}
+
+	if (existe_variable(identificador_variable)) {
+		terminar_ejecucion(REDECLARACION_VARIABLE);
+		logear_error("Redefinición de la variable %c", false, identificador_variable);
 		return 0;
 	}
 
@@ -705,34 +712,42 @@ void ir_al_label(t_nombre_etiqueta etiqueta) {
 }
 void llamar_sin_retorno(t_nombre_etiqueta etiqueta) {
 	logear_info("Se llama sin retorno hacia %s", etiqueta);
-	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
-
-	nueva_entrada->args = list_create();
-	nueva_entrada->vars = list_create();
-
-	nueva_entrada->retPos = PCB_actual->program_counter + 1;
-	//Hay que volver a la instrucción siguiente de la que partí
-
-	list_add(PCB_actual->indice_stack, nueva_entrada);
-	PCB_actual->puntero_stack++;
+	int program_counter_regreso = PCB_actual->program_counter + 1;
 
 	ir_al_label(etiqueta);
+
+	if (programaVivitoYColeando) {
+		Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+
+		nueva_entrada->args = list_create();
+		nueva_entrada->vars = list_create();
+
+		nueva_entrada->retPos = program_counter_regreso;
+		//Hay que volver a la instrucción siguiente de la que partí
+
+		list_add(PCB_actual->indice_stack, nueva_entrada);
+		PCB_actual->puntero_stack++;
+	}
 }
 void llamar_con_retorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) {
 	logear_info("Se llama con retorno hacia %s", etiqueta);
-	Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
-
-	nueva_entrada->args = list_create();
-	nueva_entrada->vars = list_create();
-	nueva_entrada->retPos = PCB_actual->program_counter + 1;
-	nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
-	nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
-	nueva_entrada->retVar.size = 4;
-
-	list_add(PCB_actual->indice_stack, nueva_entrada);
-	PCB_actual->puntero_stack++;
+	int program_counter_regreso = PCB_actual->program_counter + 1;
 
 	ir_al_label(etiqueta);
+
+	if (programaVivitoYColeando) {
+		Entrada_stack *nueva_entrada = malloc(sizeof(Entrada_stack));
+
+		nueva_entrada->args = list_create();
+		nueva_entrada->vars = list_create();
+		nueva_entrada->retPos = program_counter_regreso;
+		nueva_entrada->retVar.numero_pagina = donde_retornar / MARCO_SIZE;
+		nueva_entrada->retVar.offset = donde_retornar % MARCO_SIZE;
+		nueva_entrada->retVar.size = 4;
+
+		list_add(PCB_actual->indice_stack, nueva_entrada);
+		PCB_actual->puntero_stack++;
+	}
 }
 void finalizar(void) {
 	logear_info("Finalizar.");
@@ -768,7 +783,6 @@ void kernel_wait(t_nombre_semaforo identificador_semaforo) {
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, WAIT, longitud);
 	send(kernel.socket, identificador_semaforo, longitud, 0);
-	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
 	if (recibir_algo_de(kernel)) {
 		logear_info("Permiso del semáforo %s otorgado", identificador_semaforo);
@@ -786,7 +800,6 @@ void kernel_signal(t_nombre_semaforo identificador_semaforo) {
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, SIGNAL, longitud);
 	send(kernel.socket, identificador_semaforo, longitud, 0);
-	send(kernel.socket, &PCB_actual->pid, sizeof(int), 0);
 
 	if (recibir_algo_de(kernel)) {
 		logear_info("Se libera el semáforo %s", identificador_semaforo);
@@ -801,6 +814,16 @@ void liberar(t_puntero puntero) { // TODO
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
 	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
+
+	int longitud = strlen(direccion) + 1;
+	enviar_header(kernel.socket, ABRIR_ARCHIVO, longitud);
+	send(kernel.socket, direccion, longitud, 0);
+	send(kernel.socket, &flags, sizeof(t_banderas), 0);
+
+	if (recibir_algo_de(kernel)) {
+		return fd_solicitado;
+	}
+	logear_info("Error al abrir el archivo");
 	return 0;
 }
 void borrar(t_descriptor_archivo direccion) { // TODO
@@ -813,8 +836,18 @@ void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
 void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
 	logear_info("Mover cursor de (FD:%d) a la posición %d", descriptor_archivo, posicion);
 }
-void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
+void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Escribir %d bytes de información en el descriptor (FD:%d)", tamanio, descriptor_archivo);
+
+	enviar_header(kernel.socket, ESCRIBIR_ARCHIVO, tamanio);
+	send(kernel.socket, informacion, tamanio, 0);
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Escritura correcta de la información!");
+	}
 }
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
 	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, informacion / MARCO_SIZE, informacion % MARCO_SIZE);
