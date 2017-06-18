@@ -112,6 +112,7 @@ miCliente*	algun_CPU_disponible();
 
 Proceso*	algun_proceso_listo();
 Proceso* 	proceso_segun_cpu(int);
+Proceso* 	proceso_segun_pid(int);
 
 PCB*		deserializar_PCB(void*);
 
@@ -144,7 +145,6 @@ void		terminar_kernel();
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
-	tabla_archivos_global = list_create();
 	semaforos = dictionary_create();
 	variables_compartidas = dictionary_create();
 
@@ -454,11 +454,6 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	Semaforo_QEPD *semaforo;
 	int *id_proceso = NULL;
 
-	_Bool proceso_segun_pid(void *param) {
-		Proceso *un_proceso = param;
-		return un_proceso->pcb->pid == pid;
-	}
-
 	switch (operacion) {
 
 	case PCB_INCOMPLETO:
@@ -640,36 +635,12 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		t_descriptor_archivo descriptor;
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
-		info_pft *info_archivo = list_get(proceso->pcb->tabla_archivos, descriptor);
-		if (info_archivo != NULL) {
-			info_gft *info_archivo_global = list_get(tabla_archivos_global, info_archivo->fd_global);
-			if (info_archivo_global->cantidad == 1) {
-				if (fs_borrar_archivo(info_archivo_global->path)) {
-					enviar_header(socket_cliente, PETICION_CORRECTA, 0);
-				} else {
-					enviar_excepcion(socket_cliente, ARCHIVO_NO_EXISTE);
-					//Esto no debería pasar nunca, ya que supuestamente el archivo estaba abierto por 1 proceso
-					//Pero pooodría pasar que alguien borre el archivo manualmente GG rip
-				}
-
-				void liberar(void *elemento) {
-					info_gft *info = elemento;
-					free(info->path);
-					free(info);
-				}
-
-				list_replace_and_destroy_element(tabla_archivos_global, info_archivo->fd_global, NULL, &liberar);
-				list_replace_and_destroy_element(proceso->pcb->tabla_archivos, descriptor, NULL, free);
-			} else {
-				enviar_excepcion(socket_cliente, NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO);
-			}
+		respuesta = fs_borrar_archivo(proceso->pcb->pid, descriptor);
+		if (respuesta < 0) {
+			enviar_excepcion(socket_cliente, respuesta);
 		} else {
-			enviar_excepcion(socket_cliente, ARCHIVO_NO_EXISTE);
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		}
-
-
-
-
 	}
 }
 void procesar_operaciones_filesystem(int socket_cliente, char operacion, int bytes) {
@@ -1134,7 +1105,9 @@ void limpiar_proceso(Proceso *proceso) {
 	}
 
 	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
-	list_destroy_and_destroy_elements(proceso->pcb->tabla_archivos, free);
+
+	destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
+
 
 	free(proceso->codigo);
 	free(proceso->pcb->etiquetas);
@@ -1175,6 +1148,13 @@ Proceso* proceso_segun_cpu(int socket) {
 	}
 	miCliente *cpu = list_find(clientes, &mismo_socket);
 	return cpu->proceso_asociado;
+}
+Proceso* proceso_segun_pid(int PID) {
+	_Bool mismo_pid(void *param) {
+		Proceso *proceso = param;
+		return proceso->pcb->pid == PID;
+	}
+	return (Proceso*)list_find(procesos, &mismo_pid);
 }
 void remover_de_semaforos(int PID) {
 	_Bool mismo_pid(void *param) {
@@ -1294,12 +1274,14 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	list_add(nuevo_proceso->pcb->indice_stack,entrada);
 
 	//File descriptors iniciales
+	/*
 	int i;
 	for (i = 0; i < 3; i++) {
 		info_pft *entrada = malloc(sizeof(info_pft));
 		memset(entrada, 0, sizeof(info_pft));
 		list_add(nuevo_proceso->pcb->tabla_archivos, entrada);
 	}
+	*/
 
 	free(info);
 }
@@ -1553,6 +1535,7 @@ void terminar_kernel() {
 	list_destroy_and_destroy_elements(clientes, free);
 	void borrar_proceso(void *param) {
 		Proceso *proceso = (Proceso*) param;
+		destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 		destruir_PCB(proceso->pcb);
 		free(proceso->codigo);
 		free(proceso);
@@ -1566,6 +1549,8 @@ void terminar_kernel() {
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(lista_EXIT, &borrar_proceso_exit);
+
+	list_destroy_and_destroy_elements(tabla_archivos_global, free);
 
 	void free_semaforo(void *semaforo) {
 		t_list *bloqueados = ((Semaforo_QEPD *)semaforo)->bloqueados;

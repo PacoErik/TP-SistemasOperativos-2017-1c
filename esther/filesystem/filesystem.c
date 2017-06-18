@@ -22,22 +22,32 @@ comando comandos[] = {
 		{ "crear",		FS_CREAR	},
 		{ "eliminar",	FS_ELIMINAR	},
 		{ "leer",		FS_LEER		},
-		{ "escribir",	FS_ESCRIBIR	}
+		{ "escribir",	FS_ESCRIBIR	},
 };
+
+#define CONECTAR_A_KERNEL 1			// Conectar a Kernel o usar la consola de FS
 
 int main(void) {
 	configurar("filesystem");
 
 	leer_metadata();
 
+#if CONECTAR_A_KERNEL
 	recibir_conexion_kernel();
+#endif
 
 	bitmap = leer_bitmap();
 
-/*	interaccion_FS();*/
+#if !CONECTAR_A_KERNEL
+	interaccion_FS();
+#endif
+
+#if CONECTAR_A_KERNEL
 	procesar_operacion_kernel();
+#endif
 
 	destruir_bitmap();
+	log_destroy(logger);
 
 	return 0;
 }
@@ -109,16 +119,13 @@ bool recibir_handshake(int socket) {
 bool validar_archivo(char *ruta) {
 	char *ruta_completa = _ruta_desde_archivos(ruta);
 
-	FILE *archivo = fopen(ruta_completa, "r");
+	struct stat stat_file;
+	memset(&stat_file, 0, sizeof stat_file);
+	stat(ruta_completa, &stat_file);
 
 	free(ruta_completa);
 
-	if (archivo != NULL) {
-		fclose(archivo);
-		return 1;
-	}
-
-	return 0;
+	return S_ISREG(stat_file.st_mode);
 }
 
 bool crear_archivo(char *ruta) {
@@ -655,6 +662,8 @@ void interaccion_FS(void) {
 			"eliminar [RUTA_ARCHIVO]\n"
 			"leer [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO]\n"
 			"escribir [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO] [CONTENIDO]\n"
+			"limpiar (Limpia el contenido del bitmap, debe eliminar todos los "
+			"archivos en la ruta \"mnt/SADICA_FS/Archivos/\" manualmente.)\n"
 			"salir\n");
 	fflush(stdout);
 
@@ -663,6 +672,11 @@ void interaccion_FS(void) {
 
 		if (strcmp(input_comando, "salir") == 0) {
 			break;
+		}
+
+		if (strcmp(input_comando, "limpiar") == 0) {
+			limpiar_bitmap();
+			continue;
 		}
 
 		int i;
@@ -746,7 +760,7 @@ bool _crear_directorios(char *ruta) {
 			continue;
 		}
 
-		if (mkdir(_ruta_desde_archivos(dir), 777) == -1) {
+		if (mkdir(_ruta_desde_archivos(dir), 0777) == -1) {
 			if (errno == ENOTDIR) {
 				logear_error("\"%s\" no es un directorio.\n", false, dir);
 
@@ -767,7 +781,8 @@ void procesar_operacion_kernel(void) {
 		int bytes = recv(socket_kernel, &header, sizeof header, 0);
 		if (bytes <= 0) {
 			/* TODO: Clean up */
-			logear_error("Error de conexion con Kernel.", true);
+			logear_error("Error de conexion con Kernel.", false);
+			return;
 		}
 
 		switch (header.codigoDeOperacion) {
@@ -793,8 +808,8 @@ void procesar_operacion_kernel(void) {
 
 		default:
 			/* TODO: Clean up */
-			logear_error("El Kernel hizo una operacion invalida.", true);
-			break;
+			logear_error("El Kernel hizo una operacion invalida.", false);
+			return;
 		}
 	}
 }

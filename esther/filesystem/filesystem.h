@@ -4,6 +4,7 @@
 	#include <stdio.h>
 	#include <string.h>
 	#include <errno.h>
+	#include <sys/stat.h>
 
 	#include "commons/bitarray.h"
 
@@ -82,6 +83,7 @@
 	void procesar_operacion_kernel(void);
 	void kernel_validar(unsigned short bytes);
 	void kernel_borrar(unsigned short bytes);
+	void kernel_crear(unsigned short bytes);
 	void kernel_leer(unsigned short bytes);
 	void kernel_escribir(unsigned short bytes);
 
