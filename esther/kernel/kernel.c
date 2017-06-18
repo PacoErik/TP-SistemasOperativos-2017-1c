@@ -138,8 +138,6 @@ void		planificar();
 void 		procesar_mensaje(int, char, int);
 void 		procesar_operaciones_consola(int, char, int);
 void 		procesar_operaciones_CPU(int, char, int);
-void 		procesar_operaciones_filesystem(int, char, int);
-void 		procesar_operaciones_memoria(int, char, int);
 void*		serializar_PCB(PCB*, int*);
 void		terminar_kernel();
 
@@ -320,7 +318,7 @@ int main(void) {
 							}
 							borrar_cliente(i);
 							close(i);
-							if (tipo == MEMORIA)
+							if (tipo == MEMORIA || tipo == FILESYSTEM)
 								terminar_kernel();
 						} else {
 							cerrar_conexion(i, "El socket %d se desconectó");
@@ -382,14 +380,6 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 			procesar_operaciones_consola(socket_cliente, operacion, bytes);
 			break;
 
-		case MEMORIA:
-			procesar_operaciones_memoria(socket_cliente, operacion, bytes);
-			break;
-
-		case FILESYSTEM:
-			procesar_operaciones_filesystem(socket_cliente, operacion, bytes);
-			break;
-
 		case CPU:
 			procesar_operaciones_CPU(socket_cliente, operacion, bytes);
 			break;
@@ -447,12 +437,13 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 	}
 }
 void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
-	int pid, excepcion;
+	int pid, excepcion, respuesta;
 	char *nombre = NULL;
 	int *valor = NULL;
 	Proceso *proceso = proceso_segun_cpu(socket_cliente);
 	Semaforo_QEPD *semaforo;
 	int *id_proceso = NULL;
+	t_descriptor_archivo descriptor;
 
 	switch (operacion) {
 
@@ -595,10 +586,9 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		void *informacion = malloc(bytes);
 		recv(socket_cliente, informacion, bytes, 0);
-		int fd;
-		recv(socket_cliente, &fd, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
-		if (fd == 1) {
+		if (descriptor == 1) {
 			enviar_header(proceso->consola, IMPRIMIR, bytes);
 			send(proceso->consola, informacion, bytes, 0);
 			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
@@ -612,6 +602,24 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		free(informacion);
 		break;
 
+	case LEER_ARCHIVO:
+		proceso->cantidad_syscalls++;
+
+		Posicion_memoria pedido;
+		recv(socket_cliente, &pedido, bytes, 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+
+		void *info = fs_leer_archivo(proceso->pcb->pid, descriptor, pedido.size, &respuesta);
+		if (info != NULL) {
+			//Almacenar en memoria con la posicion de memoria dada
+			//TODO KEK
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		} else {
+			enviar_excepcion(socket_cliente, respuesta);
+		}
+
+		break;
+
 	case ABRIR_ARCHIVO:
 		proceso->cantidad_syscalls++;
 
@@ -620,7 +628,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		flags_t flags;
 		recv(socket_cliente, &flags, sizeof(flags_t), 0);
 
-		int respuesta = fs_abrir_archivo(proceso->pcb->pid, direccion, flags);
+		respuesta = fs_abrir_archivo(proceso->pcb->pid, direccion, flags);
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
 		} else {
@@ -632,7 +640,6 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case BORRAR_ARCHIVO:
 		proceso->cantidad_syscalls++;
 
-		t_descriptor_archivo descriptor;
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
 		respuesta = fs_borrar_archivo(proceso->pcb->pid, descriptor);
@@ -641,13 +648,40 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		} else {
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		}
+		break;
+
+	case CERRAR_ARCHIVO:
+		proceso->cantidad_syscalls++;
+
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+
+		respuesta = fs_cerrar_archivo(proceso->pcb->pid, descriptor);
+		if (respuesta < 0) {
+			enviar_excepcion(socket_cliente, respuesta);
+		} else {
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		}
+
+		break;
+
+	case MOVER_CURSOR:
+		proceso->cantidad_syscalls++;
+
+
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		t_valor_variable posicion;
+		recv(socket_cliente, &posicion, sizeof(t_valor_variable), 0);
+
+		respuesta = fs_mover_cursor(proceso->pcb->pid, descriptor, posicion);
+		if (respuesta < 0) {
+			enviar_excepcion(socket_cliente, respuesta);
+		} else {
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		}
+
+		break;
+
 	}
-}
-void procesar_operaciones_filesystem(int socket_cliente, char operacion, int bytes) {
-
-}
-void procesar_operaciones_memoria(int socket_cliente, char operacion, int bytes) {
-
 }
 int recibir_handshake(int socketCliente) {
 	headerDeLosRipeados handy;
@@ -741,9 +775,58 @@ void interaccion_kernel() {
 		free(estado);
 	}
 
-	void proceso(char *param) {
-		free(param);
-		logear_info("[Proceso]");
+	void proceso(char *sPID) {
+		string_trim(&sPID);
+
+		if (strlen(sPID) == 0) {
+			logear_error("El comando \"proceso\" recibe un parametro [PID]", false);
+			free(sPID);
+			return;
+		}
+
+		if (!solo_numeros(sPID)) {
+			logear_error("Error: \"%s\" no es un PID valido!", false, sPID);
+			free(sPID);
+			return;
+		}
+
+		int PID = strtol(sPID, NULL, 0);
+		free(sPID);
+
+		Proceso *proceso = proceso_segun_pid(PID);
+
+		if (proceso != NULL) {
+			logear_info("[Proceso %d]", PID);
+		} else {
+			_Bool mismo_pid(void *param) {
+				return ((Proceso*)param)->pcb->pid == PID;
+			}
+			proceso = list_find(lista_EXIT, &mismo_pid);
+			if (proceso != NULL) {
+				logear_info("[Proceso %d - Finalizado]", PID);
+			} else {
+				logear_info("[Proceso no existe o no inició]", PID);
+				return;
+			}
+		}
+
+		logear_info("(Cantidad de ráfagas: %d)", proceso->cantidad_rafagas);
+		logear_info("(Cantidad de syscalls: %d)", proceso->cantidad_syscalls);
+		if (proceso->estado != EXIT) {
+			file_descriptor_t fd = FD_INICIAL;
+			void imprimir_info_pft(void *param) {
+				info_pft *info = param;
+				if (info == NULL) return;
+				logear_info("(Archivo FD:%d) (FD_global:%d) (Cursor:%d) (L:%d) (E:%d) (C:%d)", fd, info->fd_global, info->posicion, info->banderas.lectura, info->banderas.escritura, info->banderas.creacion);
+				fd++;
+			}
+			list_iterate(proceso->pcb->tabla_archivos, &imprimir_info_pft);
+		} else {
+			logear_info("(Exit code: %d)", proceso->pcb->exit_code);
+		}
+		logear_info("(Cantidad de páginas de Heap: %d)", proceso->cantidad_paginas_heap);
+		logear_info("(Cantidad de alocar: %d) (Bytes reservados: %d)", proceso->cantidad_alocar, proceso->bytes_alocados);
+		logear_info("(Cantidad de liberar: %d) (Bytes liberados: %d)", proceso->cantidad_liberar, proceso->bytes_liberados);
 	}
 
 	void tablaglobal(char *param) {
@@ -751,6 +834,7 @@ void interaccion_kernel() {
 		logear_info("[Tabla Global]");
 		void imprimir_info_gft(void *param) {
 			info_gft *info = param;
+			if (info == NULL) return;
 			logear_info("[Archivo] Ruta:%s Cantidad:%d", info->path, info->cantidad);
 		}
 		if (list_size(tabla_archivos_global) > 0) {
@@ -923,11 +1007,8 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	PCB *pcb = deserializar_PCB(buffer_PCB);
 	free(buffer_PCB);
 
-	_Bool mismoPID(void *param) {
-		Proceso *proceso = (Proceso*) param;
-		return proceso->pcb->pid == pcb->pid;
-	}
-	Proceso *proceso = list_find(procesos, &mismoPID);
+	Proceso *proceso = proceso_segun_pid(pcb->pid);
+
 	if (proceso != NULL) {
 		int exit_code = proceso->pcb->exit_code; //Con eso manejo el caso en el que se haya finalizado por consola
 		destruir_PCB(proceso->pcb);
@@ -985,19 +1066,11 @@ void eliminar_proceso(int PID) {
 	list_add(lista_EXIT,proceso);
 }
 int existe_proceso(int PID) {
-	_Bool mismoPID(void* elemento) {
-		return PID == ((Proceso*) elemento)->pcb->pid;
-	}
-	return list_any_satisfy(procesos, mismoPID);
+	return proceso_segun_pid(PID) == NULL ? false : true;
 }
 void finalizar_programa(int PID) {
 	if (existe_proceso(PID)) {
-		_Bool mismo_proceso(void *param) {
-			Proceso *proceso = param;
-			return proceso->pcb->pid == PID;
-		}
-
-		Proceso *proceso = list_find(procesos, &mismo_proceso);
+		Proceso *proceso = proceso_segun_pid(PID);
 		int exit_code = proceso->pcb->exit_code;
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);
@@ -1028,11 +1101,7 @@ void hacer_pedido_memoria(datosMemoria datosMem) {
 void intentar_desbloquear_proceso(char *nombre_semaforo) {
 	Semaforo_QEPD *semaforo = dictionary_get(semaforos, nombre_semaforo);
 	Proceso *proceso_bloqueado = list_remove(semaforo->bloqueados, 0);
-	_Bool mismo_proceso(void *param) {
-		Proceso *proceso = param;
-		return proceso->pcb->pid == proceso_bloqueado->pcb->pid;
-	}
-	Proceso *proceso = list_remove_by_condition(procesos, &mismo_proceso);
+	Proceso *proceso = proceso_segun_pid(proceso_bloqueado->pcb->pid);
 	proceso->estado = READY;
 	logear_info("Se desbloquea el proceso (PID:%d)", proceso->pcb->pid);
 	list_add(procesos, proceso);
@@ -1119,12 +1188,11 @@ void limpiar_proceso(Proceso *proceso) {
 	//procesos finalizados.
 }
 void peticion_para_cerrar_proceso(int PID, int exit_code) {
-	_Bool mismoPID(void *param) {
-		Proceso *proceso = param;
-		return proceso->pcb->pid == PID;
+	_Bool mismo_PID(void *param) {
+		return ((Proceso*)param)->pcb->pid == PID;
 	}
 
-	Proceso *proceso = list_find(procesos, &mismoPID);
+	Proceso *proceso = proceso_segun_pid(PID);
 
 	if (proceso == NULL) {
 		logear_info("El proceso (PID:%d) no existe/ya finalizó/no comenzó",PID);
@@ -1135,7 +1203,7 @@ void peticion_para_cerrar_proceso(int PID, int exit_code) {
 			proceso->estado = EXIT;
 		} else {
 			logear_info("Petición resuelta ya que (PID:%d) estaba en READY/BLOCKED",PID);
-			Proceso *proceso_a_finalizar = list_find(procesos, &mismoPID);
+			Proceso *proceso_a_finalizar = list_find(procesos, &mismo_PID);
 			proceso_a_finalizar->pcb->exit_code = exit_code;
 			finalizar_programa(PID);
 		}
@@ -1530,7 +1598,7 @@ void destruir_PCB(PCB *pcb) {
 void terminar_kernel() {
 	//Sucede cuando se desconecta la memoria
 	//(próximamente el file system también)
-	logear_info("Finalización de Kernel debido a desconexión de memoria...");
+	logear_info("Finalización de Kernel debido a desconexión de Memoria/FS...");
 	log_destroy(logger);
 	list_destroy_and_destroy_elements(clientes, free);
 	void borrar_proceso(void *param) {

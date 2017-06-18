@@ -97,9 +97,9 @@ file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas) {
 int fs_borrar_archivo(int PID, file_descriptor_t fd) {
 	int respuesta;
 
-	Proceso *proceso = (Proceso*)proceso_segun_pid(PID);
+	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
 
-	info_pft *info_archivo = list_get(proceso->pcb->tabla_archivos, fd - FD_INICIAL);
+	info_pft *info_archivo = list_get(tabla_archivos, fd - FD_INICIAL);
 	if (info_archivo != NULL) {
 		info_gft *info_archivo_global = list_get(tabla_archivos_global, info_archivo->fd_global);
 		if (info_archivo_global->cantidad == 1) {
@@ -117,25 +117,15 @@ int fs_borrar_archivo(int PID, file_descriptor_t fd) {
 			respuesta = _respuesta ? 1 : ARCHIVO_NO_EXISTE;
 			//Que no exista el archivo es algo muy difícil, ya que tuvo que haberse borrado manualmente
 
-			void liberar(void *elemento) {
-				info_gft *info = elemento;
-				free(info->path);
-				free(info);
-			}
-
-			list_replace_and_destroy_element(tabla_archivos_global, info_archivo->fd_global, NULL, &liberar);
-			list_replace_and_destroy_element(proceso->pcb->tabla_archivos, fd - FD_INICIAL, NULL, free);
+			fs_cerrar_archivo(PID, fd);
 		} else {
-			return NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO;
+			respuesta = NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO;
 		}
 	} else {
-		return DESCRIPTOR_ERRONEO;
+		respuesta = DESCRIPTOR_ERRONEO;
 	}
 
-
-
 	return respuesta;
-
 }
 
 void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorcode) {
@@ -170,18 +160,30 @@ void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorc
 	return data;
 }
 
-bool fs_cerrar_archivo(int PID, file_descriptor_t fd) {
+int fs_cerrar_archivo(int PID, file_descriptor_t fd) {
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
-	info_pft *info_fd = list_get(tabla_archivos, fd);
+	info_pft *info_fd = list_get(tabla_archivos, fd - FD_INICIAL);
 
 	if (info_fd == NULL) {
-		/* Esta queriendo cerrar un archivo que no esta abierto?! */
-		return 0;
+		return DESCRIPTOR_ERRONEO;
 	}
 
 	cerrar_fd_global(info_fd->fd_global);
-	free(info_fd);
-	info_fd = NULL;
+
+	list_replace_and_destroy_element(tabla_archivos, fd - FD_INICIAL, NULL, free);
+
+	return 1;
+}
+
+int fs_mover_cursor(int PID, file_descriptor_t fd, t_valor_variable posicion) {
+	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
+	info_pft *info_fd = list_get(tabla_archivos, fd - FD_INICIAL);
+
+	if (info_fd == NULL) {
+		return DESCRIPTOR_ERRONEO;
+	}
+
+	info_fd->posicion = posicion;
 
 	return 1;
 }

@@ -56,7 +56,9 @@
 
 	void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorcode);
 
-	bool fs_cerrar_archivo(int PID, file_descriptor_t fd);
+	int fs_cerrar_archivo(int PID, file_descriptor_t fd);
+
+	int fs_mover_cursor(int PID, file_descriptor_t fd, t_valor_variable posicion);
 
 	int fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t tamanio);
 
