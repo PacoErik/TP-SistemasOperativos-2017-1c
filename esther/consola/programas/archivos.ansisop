@@ -7,7 +7,7 @@ begin
 	liberar a
 	#Libera la memoria reservada que apunta "a"
 	
-	abrir LEC /ola/kease.txt
+	abrir a LEC /ola/kease.txt
 	#Abre el archivo kease.txt con los permisos LEC (Lectura-Escritura-Creación)
 	
 	prints n 5

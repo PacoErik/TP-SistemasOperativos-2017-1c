@@ -1,0 +1,14 @@
+begin
+	variables a,b
+	a = 0
+	b = 1
+	fib a,b
+end
+
+function fib 
+	variables a,b
+	a = $1
+	prints n a
+	b = $0 + $1
+	fib a,b
+end

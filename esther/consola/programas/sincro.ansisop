@@ -1,0 +1,11 @@
+begin
+	loop
+end
+
+function loop
+	wait SEM1
+	!Global = !Global + 1
+	prints n !Global
+	signal SEM1
+	loop
+end

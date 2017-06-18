@@ -15,7 +15,8 @@ typedef struct proceso {
 	int PID;
 	pthread_t hiloID;
 	time_t inicio;
-	int cantidadImpresiones;
+	int cantidad_impresiones;
+	char *ruta;
 } proceso;
 typedef t_list listaProceso;
 
@@ -28,7 +29,7 @@ int PUERTO_KERNEL;
 listaProceso *procesos;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregar_proceso(int, pthread_t);
+void 			agregar_proceso(int, pthread_t, char*);
 void 			configurar_programa();
 void 			desconectar_consola();
 void 			desconectar_programa();
@@ -67,13 +68,14 @@ int main(void) {
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregar_proceso(int PID, pthread_t hiloID) {
-	proceso *nuevoProceso = malloc(sizeof(proceso));
-	nuevoProceso->PID = PID;
-	nuevoProceso->hiloID = hiloID;
-	nuevoProceso->inicio = time(NULL); //tiempo actual en segundos
-	nuevoProceso->cantidadImpresiones = 0;
-	list_add(procesos, nuevoProceso);
+void agregar_proceso(int PID, pthread_t hiloID, char *ruta) {
+	proceso *nuevo_proceso = malloc(sizeof(proceso));
+	nuevo_proceso->PID = PID;
+	nuevo_proceso->hiloID = hiloID;
+	nuevo_proceso->inicio = time(NULL); //tiempo actual en segundos
+	nuevo_proceso->cantidad_impresiones = 0;
+	nuevo_proceso->ruta = ruta;
+	list_add(procesos, nuevo_proceso);
 }
 void configurar_programa(char *ruta) {
 	pthread_attr_t attr;
@@ -87,8 +89,13 @@ void configurar_programa(char *ruta) {
 void desconectar_consola() {
 	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
 	enviar_header(servidor, DESCONECTAR_CONSOLA, 0);
-	close(servidor);
-	list_destroy_and_destroy_elements(procesos, free);
+
+	void borrar_proceso(void *param) {
+		proceso *proceso = param;
+		free(proceso->ruta);
+		free(proceso);
+	}
+	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 	logear_info("Chau!");
 
 	exit(0);
@@ -106,23 +113,30 @@ void desconectar_programa(int PID) {
 	pthread_cancel(TID);
 }
 void eliminar_proceso(int PID) {
-	_Bool mismoPID(void* elemento) {
+	_Bool mismo_PID(void* elemento) {
 			return PID == ((proceso *) elemento)->PID;
 		}
-	proceso *proceso = list_remove_by_condition(procesos,mismoPID);
+	proceso *proceso = list_remove_by_condition(procesos,mismo_PID);
 
-	//Estadística
-	time_t inicio = proceso->inicio;
-	time_t fin = time(NULL);
-	char stringTiempo[20];
-	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
-	logear_info("[PID:%d] Inicio: %s", PID, stringTiempo);
-	strftime(stringTiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
-	logear_info("[PID:%d] Fin: %s", PID, stringTiempo);
-	logear_info("[PID:%d] Cantidad de impresiones: %d", PID, proceso->cantidadImpresiones);
-	logear_info("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
-	//Fin estadística
-	logear_info("[PID:%d] Finalizado", PID);
+	if (PID < 0) {
+		logear_info("No se pudo iniciar el programa (%s) debido a falta de recursos", proceso->ruta);
+	} else {
+		//Estadística
+		time_t inicio = proceso->inicio;
+		time_t fin = time(NULL);
+		char string_tiempo[20];
+		strftime(string_tiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
+		logear_info("[PID:%d] Finalización del programa (%s)", PID, proceso->ruta);
+		logear_info("[PID:%d] Inicio: %s", PID, string_tiempo);
+		strftime(string_tiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
+		logear_info("[PID:%d] Fin: %s", PID, string_tiempo);
+		logear_info("[PID:%d] Cantidad de impresiones: %d", PID, proceso->cantidad_impresiones);
+		logear_info("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
+		//Fin estadística
+		logear_info("[PID:%d] Finalizado", PID);
+	}
+
+	free(proceso->ruta);
 	free(proceso);
 }
 void enviar_mensaje(char *param) {
@@ -165,10 +179,10 @@ void establecer_configuracion() {
 	}
 }
 pthread_t hiloID_programa(int PID) {
-	_Bool mismoPID(void* elemento) {
+	_Bool mismo_PID(void* elemento) {
 		return PID == ((proceso *) elemento)->PID;
 	}
-	proceso *elemento = list_find(procesos, mismoPID);
+	proceso *elemento = list_find(procesos, mismo_PID);
 	if (elemento == NULL) {
 		return 0;
 	}
@@ -228,13 +242,13 @@ void* iniciar_programa(void* arg) {
 
 	if (bytes > 0) {
 		enviar_header(servidor, INICIAR_PROGRAMA, bytes);
-		agregar_proceso(PID,id_hilo);
+		agregar_proceso(PID, id_hilo, ruta);
 		logear_info("[Programa] Petición de inicio de %s enviada",ruta);
 		send(servidor, codigo, bytes, 0);
 	} else if (bytes == 0) {
 		logear_error("Archivo vacio: %s", false, ruta);
 		free(arg);
-		free(codigo); // Hay que ver si codigo no es NULL cuando no se leyo nada
+		free(codigo);
 		return NULL;
 	} else {
 		logear_error("No se pudo leer el archivo: %s", false, ruta);
@@ -242,7 +256,6 @@ void* iniciar_programa(void* arg) {
 		return NULL;
 	}
 
-	free(arg); //ya no necesitamos más la ruta
 	free(codigo); //ya no necesitamos más el código
 
 	for(;;);
@@ -425,6 +438,25 @@ void procesar_operacion(char operacion, int bytes) {
 		case FINALIZAR_PROGRAMA:
 			recv(servidor, &PID, sizeof(PID), 0);
 			eliminar_proceso(PID);
+			break;
+		case IMPRIMIR:;
+			char *informacion = malloc(bytes);
+			recv(servidor, informacion, bytes, 0);
+			recv(servidor, &PID, sizeof(PID), 0);
+
+			_Bool mismo_proceso(void *param) {
+				proceso *proceso_auxiliar = param;
+				return proceso_auxiliar->PID == PID;
+			}
+
+			proceso *un_proceso = list_find(procesos, &mismo_proceso);
+
+			un_proceso->cantidad_impresiones++;
+
+			logear_info("[PID:%d] Imprimir: %s", PID, informacion);
+			break;
+		case FALLO_INICIO_PROGRAMA:
+			eliminar_proceso(-1);
 			break;
 		default:
 			logear_error("Operación inválida", false);
