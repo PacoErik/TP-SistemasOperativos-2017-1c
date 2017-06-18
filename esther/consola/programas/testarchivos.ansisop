@@ -1,11 +1,13 @@
 begin
-	abrir C /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir C /asereje.txt
+	abrir C ggizi
+	borrar 3
+	abrir C ggizi
+	borrar 3
+	abrir C ggizi
+	abrir C ggizi2
+	abrir C ggizi3
+	borrar 3
+	borrar 4
+	borrar 5
+	prints l WOOHOO
 end

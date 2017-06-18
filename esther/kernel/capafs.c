@@ -9,11 +9,12 @@ listaProcesos *procesos;
 
 static file_descriptor_t		add_archivo_global			(char *path);
 static file_descriptor_t		add_archivo_proceso			(int PID, flags_t banderas, file_descriptor_t fd_global);
-static void					cerrar_fd_global				(file_descriptor_t fd_global);
-static flags_t					get_banderas					(int PID, file_descriptor_t fd);
+static void						cerrar_fd_global			(file_descriptor_t fd_global);
+static flags_t					get_banderas				(int PID, file_descriptor_t fd);
 static info_pft *				get_fd_info					(int PID, file_descriptor_t fd);
 static char *					get_fd_path					(int PID, file_descriptor_t fd);
-static file_descriptor_t		get_global_fd					(char *path);
+static file_descriptor_t 		get_free_fd					(t_list *);
+static file_descriptor_t		get_global_fd				(char *path);
 static cursor_t					get_posicion_cursor			(int PID, file_descriptor_t fd);
 static process_file_table		get_tabla_archivos_proceso	(int PID);
 
@@ -140,7 +141,7 @@ void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorc
 
 bool fs_cerrar_archivo(int PID, file_descriptor_t fd) {
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
-	info_pft *info_fd = list_remove(tabla_archivos, fd - 1);
+	info_pft *info_fd = list_get(tabla_archivos, fd);
 
 	if (info_fd == NULL) {
 		/* Esta queriendo cerrar un archivo que no esta abierto?! */
@@ -149,6 +150,7 @@ bool fs_cerrar_archivo(int PID, file_descriptor_t fd) {
 
 	cerrar_fd_global(info_fd->fd_global);
 	free(info_fd);
+	info_fd = NULL;
 
 	return 1;
 }
@@ -206,11 +208,19 @@ static file_descriptor_t add_archivo_global(char *path) {
 	}
 
 	else {
+		file_descriptor_t fd_nuevo = get_free_fd(tabla_archivos_global);
+
 		elemento = malloc(sizeof(info_gft));
 		elemento->path = strdup(path);
 		elemento->cantidad = 1;
 
-		return list_add(tabla_archivos_global, elemento);
+		if (fd_nuevo < 0) {
+			return list_add(tabla_archivos_global, elemento);
+		}
+
+		list_replace_and_destroy_element(tabla_archivos_global, fd_nuevo, elemento, free);
+
+		return fd_nuevo;
 	}
 }
 
@@ -221,8 +231,13 @@ static file_descriptor_t add_archivo_proceso(int PID, flags_t banderas, file_des
 	elemento->posicion = 0;
 
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
+	file_descriptor_t fd_nuevo = get_free_fd(tabla_archivos);
+	if (fd_nuevo < 0)
+		return list_add(tabla_archivos, elemento);
 
-	return list_add(tabla_archivos, elemento);
+	list_replace_and_destroy_element(tabla_archivos, fd_nuevo, elemento, free);
+
+	return fd_nuevo;
 }
 
 static void cerrar_fd_global(file_descriptor_t fd_global) {
@@ -231,9 +246,14 @@ static void cerrar_fd_global(file_descriptor_t fd_global) {
 
 	if (info_fd_global->cantidad == 0) {
 		logear_info("[Archivo global] Se cierra %s", info_fd_global->path);
-		free(info_fd_global->path);
-		free(info_fd_global);
-		info_fd_global = NULL;
+
+		void liberar(void *elemento) {
+			info_gft *info = elemento;
+			free(info->path);
+			free(info);
+		}
+
+		list_replace_and_destroy_element(tabla_archivos_global, fd_global, NULL, &liberar);
 	}
 }
 
@@ -270,23 +290,32 @@ static char *get_fd_path(int PID, file_descriptor_t fd) {
 	return info_fd_global->path;
 }
 
+static file_descriptor_t get_free_fd(t_list *tabla) { //Polimorfismo here we go
+	file_descriptor_t fd_retorno = -1;
+	file_descriptor_t fd_indice = 0;
+	void search_free_fd(void *element) {
+		if (element == NULL && fd_retorno < 0)
+			fd_retorno = fd_indice;
+		fd_indice++;
+	}
+	list_iterate(tabla, &search_free_fd);
+	return fd_retorno;
+}
+
 static file_descriptor_t get_global_fd(char *path) {
-	bool match_path(void *element) {
-		char *_path = ((info_gft *)element)->path;
-		return strcmp(path, _path) == 0;
-	}
+	file_descriptor_t fd = -1;
+	file_descriptor_t i = 0;
 
-	info_gft *p;
-	file_descriptor_t i;
-
-	for (i = 0; i < list_size(tabla_archivos_global); i++) {
-		p = list_get(tabla_archivos_global, i);
-		if (p != NULL) {
-			if (match_path(p)) return i;
+	void match(void *element) {
+		info_gft *info = element;
+		if (info != NULL) {
+			if (!strcmp(info->path, path))
+				fd = i;
 		}
+		i++;
 	}
-
-	return -1;
+	list_iterate(tabla_archivos_global, &match);
+	return fd;
 }
 
 static cursor_t get_posicion_cursor(int PID, file_descriptor_t fd) {

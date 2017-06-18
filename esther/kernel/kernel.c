@@ -121,6 +121,7 @@ void 		borrar_cliente(int);
 void 		cerrar_conexion(int, char*);
 void		destruir_PCB(PCB*);
 void		eliminar_proceso(int);
+void 		enviar_excepcion(int, int);
 void 		establecer_configuracion();
 void 		finalizar_programa(int);
 void 		hacer_pedido_memoria(datosMemoria);
@@ -368,6 +369,10 @@ int enviar_mensaje_todos(int socketCliente, char* mensaje) {
 
 	return list_size(clientes_filtrados);
 }
+void enviar_excepcion(int socket_cliente, int excepcion) {
+	enviar_header(socket_cliente, EXCEPCION, sizeof(excepcion));
+	send(socket_cliente, &excepcion, sizeof(excepcion), 0);
+}
 void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 
 	int tipo = tipo_cliente(socket_cliente);
@@ -511,9 +516,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			valor = dictionary_get(variables_compartidas, nombre);
 
 		if (valor == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
-			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
-			send(socket_cliente, &excepcion, sizeof(int), 0);
+			enviar_excepcion(socket_cliente, VARIABLE_COMPARTIDA_INEXISTENTE);
 		} else {
 			enviar_header(socket_cliente, OBTENER_VALOR_VARIABLE, sizeof(int));
 			send(socket_cliente, valor, sizeof(int), 0);
@@ -533,9 +536,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			valor = dictionary_get(variables_compartidas, nombre);
 
 		if (valor == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
-			excepcion = VARIABLE_COMPARTIDA_INEXISTENTE;
-			send(socket_cliente, &excepcion, sizeof(excepcion), 0);
+			enviar_excepcion(socket_cliente, VARIABLE_COMPARTIDA_INEXISTENTE);
 		} else {
 			memcpy(valor, valor_nuevo, sizeof(int));
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
@@ -556,9 +557,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			semaforo = dictionary_get(semaforos, nombre);
 
 		if (semaforo == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
-			excepcion = SEMAFORO_INEXISTENTE;
-			send(socket_cliente, &excepcion, sizeof(int), 0);
+			enviar_excepcion(socket_cliente, SEMAFORO_INEXISTENTE);
 		} else {
 			if (semaforo->valor > 0) {
 				semaforo->valor--;
@@ -583,9 +582,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			semaforo = dictionary_get(semaforos, nombre);
 
 		if (semaforo == NULL) {
-			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
-			excepcion = SEMAFORO_INEXISTENTE;
-			send(socket_cliente, &excepcion, sizeof(int), 0);
+			enviar_excepcion(socket_cliente, SEMAFORO_INEXISTENTE);
 		} else {
 			if (list_size(semaforo->bloqueados) > 0) {
 				intentar_desbloquear_proceso(nombre);
@@ -630,13 +627,48 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		int respuesta = fs_abrir_archivo(proceso->pcb->pid, direccion, flags);
 		if (respuesta < 0) {
-			enviar_header(socket_cliente, EXCEPCION, sizeof(int));
-			excepcion = respuesta;
-			send(socket_cliente, &excepcion, sizeof(int), 0);
+			enviar_excepcion(socket_cliente, respuesta);
 		} else {
 			enviar_header(socket_cliente, ABRIR_ARCHIVO, sizeof(int));
 			send(socket_cliente, &respuesta, sizeof(int), 0);
 		}
+		break;
+
+	case BORRAR_ARCHIVO:
+		proceso->cantidad_syscalls++;
+
+		t_descriptor_archivo descriptor;
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+
+		info_pft *info_archivo = list_get(proceso->pcb->tabla_archivos, descriptor);
+		if (info_archivo != NULL) {
+			info_gft *info_archivo_global = list_get(tabla_archivos_global, info_archivo->fd_global);
+			if (info_archivo_global->cantidad == 1) {
+				if (fs_borrar_archivo(info_archivo_global->path)) {
+					enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+				} else {
+					enviar_excepcion(socket_cliente, ARCHIVO_NO_EXISTE);
+					//Esto no debería pasar nunca, ya que supuestamente el archivo estaba abierto por 1 proceso
+					//Pero pooodría pasar que alguien borre el archivo manualmente GG rip
+				}
+
+				void liberar(void *elemento) {
+					info_gft *info = elemento;
+					free(info->path);
+					free(info);
+				}
+
+				list_replace_and_destroy_element(tabla_archivos_global, info_archivo->fd_global, NULL, &liberar);
+				list_replace_and_destroy_element(proceso->pcb->tabla_archivos, descriptor, NULL, free);
+			} else {
+				enviar_excepcion(socket_cliente, NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO);
+			}
+		} else {
+			enviar_excepcion(socket_cliente, ARCHIVO_NO_EXISTE);
+		}
+
+
+
 
 	}
 }
@@ -1064,16 +1096,9 @@ void intentar_iniciar_proceso() {
 					logear_error("[PID:%d] Memoria insuficiente.", false, PID);
 					nuevo_proceso->estado = EXIT;
 					nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
-
 					limpiar_proceso(nuevo_proceso);
-
 					list_add(lista_EXIT, nuevo_proceso);
-
-					/* TODO: Aca se deberia enviar una excepcion a la consola */
-					PID = -1;
-					enviar_header(nuevo_proceso->consola, INICIAR_PROGRAMA, sizeof(PID));
-					send(nuevo_proceso->consola, &PID, sizeof(PID), 0);
-
+					enviar_header(nuevo_proceso->consola, FALLO_INICIO_PROGRAMA, 0);
 					intentar_iniciar_proceso();
 				}
 
@@ -1109,6 +1134,7 @@ void limpiar_proceso(Proceso *proceso) {
 	}
 
 	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
+	list_destroy_and_destroy_elements(proceso->pcb->tabla_archivos, free);
 
 	free(proceso->codigo);
 	free(proceso->pcb->etiquetas);
@@ -1527,7 +1553,6 @@ void terminar_kernel() {
 	list_destroy_and_destroy_elements(clientes, free);
 	void borrar_proceso(void *param) {
 		Proceso *proceso = (Proceso*) param;
-		list_destroy_and_destroy_elements(proceso->pcb->tabla_archivos, free);
 		destruir_PCB(proceso->pcb);
 		free(proceso->codigo);
 		free(proceso);

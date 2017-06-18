@@ -672,9 +672,8 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 	send(kernel.socket, variable, longitud, 0);
 
 	if (recibir_algo_de(kernel)) {
-		int *valor = buffer_solicitado;
-		logear_info("Valor obtenido de %s = %d", variable, *valor);
-		return *valor;
+		logear_info("Valor obtenido de %s = %d", variable, valor_compartida_solicitada);
+		return valor_compartida_solicitada;
 	}
 	logear_info("No se pudo obtener el valor de %s", variable);
 	return 0;
@@ -812,7 +811,7 @@ t_puntero reservar(t_valor_variable espacio) { // TODO
 void liberar(t_puntero puntero) { // TODO
 	logear_info("Liberar memoria en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
 }
-t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
 	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
 
 	int longitud = strlen(direccion) + 1;
@@ -821,14 +820,25 @@ t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { //
 	send(kernel.socket, &flags, sizeof(t_banderas), 0);
 
 	if (recibir_algo_de(kernel)) {
+		logear_info("Archivo abierto exitósamente (FD:%d)", fd_solicitado);
 		return fd_solicitado;
 	}
+
 	logear_info("Error al abrir el archivo");
 	return 0;
 }
-void borrar(t_descriptor_archivo direccion) { // TODO
-	logear_info("Borrar archivo con el descriptor (FD:%d)", direccion);
-	//[WARNING] direccion debería ser t_direccion_archivo...
+void borrar(t_descriptor_archivo descriptor_archivo) {
+	logear_info("Borrar archivo con el descriptor (FD:%d)", descriptor_archivo);
+
+	enviar_header(kernel.socket, BORRAR_ARCHIVO, sizeof(t_descriptor_archivo));
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Borrado éxitoso!");
+		return;
+	}
+
+	logear_info("Error al intentar borrar archivo");
 }
 void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
 	logear_info("Cerrar archivo con el descriptor (FD:%d)", descriptor_archivo);
