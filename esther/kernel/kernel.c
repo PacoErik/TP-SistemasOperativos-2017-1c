@@ -1101,7 +1101,10 @@ void hacer_pedido_memoria(datosMemoria datosMem) {
 void intentar_desbloquear_proceso(char *nombre_semaforo) {
 	Semaforo_QEPD *semaforo = dictionary_get(semaforos, nombre_semaforo);
 	Proceso *proceso_bloqueado = list_remove(semaforo->bloqueados, 0);
-	Proceso *proceso = proceso_segun_pid(proceso_bloqueado->pcb->pid);
+	_Bool mismo_proceso(void *param) {
+		return ((Proceso*)param)->pcb->pid == proceso_bloqueado->pcb->pid;
+	}
+	Proceso *proceso = list_remove_by_condition(procesos, &mismo_proceso);
 	proceso->estado = READY;
 	logear_info("Se desbloquea el proceso (PID:%d)", proceso->pcb->pid);
 	list_add(procesos, proceso);
@@ -1188,23 +1191,17 @@ void limpiar_proceso(Proceso *proceso) {
 	//procesos finalizados.
 }
 void peticion_para_cerrar_proceso(int PID, int exit_code) {
-	_Bool mismo_PID(void *param) {
-		return ((Proceso*)param)->pcb->pid == PID;
-	}
-
 	Proceso *proceso = proceso_segun_pid(PID);
 
 	if (proceso == NULL) {
 		logear_info("El proceso (PID:%d) no existe/ya finalizó/no comenzó",PID);
 	} else {
+		proceso->pcb->exit_code = exit_code;
 		if (proceso->estado == EXEC) {
 			logear_info("Petición para cerrar el proceso (PID:%d) recibida, espere a la devolución del PCB",PID);
-			proceso->pcb->exit_code = exit_code;
 			proceso->estado = EXIT;
 		} else {
 			logear_info("Petición resuelta ya que (PID:%d) estaba en READY/BLOCKED",PID);
-			Proceso *proceso_a_finalizar = list_find(procesos, &mismo_PID);
-			proceso_a_finalizar->pcb->exit_code = exit_code;
 			finalizar_programa(PID);
 		}
 	}
