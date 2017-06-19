@@ -200,7 +200,6 @@ void devolverPCB(int);
 void ejecutarInstruccion();
 void establecer_configuracion();
 void leerMensaje(servidor servidor, unsigned short bytesDePayload);
-void obtenerInstruccionDeMemoria();
 void obtenerMarcoSize();
 void obtenerPCB(unsigned short bytesDePayload);
 void obtenerPosicionDeMemoria();
@@ -253,7 +252,7 @@ int main(void) {
 	return 1;
 }
 
-void trabajar() { // TODO deuda tecnica copypaste
+void trabajar() {
 	int i;
 
 	programaVivitoYColeando = true;
@@ -263,71 +262,52 @@ void trabajar() { // TODO deuda tecnica copypaste
 
 	if(algoritmoAUtilizar == RR) {
 
-		for(i = 0; i < quantum; i++) {
+		int i = 0;
+
+		do {
+
 			ejecucion();
-
-			if(programaBloqueado) {
-				printf(YEL "[Programa] " RESET "El programa PID %i está bloqueado.\n", actualPCB->pid);
-				codigo = PCB_BLOQUEADO;
-			} else {
-
-				if(programaVivitoYColeando) {
-
-					if(elProgramaNoFinalizo) {
-						printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
-						codigo = PCB_INCOMPLETO;
-					} else {
-						printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
-						codigo = PCB_COMPLETO;
-						break;
-					}
-
-				} else {
-					printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
-					codigo = PCB_EXCEPCION;
-					break;
-				}
-
-			}
-
 
 			if(esAtomico()) {
 				i--; // De esta forma aseguras que el programa corra hasta que deje de ser atomico.
 			}
-		};
+
+			i++;
+
+		} while(i < quantum);
 
 	} else { // FIFO
 
 		do {
+
 			ejecucion();
 
-			if(programaBloqueado) {
-				printf(YEL "[Programa] " RESET "El programa PID %i está bloqueado.\n", actualPCB->pid);
-				codigo = PCB_BLOQUEADO;
-			} else {
-
-				if(programaVivitoYColeando) {
-
-					if(elProgramaNoFinalizo) {
-						printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
-						codigo = PCB_INCOMPLETO;
-					} else {
-						printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
-						codigo = PCB_COMPLETO;
-						break;
-					}
-
-				} else {
-					printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
-					codigo = PCB_EXCEPCION;
-					break;
-				}
-
-			}
-
-		} while(programaBloqueado || !programaVivitoYColeando || !elProgramaNoFinalizo);
+		} while(!programaBloqueado && programaVivitoYColeando && elProgramaNoFinalizo);
 
 	}
+
+	if(programaBloqueado) {
+		printf(YEL "[Programa] " RESET "El programa PID %i está bloqueado.\n", actualPCB->pid);
+		codigo = PCB_BLOQUEADO;
+	} else {
+
+		if(programaVivitoYColeando) {
+
+			if(elProgramaNoFinalizo) {
+				printf(BLU "[Programa] " RESET "El programa PID %i finalizó su rafaga correctamente.\n", actualPCB->pid);
+				codigo = PCB_INCOMPLETO;
+			} else {
+				printf(GRN "[Programa] " RESET "El programa PID %i finalizó correctamente.\n", actualPCB->pid);
+				codigo = PCB_COMPLETO;
+			}
+
+		} else {
+			printf(YEL "[Programa] " RESET RED "El programa PID %i finalizó incorrectamente.\n" RESET, actualPCB->pid);
+			codigo = PCB_EXCEPCION;
+		}
+
+	}
+
 
 
 	devolverPCB(codigo);
@@ -341,26 +321,50 @@ void ejecucion() {
 
 }
 
-void solicitarInstruccion() { // TODO nueva forma de pedir instruccion
+void solicitarInstruccion() {
 
 	posicionDeMemoriaAPedir posicion;
-	t_intructions instruction = actualPCB->instrucciones_serializado[actualPCB->program_counter];
+	t_intructions instruccion = actualPCB->instrucciones_serializado[actualPCB->program_counter];
 
 	posicion.processID = actualPCB->pid;
-	posicion.numero_pagina = 0;
-	posicion.size = instruction.offset;
-	posicion.offset = instruction.start;
+	posicion.numero_pagina = instruccion.start / MARCO_SIZE;
+	posicion.offset = instruccion.start % MARCO_SIZE;
 
-	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
-	send(memoria.socket, &posicion, sizeof(posicion), 0);
+	int size;
+	int bytes = instruccion.offset;
+	int offset = 0;
 
-	// Ahora esperamos la instruccion
+	actualInstruccion = malloc(bytes);
 
-	recibirAlgoDe(memoria);
+	while (bytes > 0) {
 
-	// La guardamos en actualInstruccion para que luego se ejecute
+		if(MARCO_SIZE - posicion.offset > bytes) {
+			if(bytes < MARCO_SIZE) {
+				posicion.size = bytes;
+			} else {
+				posicion.size = MARCO_SIZE;
+			}
+		} else {
+			posicion.size = MARCO_SIZE - posicion.offset;
+		}
 
-	actualInstruccion = buffer_solicitado;
+		bytes -= posicion.size;
+
+		enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
+		send(memoria.socket, &posicion, sizeof(posicion), 0);
+
+		if(!recibirAlgoDe(memoria)) {
+			printf(WHT "[Memoria] " RESET RED "Fallecio feo la obtencion de instruccion.\n" RESET);
+		}
+
+		memcpy(actualInstruccion + offset, buffer_solicitado, posicion.size);
+		offset += posicion.size;
+
+		posicion.numero_pagina++;
+		posicion.offset = 0;
+	}
+
+	actualInstruccion[instruccion.offset - 1] = '\0';
 
 	free(buffer_solicitado);
 
@@ -525,7 +529,7 @@ int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload
 			recv(memoria.socket, buffer_solicitado, bytesDePayload, 0);
 			break;
 
-		case ALMACENAR_BYTES:
+		case PETICION_CORRECTA:
 			break;
 
 		case EXCEPCION:
@@ -538,10 +542,6 @@ int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload
 		case FRAME_SIZE:
 			obtenerMarcoSize();
 			recibirAlgoDe(memoria);
-			break;
-
-		case INSTRUCCION:
-			obtenerInstruccionDeMemoria();
 			break;
 
 		default:
@@ -600,23 +600,6 @@ void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
     free(mensaje);
 }
 
-void obtenerInstruccionDeMemoria() {
-	unsigned short instruccionSize;
-	instruccionSize = actualPCB->instrucciones_serializado->offset - actualPCB->instrucciones_serializado->start + 1; // "+ 1" porque hay un byte que en la resta se lo come
-
-	actualInstruccion = malloc(instruccionSize + 1); // +1 por el '\0'
-
-	unsigned short bytesRecibidos = recv(memoria.socket, actualInstruccion, instruccionSize, 0); // Recibo la instruccion
-
-	if(bytesRecibidos <= 0) {
-		printf(RED "LA MEMORIA ENVÍO UNA INSTRUCCION PARA EL ORTO.\n" RESET);
-		exit(EXIT_FAILURE);
-	}
-
-	actualInstruccion[instruccionSize] = '\0';
-
-}
-
 /*
  * ↑ Acatar ordenes de algunos de los servidores ↑
  */
@@ -657,16 +640,15 @@ int agregarAlStack(t_nombre_variable identificador_variable) {
 
 	if(identificador_variable >= '0' && identificador_variable <= '9') {
 
+		list_add(entrada->args, nuevaPosicion);
+
+	} else {
+
 		Variable *nuevaVariable;
 		nuevaVariable = malloc(sizeof(Variable));
 		nuevaVariable->identificador = identificador_variable;
 		nuevaVariable->posicion = *nuevaPosicion;
 		list_add(entrada->vars, nuevaVariable);
-		agregarALasEtiquetas(identificador_variable); // No sé si estaría bien esto. Ya que si agrego más variables van a haber repetidos
-
-	} else {
-
-		list_add(entrada->args, nuevaPosicion);
 
 	}
 
@@ -764,14 +746,16 @@ bool hay_stack_overflow_si_agrego_otra_variable() {
 }
 
 bool ya_existe_variable(t_nombre_variable identificador_variable) {
-	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
 
-	_Bool tienenMismoIdentificador(void* identificador) {
-		t_nombre_variable *miIdentificador = (t_nombre_variable*) identificador;
-		return miIdentificador == identificador;
+	_Bool tienenMismoIdentificador(void* variable) {
+		Variable *miVariable = variable;
+		return miVariable->identificador == identificador_variable;
 	}
 
-	return list_any_satisfy(entrada->vars, &tienenMismoIdentificador); // Acá ripea
+	Entrada_stack *entrada_actual = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
+
+	return list_any_satisfy(entrada_actual->vars, &tienenMismoIdentificador);
+
 }
 
 t_puntero calcularPuntero(Posicion_memoria posicion) {
@@ -906,7 +890,7 @@ t_puntero definirVariable(t_nombre_variable identificador_variable) {
 	if(ya_existe_variable(identificador_variable)) {
 
 		printf(RED "SE REDEFINIO LA VARIABLE %c.\n" RESET, identificador_variable);
-		actualPCB->exit_code = REDEFINICION_VARIABLE;
+		actualPCB->exit_code = REDECLARACION_VARIABLE;
 
 	} else {
 
@@ -980,10 +964,12 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 
 	if (recibirAlgoDe(memoria)) {
 		t_valor_variable *miValor = buffer_solicitado;
+		t_valor_variable miNuevoValor = *miValor;
+
 		free(buffer_solicitado);
 		printf(WHT "[Memoria] " RESET "Devolvió exitosamente un valor de la memoria.\n");
-		printf("Valor dereferenciado: %i.\n", *miValor);
-		return *miValor;
+		printf("Valor dereferenciado: %i.\n", miNuevoValor);
+		return miNuevoValor;
 	}
 
 	printf(WHT "[Memoria] " RESET RED "Acceso invalido a la memoria.\n" RESET);
@@ -995,20 +981,10 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	printf("Se asigno una variable con el valor %i en la direccion %i.\n", valor, direccion_variable);
 
 	posicionDeMemoriaAPedir posicion;
-
-	Entrada_stack *entrada = list_get(actualPCB->indice_stack, actualPCB->puntero_stack);
-
-	_Bool compararDireccionVariable(void* param) {
-		Variable* var = (Variable*) param;
-		return direccion_variable == calcularPuntero(var->posicion);
-	}
-
-	Variable *miVariable = list_find(entrada->vars, &compararDireccionVariable);
-
 	posicion.processID = actualPCB->pid;
-	posicion.numero_pagina = miVariable->posicion.numero_pagina;
-	posicion.offset = miVariable->posicion.offset;
-	posicion.size = miVariable->posicion.size;
+	posicion.numero_pagina = direccion_variable / MARCO_SIZE;
+	posicion.offset = direccion_variable % MARCO_SIZE;
+	posicion.size = 4;
 
 	enviar_header(memoria.socket, ALMACENAR_BYTES, sizeof(posicion));
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
@@ -1154,7 +1130,7 @@ void retornar(t_valor_variable retorno) {
 	printf("Se retorna el valor %i.\n", retorno);
 
 	Entrada_stack *entrada = list_remove(actualPCB->indice_stack, actualPCB->puntero_stack);
-	asignar(entrada->retPos, retorno); // Creo que en el primer parametro va calcularPuntero(entrada->retVar)
+	asignar(calcularPuntero(entrada->retVar), retorno);
 	destruir_entrada_stack(entrada);
 
 }
