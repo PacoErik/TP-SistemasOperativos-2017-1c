@@ -206,7 +206,7 @@ int fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t taman
 	bool respuesta;
 	recv(socket_fs, &respuesta, sizeof respuesta, 0);
 
-	return respuesta;
+	return respuesta ? 1 : ERROR_ESCRITURA_ARCHIVO;
 }
 
 void init_tabla_archivos(void) {

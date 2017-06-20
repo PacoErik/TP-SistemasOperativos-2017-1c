@@ -79,6 +79,7 @@ enum CodigoDeOperacion {
 #define ERROR_LECTURA_ARCHIVO -21
 #define NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO -22
 #define DESCRIPTOR_ERRONEO -23
+#define ERROR_ESCRITURA_ARCHIVO -24
 
 typedef struct headerDeLosRipeados {
 	unsigned short bytesDePayload;

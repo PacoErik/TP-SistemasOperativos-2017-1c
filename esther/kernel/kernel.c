@@ -590,14 +590,17 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		if (descriptor == 1) {
 			enviar_header(proceso->consola, IMPRIMIR, bytes);
-			send(proceso->consola, informacion, bytes, 0);
 			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
+			send(proceso->consola, informacion, bytes, 0);
 			logear_info("[PID:%d] Se mandó a imprimir un texto a la consola", proceso->pcb->pid);
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		} else {
-			//Escribir toda la wea en FS en caso de que exista el archivo y tenga permisos
-			//Y mandar excepción en caso de ser necesario
-			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+			respuesta = fs_escribir_archivo(proceso->pcb->pid, descriptor, informacion, bytes);
+			if (respuesta < 0) {
+				enviar_excepcion(socket_cliente, respuesta);
+			} else {
+				enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+			}
 		}
 		free(informacion);
 		break;
@@ -611,6 +614,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		void *info = fs_leer_archivo(proceso->pcb->pid, descriptor, pedido.size, &respuesta);
 		if (info != NULL) {
+			char *texto = info;
+			printf("Texto leído: %s\n", texto);
 			//Almacenar en memoria con la posicion de memoria dada
 			//TODO KEK
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);

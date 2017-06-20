@@ -1,0 +1,16 @@
+begin
+   variables a, b, c
+   b = &c
+   *b = 18543
+   b = b+2
+   *b = 27745
+   b = b+2
+   *b = 8448
+   
+   b = &c
+   
+   abrir a LE hola.txt
+   escribir a b 5
+   leer a b 5
+   cerrar a
+end
