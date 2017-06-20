@@ -140,6 +140,8 @@ typedef struct PCB {
 	int	puntero_stack;
 	t_list *indice_stack;
 
+	t_list *tabla_archivos;
+
 	int exit_code;
 } PCB;
 
@@ -202,10 +204,8 @@ void establecer_configuracion();
 void leerMensaje(servidor servidor, unsigned short bytesDePayload);
 void obtenerMarcoSize();
 void obtenerPCB(unsigned short bytesDePayload);
-void obtenerPosicionDeMemoria();
 void solicitarInstruccion();
 void* serializar_PCB(PCB *pcb, int* buffersize);
-void agregarALasEtiquetas(t_nombre_variable identificador_variable);
 bool esAtomico();
 void ejecucion();
 void finalizarPrograma(servidor servidor, int codigo);
@@ -274,7 +274,7 @@ void trabajar() {
 
 			i++;
 
-		} while(i < quantum);
+		} while((i < quantum) || (!programaBloqueado && programaVivitoYColeando && elProgramaNoFinalizo));
 
 	} else { // FIFO
 
@@ -307,8 +307,6 @@ void trabajar() {
 		}
 
 	}
-
-
 
 	devolverPCB(codigo);
 }
@@ -353,7 +351,7 @@ void solicitarInstruccion() {
 		enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
 		send(memoria.socket, &posicion, sizeof(posicion), 0);
 
-		if(!recibirAlgoDe(memoria)) {
+		if(recibirAlgoDe(memoria) == -1) {
 			printf(WHT "[Memoria] " RESET RED "Fallecio feo la obtencion de instruccion.\n" RESET);
 		}
 
@@ -510,7 +508,7 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 			;int codigo;
 			recv(kernel.socket, &codigo, sizeof(codigo), 0);
 			finalizarPrograma(kernel, codigo);
-			return 0;
+			return -1;
 			break;
 
 		default:
@@ -536,7 +534,7 @@ int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload
 			;int codigo;
 			recv(memoria.socket, &codigo, sizeof(codigo), 0);
 			finalizarPrograma(memoria, codigo);
-			return 0;
+			return -1;
 			break;
 
 		case FRAME_SIZE:
@@ -607,26 +605,6 @@ void leerMensaje(servidor servidor, unsigned short bytesDePayload) {
 /*
  * ↓ Comunicarse con los servidores ↓
  */
-
-void obtenerPosicionDeMemoria() {
-
-	int bytesRecibidos = recv(kernel.socket, &actualPosicionVariable, sizeof(posicionDeMemoriaAPedir), 0);
-
-	if(bytesRecibidos <= 0) {
-		printf(RED "EL KERNEL ENVÍO UNA POSICION DE MEMORIA PARA EL ORTO.\n" RESET);
-		exit(EXIT_FAILURE);
-	}
-
-	actualPosicion.numero_pagina = actualPosicionVariable.numero_pagina;
-	actualPosicion.offset = actualPosicionVariable.offset;
-	actualPosicion.size = actualPosicionVariable.size;
-
-}
-
-void agregarALasEtiquetas(t_nombre_variable identificador_variable) {
-	actualPCB->etiquetas[actualPCB->etiquetas_size] = identificador_variable;
-	actualPCB->etiquetas_size++;
-}
 
 int agregarAlStack(t_nombre_variable identificador_variable) {
 
@@ -962,7 +940,7 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
 
-	if (recibirAlgoDe(memoria)) {
+	if (recibirAlgoDe(memoria) > 0) {
 		t_valor_variable *miValor = buffer_solicitado;
 		t_valor_variable miNuevoValor = *miValor;
 
@@ -990,7 +968,7 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	send(memoria.socket, &posicion, sizeof(posicion), 0);
 	send(memoria.socket, &valor, sizeof(valor), 0);
 
-	if (recibirAlgoDe(memoria)) {
+	if (recibirAlgoDe(memoria) > 0) {
 		printf(WHT "[Memoria] " RESET "Se pudo asignar correctamente una variable.\n" RESET);
 	} else {
 		printf(WHT "[Memoria] " RESET RED "Fallecio feo la asignación.\n" RESET);
@@ -1004,7 +982,7 @@ t_valor_variable obtenerValorCompartida(t_nombre_compartida variable) {
 	enviar_header(kernel.socket, OBTENER_VALOR_VARIABLE, strlen(variable) + 1);
 	send(kernel.socket, variable, strlen(variable) + 1, 0);
 
-	if(recibirAlgoDe(kernel)) {
+	if(recibirAlgoDe(kernel) > 0) {
 		t_valor_variable *miValor = buffer_solicitado;
 		free(buffer_solicitado);
 		printf("El valor de la variable compartida es %i.\n", *miValor);
@@ -1024,7 +1002,7 @@ t_valor_variable asignarValorCompartida(t_nombre_compartida variable, t_valor_va
 	send(kernel.socket, &variable, sizeof(variable), 0);
 	send(kernel.socket, &valor, sizeof(valor), 0);
 
-	if(recibirAlgoDe(kernel)) {
+	if(recibirAlgoDe(kernel) > 0) {
 		printf("Se asigno la variable exitosamente.\n");
 		return valor;
 	}
@@ -1147,7 +1125,6 @@ void wait(t_nombre_semaforo identificador_semaforo) {
 	printf("El semaforo %s utiliza wait.\n", identificador_semaforo);
 
 	enviar_header(kernel.socket, WAIT, sizeof(identificador_semaforo) + 1);
-	send(kernel.socket, &actualPCB->pid, sizeof(int), 0);
 	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo) +1, 0);
 
 	int devolucionDeKernel = recibirAlgoDe(kernel);
@@ -1162,7 +1139,7 @@ void wait(t_nombre_semaforo identificador_semaforo) {
 		programaBloqueado = true;
 	}
 
-	if(devolucionDeKernel == 0) {
+	if(devolucionDeKernel == -1) {
 		printf(CYN "[Kernel] " RESET RED "Fallo en la utilización de wait.\n" RESET);
 	}
 
@@ -1172,10 +1149,9 @@ void parser_signal(t_nombre_semaforo identificador_semaforo) { // No contemplo q
 	printf("El semaforo %s utiliza signal.\n", identificador_semaforo);
 
 	enviar_header(kernel.socket, SIGNAL, sizeof(identificador_semaforo) + 1);
-	send(kernel.socket, &actualPCB->pid, sizeof(int), 0);
 	send(kernel.socket, identificador_semaforo, sizeof(identificador_semaforo) + 1, 0);
 
-	if(recibirAlgoDe(kernel)) {
+	if(recibirAlgoDe(kernel) > 0) {
 
 		printf("El semaforo %s utilizo signal exitosamente.\n", identificador_semaforo);
 
@@ -1187,9 +1163,17 @@ void parser_signal(t_nombre_semaforo identificador_semaforo) { // No contemplo q
 }
 
 t_puntero reservar(t_valor_variable espacio) {
+	printf("Se pretende reservar %i bytes.\n", espacio);
 
 	enviar_header(kernel.socket, SOLICITAR_BYTES, espacio);
-	recibirAlgoDe(kernel);
+	if(recibirAlgoDe(kernel) == -1) {
+
+		printf(CYN "[Kernel] " RESET RED "RIP reserva de memoria.\n" RESET);
+		return 0;
+
+	}
+
+	printf(CYN "[Kernel] " RESET "Se reservo %i bytes de memoria exitosamente.\n", espacio);
 
 	Posicion_memoria *miPosicion = buffer_solicitado;
 
@@ -1201,31 +1185,126 @@ t_puntero reservar(t_valor_variable espacio) {
 
 }
 
-void liberar(t_puntero puntero) { // TODO
+void liberar(t_puntero puntero) {
+	printf("Se pretende liberar memoria de la posicion %i.\n", puntero);
+
+	Posicion_memoria miPosicion;
+
+	miPosicion.numero_pagina = puntero / MARCO_SIZE;
+	miPosicion.offset = puntero % MARCO_SIZE;
+	miPosicion.size = puntero - miPosicion.offset;
+
+	enviar_header(kernel.socket, LIBERAR_MEMORIA, sizeof(miPosicion));
+	send(kernel.socket, &miPosicion, sizeof(miPosicion), 0);
+
+	if(!recibirAlgoDe(kernel)) {
+		printf(CYN "[Kernel] " RESET RED "Ripeo la liberación de memoria.\n" RESET);
+	}
+
+	printf("Se libero memoria exitosamente.\n");
+}
+
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
+
+	printf("Se abre un archivo en la direccion %s.\n", direccion);
+
+	enviar_header(kernel.socket, ABRIR_ARCHIVO, strlen(direccion));
+	send(kernel.socket, direccion, strlen(direccion), 0);
+	send(kernel.socket, &flags, sizeof(flags), 0);
+
+	t_descriptor_archivo miDescriptor = recibirAlgoDe(kernel);
+
+	if(miDescriptor == -1) {
+		printf(CYN "[Kernel] " RESET RED "Fallecio la apertura de archivo.\n" RESET);
+		return 0;
+	}
+
+	printf(CYN "[Kernel] " RESET "Se abrio el archivo correctamente.\n");
+
+	return miDescriptor;
 
 }
 
-t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
-	return 1;
-}
+void borrar(t_descriptor_archivo direccion) {
 
-void borrar(t_descriptor_archivo direccion) { // TODO
+	printf("Se quiere borrar archivo con descriptor %i.\n", direccion);
 
-}
+	enviar_header(kernel.socket, BORRAR_ARCHIVO, sizeof(direccion));
+	send(kernel.socket, &direccion, sizeof(direccion), 0);
 
-void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
-
-}
-
-void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
-
-}
-
-void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) { // TODO
+	if(recibirAlgoDe(kernel) > 0) {
+		printf(CYN "[Kernel] " RESET "Se borro el archivo exitosamente.\n" RESET);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "Fallecio la borración de archivo.\n" RESET);
+	}
 
 }
 
-void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
+void cerrar(t_descriptor_archivo descriptor_archivo) {
+
+	printf("Se quiere cerrar archivo con descriptor %i", descriptor_archivo);
+
+	enviar_header(kernel.socket, CERRAR_ARCHIVO, sizeof(descriptor_archivo));
+	send(kernel.socket, &descriptor_archivo, sizeof(descriptor_archivo), 0);
+
+	if(recibirAlgoDe(kernel) > 0) {
+		printf(CYN "[Kernel] " RESET "Se cerró el archivo exitosamente.\n" RESET);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "Fallecio la cerración de archivo.\n" RESET);
+	}
+
+}
+
+void moverCursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) {
+
+	printf("Se quiere mover el cursor en el descriptor %i a la posicion %i.\n", descriptor_archivo, posicion);
+
+	enviar_header(kernel.socket, MOVER_CURSOR, sizeof(descriptor_archivo) + sizeof(posicion));
+	send(kernel.socket, &descriptor_archivo, sizeof(descriptor_archivo), 0);
+	send(kernel.socket, &posicion, sizeof(posicion), 0);
+
+	if(recibirAlgoDe(kernel) > 0) {
+		printf(CYN "[Kernel] " RESET "Se movió el cursor exitosamente.\n" RESET);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "Fallecio el movimiento del cursor.\n" RESET);
+	}
+
+}
+
+void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) {
+
+	printf("Se quiere escribir %i bytes en un archivo con descriptor %i.\n", tamanio, descriptor_archivo);
+
+	enviar_header(kernel.socket, ESCRIBIR_ARCHIVO, tamanio);
+	send(kernel.socket, &descriptor_archivo, sizeof(descriptor_archivo), 0);
+	send(kernel.socket, informacion, tamanio, 0);
+
+	if(recibirAlgoDe(kernel) > 0) {
+		printf(CYN "[Kernel] " RESET "Se escribió el archivo exitosamente.\n" RESET);
+	} else {
+		printf(CYN "[Kernel] " RESET RED "Fallecio la escritura de archivo.\n" RESET);
+	}
+
+}
+
+void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) {
+
+	printf("Se quiere leer %i bytes de un archivo con descriptor %i", tamanio, descriptor_archivo);
+
+	Posicion_memoria miPosicion;
+	miPosicion.numero_pagina = informacion / MARCO_SIZE;
+	miPosicion.offset = informacion % MARCO_SIZE;
+	miPosicion.size = tamanio;
+
+	enviar_header(kernel.socket, LEER_ARCHIVO, tamanio);
+	send(kernel.socket, &miPosicion, sizeof(miPosicion), 0);
+	send(kernel.socket, &descriptor_archivo, sizeof(descriptor_archivo), 0);
+
+	if (recibirAlgoDe(kernel) > 0) {
+		printf(CYN "[Kernel] " RESET "Lectura correcta del archivo.\n");
+	} else {
+		printf(CYN "[Kernel] " RESET RED "Murio la lectura.\n" RESET);
+	}
 
 }
 
