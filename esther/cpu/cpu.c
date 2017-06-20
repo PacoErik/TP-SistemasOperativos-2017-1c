@@ -187,7 +187,7 @@ enum Algoritmos {
 
 int algoritmoAUtilizar;
 
-char quantum;
+int quantum;
 int quantum_sleep;
 
 int analizarHeader(servidor servidor, headerDeLosRipeados header);
@@ -474,7 +474,7 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 
 		case PAGINAS_STACK:
 			recv(kernel.socket, &PAGINAS_SIZE, sizeof(int), 0);
-			printf("Se recibe el tamaño de pagina, siendo %i bytes", PAGINAS_SIZE);
+			printf("Se recibe el tamaño de pagina, siendo %i bytes.\n", PAGINAS_SIZE);
 			recibirAlgoDe(kernel);
 			break;
 
