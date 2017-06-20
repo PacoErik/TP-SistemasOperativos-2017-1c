@@ -321,6 +321,8 @@ void ejecucion() {
 
 void solicitarInstruccion() {
 
+	printf("Solicitando instrucción.\n");
+
 	posicionDeMemoriaAPedir posicion;
 	t_intructions instruccion = actualPCB->instrucciones_serializado[actualPCB->program_counter];
 
