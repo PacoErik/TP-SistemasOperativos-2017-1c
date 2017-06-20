@@ -451,24 +451,28 @@ int cumplirDeseosDeKernel(char codigoDeOperacion, unsigned short bytesDePayload)
 			break;
 
 		case PCB_INCOMPLETO:
+			printf("Obteniendo PCB.\n");
 			obtenerPCB(bytesDePayload);
-			recv(kernel.socket, &tratarAtomicamente, sizeof(bool), 0);
+			//recv(kernel.socket, &tratarAtomicamente, sizeof(bool), 0); Lo comento porque tira error
 			trabajar();
 			recibirAlgoDe(kernel);
 			break;
 
 		case ALGORITMO_ACTUAL:
 			recv(kernel.socket, &algoritmoAUtilizar, sizeof(int), 0);
+			printf("El algoritmo actual es %i (RR = 0, FIFO = 1).\n", algoritmoAUtilizar);
 			recibirAlgoDe(kernel);
 			break;
 
 		case QUANTUM_SLEEP:
 			recv(kernel.socket, &quantum_sleep, sizeof(int), 0);
+			printf("Quantum Sleep %i recibido.\n", quantum_sleep);
 			recibirAlgoDe(kernel);
 			break;
 
 		case PAGINAS_STACK:
 			recv(kernel.socket, &PAGINAS_SIZE, sizeof(int), 0);
+			printf("Se recibe el tamaño de pagina, siendo %i bytes", PAGINAS_SIZE);
 			recibirAlgoDe(kernel);
 			break;
 
@@ -559,6 +563,7 @@ int cumplirDeseosDeMemoria(char codigoDeOperacion, unsigned short bytesDePayload
  */
 
 void obtenerPCB(unsigned short bytesDePayload) {
+
 	void *bufferPCB = malloc(bytesDePayload);
 	int bytesRecibidos = recv(kernel.socket, bufferPCB, bytesDePayload, 0);
 
