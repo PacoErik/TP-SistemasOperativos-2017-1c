@@ -9,11 +9,12 @@ listaProcesos *procesos;
 
 static file_descriptor_t		add_archivo_global			(char *path);
 static file_descriptor_t		add_archivo_proceso			(int PID, flags_t banderas, file_descriptor_t fd_global);
-static void					cerrar_fd_global				(file_descriptor_t fd_global);
-static flags_t					get_banderas					(int PID, file_descriptor_t fd);
+static void						cerrar_fd_global			(file_descriptor_t fd_global);
+static flags_t					get_banderas				(int PID, file_descriptor_t fd);
 static info_pft *				get_fd_info					(int PID, file_descriptor_t fd);
 static char *					get_fd_path					(int PID, file_descriptor_t fd);
-static file_descriptor_t		get_global_fd					(char *path);
+static file_descriptor_t 		get_free_fd					(t_list *);
+static file_descriptor_t		get_global_fd				(char *path);
 static cursor_t					get_posicion_cursor			(int PID, file_descriptor_t fd);
 static process_file_table		get_tabla_archivos_proceso	(int PID);
 
@@ -93,22 +94,36 @@ file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas) {
 	return fd;
 }
 
-bool fs_borrar_archivo(int PID, file_descriptor_t fd) {
-	info_gft *info_global = list_get(tabla_archivos_global, get_fd_info(PID, fd)->fd_global);
-	if (info_global->cantidad > 1) {
-		return 0;
+int fs_borrar_archivo(int PID, file_descriptor_t fd) {
+	int respuesta;
+
+	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
+
+	info_pft *info_archivo = list_get(tabla_archivos, fd - FD_INICIAL);
+	if (info_archivo != NULL) {
+		info_gft *info_archivo_global = list_get(tabla_archivos_global, info_archivo->fd_global);
+		if (info_archivo_global->cantidad == 1) {
+			char *path = get_fd_path(PID, fd);
+
+			size_t paquete_size;
+			void *paquete = serialize_paquete_borrar(path, &paquete_size);
+
+			send(socket_fs, paquete, paquete_size, 0);
+			free(paquete);
+
+			bool _respuesta;
+			recv(socket_fs, &_respuesta, sizeof _respuesta, 0);
+
+			respuesta = _respuesta ? 1 : ARCHIVO_NO_EXISTE;
+			//Que no exista el archivo es algo muy difícil, ya que tuvo que haberse borrado manualmente
+
+			fs_cerrar_archivo(PID, fd);
+		} else {
+			respuesta = NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO;
+		}
+	} else {
+		respuesta = DESCRIPTOR_ERRONEO;
 	}
-
-	char *path = get_fd_path(PID, fd);
-
-	size_t paquete_size;
-	void *paquete = serialize_paquete_borrar(path, &paquete_size);
-
-	send(socket_fs, paquete, paquete_size, 0);
-	free(paquete);
-
-	bool respuesta;
-	recv(socket_fs, &respuesta, sizeof respuesta, 0);
 
 	return respuesta;
 }
@@ -145,17 +160,30 @@ void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorc
 	return data;
 }
 
-bool fs_cerrar_archivo(int PID, file_descriptor_t fd) {
+int fs_cerrar_archivo(int PID, file_descriptor_t fd) {
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
-	info_pft *info_fd = list_remove(tabla_archivos, fd - 1);
+	info_pft *info_fd = list_get(tabla_archivos, fd - FD_INICIAL);
 
 	if (info_fd == NULL) {
-		/* Esta queriendo cerrar un archivo que no esta abierto?! */
-		return 0;
+		return DESCRIPTOR_ERRONEO;
 	}
 
 	cerrar_fd_global(info_fd->fd_global);
-	free(info_fd);
+
+	list_replace_and_destroy_element(tabla_archivos, fd - FD_INICIAL, NULL, free);
+
+	return 1;
+}
+
+int fs_mover_cursor(int PID, file_descriptor_t fd, t_valor_variable posicion) {
+	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
+	info_pft *info_fd = list_get(tabla_archivos, fd - FD_INICIAL);
+
+	if (info_fd == NULL) {
+		return DESCRIPTOR_ERRONEO;
+	}
+
+	info_fd->posicion = posicion;
 
 	return 1;
 }
@@ -178,7 +206,7 @@ int fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t taman
 	bool respuesta;
 	recv(socket_fs, &respuesta, sizeof respuesta, 0);
 
-	return respuesta;
+	return respuesta ? 1 : ERROR_ESCRITURA_ARCHIVO;
 }
 
 void init_tabla_archivos(void) {
@@ -190,12 +218,14 @@ void destroy_tabla_archivos_proceso(process_file_table tabla) {
 		return;
 
 	void cerrar_y_liberar(void *elemento) {
+		if (elemento == NULL) return;
+
 		file_descriptor_t fd_global = ((info_pft *)elemento)->fd_global;
 		cerrar_fd_global(fd_global);
 		free(elemento);
 	}
 
-	list_destroy_and_destroy_elements(tabla, cerrar_y_liberar);
+	list_destroy_and_destroy_elements(tabla, &cerrar_y_liberar);
 }
 
 /* Funciones locales */
@@ -213,11 +243,19 @@ static file_descriptor_t add_archivo_global(char *path) {
 	}
 
 	else {
+		file_descriptor_t fd_nuevo = get_free_fd(tabla_archivos_global);
+
 		elemento = malloc(sizeof(info_gft));
 		elemento->path = strdup(path);
 		elemento->cantidad = 1;
 
-		return list_add(tabla_archivos_global, elemento);
+		if (fd_nuevo < 0) {
+			return list_add(tabla_archivos_global, elemento);
+		}
+
+		list_replace_and_destroy_element(tabla_archivos_global, fd_nuevo, elemento, free);
+
+		return fd_nuevo;
 	}
 }
 
@@ -228,10 +266,13 @@ static file_descriptor_t add_archivo_proceso(int PID, flags_t banderas, file_des
 	elemento->posicion = 0;
 
 	process_file_table tabla_archivos = get_tabla_archivos_proceso(PID);
+	file_descriptor_t fd_nuevo = get_free_fd(tabla_archivos);
+	if (fd_nuevo < 0)
+		return list_add(tabla_archivos, elemento) + FD_INICIAL;
 
-	/* TODO: Buscar un elemento null de la tabla y reemplazarlo */
+	list_replace_and_destroy_element(tabla_archivos, fd_nuevo, elemento, free);
 
-	return list_add(tabla_archivos, elemento) + DESCRIPTOR_SALIDA + 1;
+	return fd_nuevo + FD_INICIAL;
 }
 
 static void cerrar_fd_global(file_descriptor_t fd_global) {
@@ -240,9 +281,14 @@ static void cerrar_fd_global(file_descriptor_t fd_global) {
 
 	if (info_fd_global->cantidad == 0) {
 		logear_info("[Archivo global] Se cierra %s", info_fd_global->path);
-		free(info_fd_global->path);
-		free(info_fd_global);
-		info_fd_global = NULL;
+
+		void liberar(void *elemento) {
+			info_gft *info = elemento;
+			free(info->path);
+			free(info);
+		}
+
+		list_replace_and_destroy_element(tabla_archivos_global, fd_global, NULL, &liberar);
 	}
 }
 
@@ -265,7 +311,7 @@ static info_pft *get_fd_info(int PID, file_descriptor_t fd) {
 		return NULL;
 	}
 
-	return list_get(tabla_archivos, fd - DESCRIPTOR_SALIDA - 1);
+	return list_get(tabla_archivos, fd - FD_INICIAL);
 }
 
 static char *get_fd_path(int PID, file_descriptor_t fd) {
@@ -279,27 +325,33 @@ static char *get_fd_path(int PID, file_descriptor_t fd) {
 	return info_fd_global->path;
 }
 
+
+static file_descriptor_t get_free_fd(t_list *tabla) { //Polimorfismo here we go
+	file_descriptor_t fd_retorno = -1;
+	file_descriptor_t fd_indice = 0;
+	void search_free_fd(void *element) {
+		if (element == NULL && fd_retorno < 0)
+			fd_retorno = fd_indice;
+		fd_indice++;
+	}
+	list_iterate(tabla, &search_free_fd);
+	return fd_retorno;
+}
+
 static file_descriptor_t get_global_fd(char *path) {
-	bool match_path(void *element) {
-		if (element == NULL) {
-			return 0;
+	file_descriptor_t fd = -1;
+	file_descriptor_t i = 0;
+
+	void match(void *element) {
+		info_gft *info = element;
+		if (info != NULL) {
+			if (!strcmp(info->path, path))
+				fd = i;
 		}
-
-		char *_path = ((info_gft *)element)->path;
-		return strcmp(path, _path) == 0;
+		i++;
 	}
-
-	info_gft *p;
-	file_descriptor_t i;
-
-	for (i = 0; i < list_size(tabla_archivos_global); i++) {
-		p = list_get(tabla_archivos_global, i);
-		if (p != NULL) {
-			if (match_path(p)) return i;
-		}
-	}
-
-	return -1;
+	list_iterate(tabla_archivos_global, &match);
+	return fd;
 }
 
 static cursor_t get_posicion_cursor(int PID, file_descriptor_t fd) {

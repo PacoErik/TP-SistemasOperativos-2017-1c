@@ -1,11 +1,25 @@
 begin
-	abrir C /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir EL /asereje.txt
-	abrir C /asereje.txt
+	variables a,b,c
+	
+	abrir a C usr/lib/include/commons/string.h
+	abrir b EL usr/lib/include/commons/string.h
+	cerrar b
+	borrar a
+	
+	abrir b C usr/lib/include/commons/string.h
+	borrar b
+	
+	abrir a C usr/lib/include/commons/string.h
+	abrir b C usr/lib/include/commons/config.h
+	abrir c C usr/lib/include/commons/log.h
+	
+	buscar a 100
+	buscar b 200
+	buscar c 300
+	
+	cerrar a #usr/lib/include/commons/string.h todavía existe
+	borrar b
+	cerrar c #usr/lib/include/commons/log.h todavía existe
+	
+	prints l WOOHOO
 end

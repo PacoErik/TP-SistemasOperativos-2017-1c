@@ -672,9 +672,8 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 	send(kernel.socket, variable, longitud, 0);
 
 	if (recibir_algo_de(kernel)) {
-		int *valor = buffer_solicitado;
-		logear_info("Valor obtenido de %s = %d", variable, *valor);
-		return *valor;
+		logear_info("Valor obtenido de %s = %d", variable, valor_compartida_solicitada);
+		return valor_compartida_solicitada;
 	}
 	logear_info("No se pudo obtener el valor de %s", variable);
 	return 0;
@@ -812,7 +811,9 @@ t_puntero reservar(t_valor_variable espacio) { // TODO
 void liberar(t_puntero puntero) { // TODO
 	logear_info("Liberar memoria en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
 }
-t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { // TODO
+t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
+	if (!programaVivitoYColeando) return 0;
+
 	logear_info("Abrir archivo %s con los permisos [L:%d] [E:%d] [C:%d]", direccion, flags.lectura, flags.escritura, flags.creacion);
 
 	int longitud = strlen(direccion) + 1;
@@ -821,20 +822,58 @@ t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) { //
 	send(kernel.socket, &flags, sizeof(t_banderas), 0);
 
 	if (recibir_algo_de(kernel)) {
+		logear_info("Archivo abierto exitósamente (FD:%d)", fd_solicitado);
 		return fd_solicitado;
 	}
+
 	logear_info("Error al abrir el archivo");
 	return 0;
 }
-void borrar(t_descriptor_archivo direccion) { // TODO
-	logear_info("Borrar archivo con el descriptor (FD:%d)", direccion);
-	//[WARNING] direccion debería ser t_direccion_archivo...
+void borrar(t_descriptor_archivo descriptor_archivo) {
+	if (!programaVivitoYColeando) return;
+
+	logear_info("Borrar archivo con el descriptor (FD:%d)", descriptor_archivo);
+
+	enviar_header(kernel.socket, BORRAR_ARCHIVO, sizeof(t_descriptor_archivo));
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Borrado exitoso!");
+		return;
+	}
+
+	logear_info("Error al intentar borrar archivo");
 }
-void cerrar(t_descriptor_archivo descriptor_archivo) { // TODO
+void cerrar(t_descriptor_archivo descriptor_archivo) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Cerrar archivo con el descriptor (FD:%d)", descriptor_archivo);
+
+	enviar_header(kernel.socket, CERRAR_ARCHIVO, sizeof(t_descriptor_archivo));
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Cerrado exitoso!");
+		return;
+	}
+
+	logear_info("Error al intentar cerrar archivo");
 }
-void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) { // TODO
+void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Mover cursor de (FD:%d) a la posición %d", descriptor_archivo, posicion);
+
+	enviar_header(kernel.socket, MOVER_CURSOR, sizeof(t_descriptor_archivo));
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+	send(kernel.socket, &posicion, sizeof(t_valor_variable), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Se movió exitosamente!");
+		return;
+	}
+
+	logear_info("Error al intentar mover el cursor del archivo");
 }
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) {
 	if (!programaVivitoYColeando) return;
@@ -847,10 +886,29 @@ void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valo
 
 	if (recibir_algo_de(kernel)) {
 		logear_info("Escritura correcta de la información!");
+		return;
 	}
+	logear_info("Error al escribir en (FD:%d)", descriptor_archivo);
 }
-void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) { // TODO
-	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, informacion / MARCO_SIZE, informacion % MARCO_SIZE);
+void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) {
+	if (!programaVivitoYColeando) return;
+
+	Posicion_memoria peticion;
+	peticion.numero_pagina = informacion / MARCO_SIZE;
+	peticion.offset = informacion % MARCO_SIZE;
+	peticion.size = tamanio;
+
+	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, peticion.numero_pagina, peticion.offset);
+
+	enviar_header(kernel.socket, LEER_ARCHIVO, sizeof(Posicion_memoria));
+	send(kernel.socket, &peticion, sizeof(Posicion_memoria), 0);
+	send(kernel.socket, &descriptor_archivo, sizeof(t_descriptor_archivo), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Lectura correcta de la información!");
+		return;
+	}
+	logear_info("Error al leer de (FD:%d)", descriptor_archivo);
 }
 
 //MANEJO DE SEÑALES

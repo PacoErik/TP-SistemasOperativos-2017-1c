@@ -19,6 +19,8 @@
 	extern int PUERTO_FS;
 	extern global_file_table tabla_archivos_global;
 
+	#define FD_INICIAL 3
+
 	/*
 	 * Estructura de un elemento de la tabla global de archivos.
 	 */
@@ -50,11 +52,13 @@
 
 	file_descriptor_t fs_abrir_archivo(int PID, char *path, flags_t banderas);
 
-	bool fs_borrar_archivo(int PID, file_descriptor_t fd);
+	int fs_borrar_archivo(int PID, file_descriptor_t fd);
 
 	void *fs_leer_archivo(int PID, file_descriptor_t fd, size_t tamanio, int *errorcode);
 
-	bool fs_cerrar_archivo(int PID, file_descriptor_t fd);
+	int fs_cerrar_archivo(int PID, file_descriptor_t fd);
+
+	int fs_mover_cursor(int PID, file_descriptor_t fd, t_valor_variable posicion);
 
 	int fs_escribir_archivo(int PID, file_descriptor_t fd, void *datos, size_t tamanio);
 
