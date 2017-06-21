@@ -25,7 +25,7 @@ comando comandos[] = {
 		{ "escribir",	FS_ESCRIBIR	},
 };
 
-#define CONECTAR_A_KERNEL 0			// Conectar a Kernel o usar la consola de FS
+#define CONECTAR_A_KERNEL 1			// Conectar a Kernel o usar la consola de FS
 
 int main(void) {
 	configurar("filesystem");
@@ -67,7 +67,7 @@ void recibir_conexion_kernel(void) {
 	servidor_info.sin_family = AF_INET;
 	servidor_info.sin_port = htons(FSConfig.PUERTO);
 	servidor_info.sin_addr.s_addr = INADDR_ANY;
-	bzero(&(servidor_info.sin_zero), 8);
+	memset(&(servidor_info.sin_zero), 0, 8);
 
 	if (bind(servidor, (struct sockaddr*) &servidor_info, sizeof(struct sockaddr)) == -1) {
 		logear_error("Fallo al bindear el puerto", true);
@@ -662,8 +662,7 @@ void interaccion_FS(void) {
 			"eliminar [RUTA_ARCHIVO]\n"
 			"leer [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO]\n"
 			"escribir [RUTA_ARCHIVO] [DESPLAZAMIENTO] [TAMANIO] [CONTENIDO]\n"
-			"limpiar (Limpia el contenido del bitmap, debe eliminar todos los "
-			"archivos en la ruta \"mnt/SADICA_FS/Archivos/\" manualmente.)\n"
+			"limpiar (Limpiar el contenido del bitmap y eliminar todos los archivos creados)\n"
 			"salir\n");
 	fflush(stdout);
 
@@ -676,6 +675,15 @@ void interaccion_FS(void) {
 
 		if (strcmp(input_comando, "limpiar") == 0) {
 			limpiar_bitmap();
+
+			char *ruta = _ruta_desde_punto_montaje("Archivos");
+			limpiar_directorio(ruta);
+			free(ruta);
+
+			ruta = _ruta_desde_punto_montaje("Bloques");
+			limpiar_directorio(ruta);
+			free(ruta);
+
 			continue;
 		}
 
@@ -700,7 +708,21 @@ void interaccion_FS(void) {
 					scanf("%d", &input_offset);
 					scanf("%d", &input_size);
 					char *contenido = leer_archivo(input_ruta, input_offset, input_size);
-					printf("Contenido archivo: \"%.*s\"\n", input_size, contenido);
+
+					printf("Contenido archivo: ");
+
+					int i;
+					for (i = 0; i < input_size; i++) {
+						if (iscntrl(contenido[i])) {
+							printf(".");
+						}
+						else {
+							printf("%c", contenido[i]);
+						}
+						fflush(stdout);
+					}
+
+					printf("\n");
 					free(contenido);
 
 					break;
@@ -727,6 +749,28 @@ void interaccion_FS(void) {
 	}
 }
 
+void limpiar_directorio(char *ruta_dir) {
+	int _eliminar_archivo(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+		if (ftwbuf->level != 0) {
+			char *_fpath = strdup(fpath);
+			char *fname = basename(_fpath);
+
+			bool ignore = strcmp(fname, ".gitignore") == 0;
+			free(_fpath);
+
+			if (ignore) {
+				return 0;
+			}
+
+			printf("Eliminando \"%s\"\n", fpath);
+			remove(fpath);
+		}
+		return 0;
+	}
+
+	nftw(ruta_dir, _eliminar_archivo, 1, FTW_DEPTH);
+}
+
 char *_ruta_desde_punto_montaje(char *ruta) {
 	char *ruta_completa;
 	asprintf(&ruta_completa, ".%s%s", FSConfig.PUNTO_MONTAJE, ruta);
@@ -745,32 +789,31 @@ char *_ruta_desde_archivos(char *ruta) {
 	return ruta_completa;
 }
 
-bool _crear_directorios(char *ruta) {
-	char *dir = calloc(strlen(ruta) + 1, sizeof(char));
+bool _crear_directorios(const char *ruta) {
+	char *_ruta = strdup(ruta);
+	char *ruta_dir = dirname(_ruta);
+	char *ruta_completa;
 
-	int i;
-	for (i = 0; i != strlen(ruta); i++) {
-		if (ruta[i] != '/') {
-			continue;
+	if (strcmp(ruta_dir, ".") != 0
+		&& strcmp(ruta_dir, ruta) != 0) {
+		if (!_crear_directorios(ruta_dir)) {
+			free(_ruta);
+			return 0;
 		}
 
-		strncpy(dir, ruta, i);
+		ruta_completa = _ruta_desde_archivos(ruta_dir);
+		free(_ruta);
 
-		if (access(_ruta_desde_archivos(dir), F_OK) == 0) {
-			continue;
+		if (access(ruta_completa, F_OK) == 0
+				|| mkdir(ruta_completa, 0777) != -1) {
+			free(ruta_completa);
+			return 1;
 		}
 
-		if (mkdir(_ruta_desde_archivos(dir), 0777) == -1) {
-			if (errno == ENOTDIR) {
-				logear_error("\"%s\" no es un directorio.\n", false, dir);
-
-				free(dir);
-				return 0;
-			}
-		}
+		return 0;
 	}
 
-	free(dir);
+	free(_ruta);
 	return 1;
 }
 
@@ -780,7 +823,6 @@ void procesar_operacion_kernel(void) {
 	for (;;) {
 		int bytes = recv(socket_kernel, &header, sizeof header, 0);
 		if (bytes <= 0) {
-			/* TODO: Clean up */
 			logear_error("Error de conexion con Kernel.", false);
 			return;
 		}
@@ -807,7 +849,6 @@ void procesar_operacion_kernel(void) {
 			break;
 
 		default:
-			/* TODO: Clean up */
 			logear_error("El Kernel hizo una operacion invalida.", false);
 			return;
 		}
