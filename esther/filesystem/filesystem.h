@@ -1,10 +1,14 @@
 #ifndef FILESYSTEM_H_
 #define FILESYSTEM_H_
 
+	#define _XOPEN_SOURCE 500
+
 	#include <stdio.h>
 	#include <string.h>
 	#include <errno.h>
 	#include <sys/stat.h>
+	#include <ftw.h>
+	#include <libgen.h>
 
 	#include "commons/bitarray.h"
 
@@ -94,6 +98,7 @@
 	void establecer_configuracion(void);
 	/*	void		leer_mensaje					(void);*/
 	void interaccion_FS(void);
+	void limpiar_directorio(char *ruta_dir);
 
 	/*
 	 * Funciones auxiliares
@@ -101,6 +106,6 @@
 
 	char* _ruta_desde_punto_montaje(char*);
 	char* _ruta_desde_archivos(char*);
-	bool _crear_directorios(char*);
+	bool _crear_directorios(const char*);
 
 #endif /* FILESYSTEM_H_ */
