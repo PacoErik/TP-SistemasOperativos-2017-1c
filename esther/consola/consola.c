@@ -441,8 +441,8 @@ void procesar_operacion(char operacion, int bytes) {
 			break;
 		case IMPRIMIR:;
 			char *informacion = malloc(bytes);
-			recv(servidor, informacion, bytes, 0);
 			recv(servidor, &PID, sizeof(PID), 0);
+			recv(servidor, informacion, bytes, 0);
 
 			_Bool mismo_proceso(void *param) {
 				proceso *proceso_auxiliar = param;
