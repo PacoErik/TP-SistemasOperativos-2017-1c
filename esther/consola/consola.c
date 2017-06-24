@@ -98,6 +98,8 @@ void desconectar_consola() {
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 	logear_info("Chau!");
 
+	log_destroy(logger);
+
 	exit(0);
 }
 void desconectar_programa(int PID) {
@@ -394,6 +396,8 @@ void interaccion_consola() {
 		if (i == (sizeof comandos / sizeof *comandos)) {
 			logear_error("Error: %s no es un comando", false, cmd);
 		}
+
+		free(inputline);
 	}
 }
 inline void limpiar_buffer_entrada() {
