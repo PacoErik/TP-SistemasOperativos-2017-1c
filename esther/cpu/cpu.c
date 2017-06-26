@@ -590,8 +590,7 @@ t_puntero definir_variable(t_nombre_variable identificador_variable) {
 	return calcular_puntero(posicion);
 }
 t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
-	if (!programaVivitoYColeando)
-		return 0; //Una sola instrucción puede ejecutar muchas primitivas, si falla en la primera primitiva las otras no se dan cuenta
+	if (!programaVivitoYColeando) return 0;
 
 	logear_info("Obtener posición de la variable: %c", nombre);
 
@@ -622,8 +621,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	return 0;
 }
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
-	if (!programaVivitoYColeando)
-		return 0;
+	if (!programaVivitoYColeando) return 0;
 
 	logear_info("Dereferenciar: %i", direccion_variable);
 
@@ -644,8 +642,7 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	return 0;
 }
 void asignar(t_puntero direccion_variable, t_valor_variable valor) {
-	if (!programaVivitoYColeando)
-		return;
+	if (!programaVivitoYColeando) return;
 
 	posicionDeMemoriaAPedir posicion;
 	posicion.processID = PCB_actual->pid;
@@ -662,8 +659,7 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
-	if (!programaVivitoYColeando)
-		return 0;
+	if (!programaVivitoYColeando) return 0;
 
 	logear_info("Solicitando el valor de la variable compartida %s", variable);
 
@@ -679,8 +675,7 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 	return 0;
 }
 t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) {
-	if (!programaVivitoYColeando)
-		return 0;
+	if (!programaVivitoYColeando) return 0;
 
 	logear_info("Asignando el valor %d a la variable compartida %s", valor, variable);
 
@@ -697,6 +692,8 @@ t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_
 	return 0;
 }
 void ir_al_label(t_nombre_etiqueta etiqueta) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Se va al label %s", etiqueta);
 	int nuevo_program_counter = metadata_buscar_etiqueta(etiqueta,
 			PCB_actual->etiquetas, PCB_actual->etiquetas_size);
@@ -710,6 +707,8 @@ void ir_al_label(t_nombre_etiqueta etiqueta) {
 	}
 }
 void llamar_sin_retorno(t_nombre_etiqueta etiqueta) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Se llama sin retorno hacia %s", etiqueta);
 	int program_counter_regreso = PCB_actual->program_counter + 1;
 
@@ -729,6 +728,8 @@ void llamar_sin_retorno(t_nombre_etiqueta etiqueta) {
 	}
 }
 void llamar_con_retorno(t_nombre_etiqueta etiqueta, t_puntero donde_retornar) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Se llama con retorno hacia %s", etiqueta);
 	int program_counter_regreso = PCB_actual->program_counter + 1;
 
@@ -763,6 +764,8 @@ void finalizar(void) {
 	}
 }
 void retornar(t_valor_variable valor_retorno) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Se retorna el valor %i.", valor_retorno);
 
 	Entrada_stack *entrada = list_remove(PCB_actual->indice_stack, PCB_actual->puntero_stack);
@@ -778,6 +781,8 @@ void retornar(t_valor_variable valor_retorno) {
 
 //DEFINICIÓN DE OPERACIONES KERNEL
 void kernel_wait(t_nombre_semaforo identificador_semaforo) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Pidiendo acceso al semáforo %s...", identificador_semaforo);
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, WAIT, longitud);
@@ -795,6 +800,8 @@ void kernel_wait(t_nombre_semaforo identificador_semaforo) {
 	}
 }
 void kernel_signal(t_nombre_semaforo identificador_semaforo) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Liberando al semáforo %s...", identificador_semaforo);
 	int longitud = strlen(identificador_semaforo) + 1;
 	enviar_header(kernel.socket, SIGNAL, longitud);

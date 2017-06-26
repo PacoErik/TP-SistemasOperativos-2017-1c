@@ -88,7 +88,6 @@ void configurar_programa(char *ruta) {
 }
 void desconectar_consola() {
 	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
-	enviar_header(servidor, DESCONECTAR_CONSOLA, 0);
 
 	void borrar_proceso(void *param) {
 		proceso *proceso = param;
@@ -96,6 +95,7 @@ void desconectar_consola() {
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
+
 	logear_info("Chau!");
 
 	log_destroy(logger);
