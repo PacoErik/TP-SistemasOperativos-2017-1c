@@ -426,7 +426,13 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 	case FINALIZAR_PROGRAMA:;
 		int PID;
 		recv(socket_cliente, &PID, sizeof(PID), 0);
-		finalizar_programa(PID);
+		Proceso *proceso = proceso_segun_pid(PID);
+		if (proceso != NULL) {
+			proceso->pcb->exit_code = COMANDO_FINALIZAR_PROGRAMA;
+			finalizar_programa(PID);
+		} else {
+			logear_info("Error al intentar finalizar (PID:%d). Proceso inexistente.");
+		}
 		break;
 	}
 }
@@ -620,6 +626,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			//Almacenar en memoria con la posicion de memoria dada
 			//TODO KEK
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+			free(info);
 		} else {
 			enviar_excepcion(socket_cliente, respuesta);
 		}
@@ -641,6 +648,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			enviar_header(socket_cliente, ABRIR_ARCHIVO, sizeof(int));
 			send(socket_cliente, &respuesta, sizeof(int), 0);
 		}
+		free(direccion);
 		break;
 
 	case BORRAR_ARCHIVO:
@@ -1081,8 +1089,8 @@ void finalizar_programa(int PID) {
 		logear_info("[PID:%d] Finalizó con EXIT_CODE:%d", PID, exit_code);
 		remover_de_semaforos(PID);
 		intentar_iniciar_proceso();
-		planificar();
 	}
+	planificar();
 }
 void hacer_pedido_memoria(datosMemoria datosMem) {
 	int tamanioTotal = sizeof(int) + sizeof(datosMem.codeSize) + datosMem.codeSize;
@@ -1607,7 +1615,7 @@ void terminar_kernel() {
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
-	queue_clean_and_destroy_elements(cola_NEW, &borrar_proceso);
+	queue_destroy_and_destroy_elements(cola_NEW, &borrar_proceso);
 
 	void borrar_proceso_exit(void *param) {
 		Proceso *proceso = (Proceso*) param;
