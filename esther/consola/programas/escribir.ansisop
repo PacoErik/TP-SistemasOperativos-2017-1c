@@ -9,7 +9,7 @@ begin
    
    b = &c
    
-   abrir a LE hola.txt
+   abrir a LEC hola.txt
    escribir a b 5
    leer a b 5
    cerrar a
