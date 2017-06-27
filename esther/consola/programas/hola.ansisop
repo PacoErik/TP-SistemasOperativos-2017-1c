@@ -4,36 +4,25 @@ begin
 	abrir a LE hola.txt
 
 	b = 0
-	b <- a b
-	b <- shiftleft b
-	b <- l b
-	b <- shiftleft b
-	b <- o b
-	b <- shiftleft b
-	b <- h b
+
+	c = &b + 3
+	d <- a *c
+	*c = d
+
+	c = c - 1
+	d <- l *c
+	*c = d
+
+	c = c - 1
+	d <- o *c
+	*c = d
+
+	c = c - 1
+	d <- h *c
+	*c = d
 
 	escribir a b 4
 	cerrar a
-end
-
-function doble
-	variables n
-	n = $0 + $0
-	return n
-end
-
-# multiplicar por 256
-function shiftleft
-	variables n
-	n <- doble $0
-	n <- doble n
-	n <- doble n
-	n <- doble n
-	n <- doble n
-	n <- doble n
-	n <- doble n
-	n <- doble n
-	return n
 end
 
 function a
