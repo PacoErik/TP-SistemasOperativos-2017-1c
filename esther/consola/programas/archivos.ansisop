@@ -1,0 +1,36 @@
+begin
+	variables a, t
+	
+	alocar a 10
+	#Reserva 10 bytes de heap y almacena el puntero en "a"
+	
+	liberar a
+	#Libera la memoria reservada que apunta "a"
+	
+	abrir a LEC /ola/kease.txt
+	#Abre el archivo kease.txt con los permisos LEC (Lectura-Escritura-Creación)
+	
+	prints n 5
+	#Escribe en el FD:1 (Consola) el "n"úmero 5 (en forma de texto)
+	
+	prints l TUMAMA
+	#Escribe en el FD:1 el "l"iteral TUMAMA
+	
+	cerrar a
+	#Cierra el archivo FD:a
+	
+	buscar a 512
+	#Mueve el cursor de FD:a a la posición 512
+	
+	t = 64
+	
+	prints s t
+	#Imprime en el FD:1 el "s"tring ubicado en memoria apuntado por "t"
+	
+	escribir a t 5
+	#Escribe en el FD:a, 5 bytes de la información de memoria apuntada por el puntero "t"
+	
+	leer a t 128
+	#Lee 128 bytes de información de FD:a y lo copia a donde apunta "t" en memoria
+	
+end

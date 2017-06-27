@@ -136,6 +136,9 @@ void		size								();
 int			tipo_cliente						(int);
 int 		maxLru								();
 int 		posicionAReemplazarDeCache			();
+char*		remover_salto_linea					(char*);
+int 		inicializar_programa				(int, int);
+void		copiarAMemoria						(int,size_t,void*);
 
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
@@ -144,7 +147,6 @@ int main(void) {
 	configurar("memoria");
 
 	crearMemoria(); // Creacion de la memoria general y cache
-
 
 	clientes = list_create();
 
@@ -203,6 +205,8 @@ int main(void) {
 
 		pthread_create(&tid, &atributos, &fHilo, param);
 
+		pthread_attr_destroy(&atributos);
+
 		logear_info("Nueva conexión desde %s en el socket %d",
 				inet_ntoa(clienteInfo.sin_addr), nuevoCliente);
 	}
@@ -257,29 +261,30 @@ void crearMemoria(void) {
 }
 
 int maxLru(void){
+	int i, max = 0;
 
-	int i,max=0;
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		if (tablaAdministrativa_cache[i].lru > max)
+			max = tablaAdministrativa_cache[i].lru;
+	}
 
-		for (i = 0; i < ENTRADAS_CACHE; i++) {
-			if(tablaAdministrativa_cache[i].lru > max)max=tablaAdministrativa_cache[i].lru;
-		}
-
-		return max;
+	return max;
 }
 
 int posicionAReemplazarDeCache(void){
-
-	int i,min=1000,pos=0;
+	int i, min = 1000, pos = 0;
 
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		if(tablaAdministrativa_cache[i].pid == FRAME_LIBRE)return i;
+		if (tablaAdministrativa_cache[i].pid == FRAME_LIBRE)
+			return i;
 	}
+
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
-			if(tablaAdministrativa_cache[i].lru < min){
-				min = tablaAdministrativa_cache[i].lru;
-				pos=i;
-			}
+		if (tablaAdministrativa_cache[i].lru < min) {
+			min = tablaAdministrativa_cache[i].lru;
+			pos = i;
 		}
+	}
 
 	return pos;
 }
@@ -367,6 +372,48 @@ void inicializarTabla_cache(void) {
 			tablaAdministrativa_cache[i].contenidoDeLaPag = i * MARCO_SIZE;
 		}
 
+}
+
+int inicializar_programa(int PID, int paginas_requeridas) {
+
+	int i;
+	int frames_encontrados;		// Contador frames libres encontrados
+	int frames_totales = paginas_requeridas;
+
+	for (i = 0, frames_encontrados = 0;
+			i < MARCOS && frames_encontrados < frames_totales; i++) {
+		if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+			frames_encontrados++;
+		} else {
+			frames_encontrados = 0;
+		}
+	}
+
+	/* No hay frames disponibles */
+	if (frames_encontrados != frames_totales) {
+		return 0;
+	}
+
+	/* Asignar frames al proceso */
+
+	int frame_inicial = i - frames_totales;		// Indice primer frame
+	int frame_final = i;				// Indice ultimo frame
+
+	for (i = frame_inicial; i < frame_final; i++) {
+		tablaAdministrativa[i].pid = PID;
+		tablaAdministrativa[i].pag = i - frame_inicial;
+	}
+
+	return 1;
+}
+
+void copiarAMemoria(int PID,size_t bytes,void* datos){
+	int frame_inicial = 0;
+		while(tablaAdministrativa[frame_inicial].pid != PID )
+			frame_inicial++;
+
+		/* Escribir datos a la memoria */
+			memcpy(ir_a_frame(frame_inicial),datos, bytes);
 }
 
 /*
@@ -492,70 +539,90 @@ void liberar_frames(int PID) {
 // INTERFAZ DE USUARIO
 
 void *interaccionMemoria(void * _) {
+
+	struct comando {
+			char *nombre;
+			void (*funcion) (char *param);
+		};
+
+	struct comando comandos[] = {
+		{ "retardo", configurarRetardo },
+		{ "dump", dump},
+		{ "flush", flush },
+		{ "size", size},
+		{ "limpiar", limpiar_pantalla},
+		{ "opciones", imprimirOpcionesDeMemoria }
+	};
+
 	imprimirOpcionesDeMemoria();
-	char input[3];
+
+	char input[100];
 
 	while (1) {
-		scanf("%2s", input);
 
-		// limpiar buffer de entrada
+		memset(input, 0, sizeof input);
+		fgets(input, sizeof input, stdin);
 
-		int c;
-		while ((c = getchar()) != '\n' && c != EOF);
-
-		// Si lo que ingresa el usuario tiene mas de un caracter o no es numero
-
-		if ((strlen(input) != 1) || '1' > input[0] || input[0] > '6') {
-			printf("\nColoque una opcion correcta (1, 2, 3, 4, 5 o 6)\n");
+		if (strlen(input) == 1) {
 			continue;
 		}
 
-		char opcion = input[0];
-		switch (opcion) {
-		case '1': {
-			configurarRetardo();
-			break;
+		remover_salto_linea(input);
+
+		char *inputline = strdup(input); // Si no hago eso, string_trim se rompe
+		string_trim_left(&inputline); // Elimino espacios a la izquierda
+
+		char *cmd = NULL; // Comando
+		char *save = NULL; // Apunta al primer caracter de los siguentes caracteres sin parsear
+		char *delim = " ,"; // Separador
+
+		// strtok_r(3) devuelve un token leido
+		cmd = strtok_r(inputline, delim, &save); // Comando va a ser el primer token
+
+		int i;
+		// La division de los sizeof me calcula la cantidad de comandos
+		for (i = 0; i < (sizeof comandos / sizeof *comandos); i++) {
+			char *_cmd = comandos[i].nombre;
+			if (strcmp(cmd, _cmd) == 0) {
+				char *param = strdup(save); // Para no pasarle save por referencia
+				comandos[i].funcion(param);
+				break;
+			}
 		}
-		case '2': {
-			logear_info("Comando de dump ejecutado");
-			dump();
-			break;
+		if (i == (sizeof comandos / sizeof *comandos)) {
+			logear_error("Error: %s no es un comando", false, cmd);
 		}
-		case '3': {
-			logear_info("Comando de flush ejecutado\n");
-			flush(); // TODO
-			break;
-		}
-		case '4': {
-			size(); // TODO
-			break;
-		}
-		case '5': {
-			limpiar_pantalla();
-			break;
-		}
-		case '6': {
-			imprimirOpcionesDeMemoria();
-			break;
-		}
-		}
+
+		free(inputline);
 	}
+
 }
 
 void imprimirOpcionesDeMemoria() {
-	printf("\n--------------------\n");
-	printf("\n");
-	printf("BIEVENIDO A LA MEMORIA\n");
-	printf("SUS OPCIONES:\n");
-	printf("\n");
-	printf("1. Configurar retardo\n");
-	printf("2. Dump\n");
-	printf("3. Flush\n");
-	printf("4. Size\n");
-	printf("5. Limpiar mensajes\n");
-	printf("6. Mostrar opciones nuevamente\n");
-	printf("\n");
-	printf("--------------------\n");
+
+	printf("\n--------------------\n"
+			"BIENVENIDO A LA MEMORIA\n"
+			"\n"
+			"Lista de comandos: \n"
+			"\n"
+			"Configurar tiempo de retardo:\n"
+			"retardo [RETARDO]\n"
+			"\n"
+			"Comando Dump:\n"
+			"dump\n"
+			"\n"
+			"Flush, cambiar este mensaje:\n"
+			"flush\n"
+			"\n"
+			"Size, cambiar este mensaje:\n"
+			"size\n"
+			"\n"
+			"Limpiar mensajes:\n"
+			"limpiar\n"
+			"\n"
+			"Mostrar opciones nuevamente:\n"
+			"opciones\n"
+			"\n");
 }
 
 void limpiar_pantalla() {
@@ -661,45 +728,47 @@ int tipo_cliente(int socketCliente) {
 }
 
 // EXTRAS
-
-void configurarRetardo() {
-	printf("El actual retardo es %i ms\n", RETARDO);
-	printf("Coloque nuevo retardo (0ms - 9999ms):\n");
-
-	int i;
-
-	char input[5];
-
-	for (i = 0; i < 5; i++) { // Lo limpiamos
-		input[i] = '\0';
+int solo_numeros(char *str) {
+	    while (*str) {
+	        if (isdigit(*str++) == 0) {
+	        	return 0;
+	        }
+	    }
+	    return 1;
 	}
 
-	i = 0;
+void configurarRetardo(char * retardo) {
 
-	scanf("%s", input);
+	string_trim(&retardo);
 
-	while (i != 5) { // Chequeamos si todos son digitos
-		if (isdigit(input[i])) {
-			i++;
-		} else {
-			if (input[i] == '\0' && i != 0) { // Si estamos posicionados en un fin de string y no es el primer valor (string nulo)
-				short exRETARDO = RETARDO;
-				RETARDO = atoi(input);
-				printf("Retardo cambiado a %i ms\n", RETARDO);
-				logear_info(
-						"Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n",
-						exRETARDO, RETARDO);
-				break;
-			} else {
-				printf(
-						"Coloque digitos validos. Ingrese 6 para obtener nuevamente las opciones\n");
-				break;
+	if (strlen(retardo) == 0) {
+				logear_error("El comando \"retardo\" recibe un parametro [RETARDO]", false);
+				free(retardo);
+				return;
 			}
-		}
+
+	if (solo_numeros(retardo) == 0) {
+		printf("Debe ingresar un valor numerico");
+		return;
 	}
+
+	int exRETARDO;
+
+	exRETARDO = RETARDO;
+	RETARDO = atoi(retardo);
+	logear_info(
+			"Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n",
+			exRETARDO, RETARDO);
+
 }
 
-void dump() {
+void dump(char *param) {
+	string_trim(&param);
+
+
+
+	if(!strcmp(param,"estructuramemoria")){
+
 	char tmp[16];
 
 	int pag_digits;			// Cantidad de digitos hexa de una pagina
@@ -745,6 +814,17 @@ void dump() {
 			fflush(stdout);
 		}
 	}
+
+	}else if(!strcmp(param,"contenidomemoria"))
+	{
+		// TODO
+	}else if(!strcmp(param,"cache")){
+		// TODO
+	}else{
+		logear_error("Comando invalido", false);
+	}
+
+	free(param);
 }
 
 void establecer_configuracion() {
@@ -816,9 +896,63 @@ void finalizarPrograma(int numCliente, unsigned short payload) {
 }
 
 void flush() {
-	// TODO
+	int i;
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		tablaAdministrativa_cache[i].pid = FRAME_LIBRE;
+	}
 }
 
-void size() {
-	// TODO
+void size(char *param) {
+	string_trim(&param);
+
+	if (!strcmp(param, "memory")) { 	// Se compara lo ingresado con "memory", y se lo niega para que entre al if.
+		printf("Cantidad de Frames de la memoria: %i\n", MARCOS);
+		int framesLibres = 0, i;
+		for (i = 0; i < MARCOS; i++) {
+			if (tablaAdministrativa[i].pid == FRAME_LIBRE) {
+				framesLibres++;
+			}
+		}
+		printf("Cantidad de frames libres %i\n", framesLibres);
+		printf("Cantidad de frames ocupados %i\n", MARCOS - framesLibres);
+	}
+
+	else {
+		if (!strncmp(param, "pid ", 4)) {
+			int pid;
+			char *pid_c = malloc(3);
+			pid_c = string_substring_from(param, 4);
+			pid = atoi(pid_c);
+
+			int i;
+			int frames_usados = 0;
+			for (i = 0; i < MARCOS; i++) {
+				if (tablaAdministrativa[i].pid == pid)
+					frames_usados++;
+			}
+
+			if (frames_usados == 0) {
+				printf("No existe el proceso\n");
+			}
+
+			else {
+				printf("Tamanio total del proceso (PID = %i) = %i Bytes\n", pid,
+						frames_usados * MARCO_SIZE);
+			}
+		}
+
+		else {
+			logear_error("Comando invalido", false);
+		}
+	}
+	free(param);
+}
+
+char* remover_salto_linea(char* s) { // By Beej
+    int len = strlen(s);
+
+    if (len > 0 && s[len-1] == '\n')  // if there's a newline
+        s[len-1] = '\0';          // truncate the string
+
+    return s;
 }

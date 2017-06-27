@@ -48,9 +48,6 @@ void mem_mensaje(char *mensaje) {
 }
 
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
-
-
-
 	PedidoInicializar paquete = {
 		.operacion = MEM_INICIALIZAR_PROGRAMA,
 		.PID = PID,
@@ -64,6 +61,7 @@ int mem_inicializar_programa(int PID, size_t size, void *datos) {
 	memcpy(buffer + sizeof paquete, datos, size);
 
 	send(socket_memoria, buffer, sizeof paquete + size, 0);
+	free(buffer);
 
 	respuesta_op_mem respuesta;
 

@@ -1,0 +1,13 @@
+begin
+	variables a,b,c
+	a = 2
+	b = a
+	c = b + 10
+	f c
+end
+
+function f
+	variables e,f,g,h,h,i
+	#h se repite y debe ocurrir un error
+	e = $0 + 8
+end

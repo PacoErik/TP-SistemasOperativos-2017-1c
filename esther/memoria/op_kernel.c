@@ -65,9 +65,15 @@ int kernel_inicializar_programa(int socket) {
 		return -1;
 	}
 
+
+	// Las funciones incializar_programa y copiarAMemoria reemplazan a la funcion asignar_frames_contiguos	y se realizaron para cumplir con las condiciones del enunciado.
+
 	//Esta funcion tambien copia los datos del programa
-	ret = asignar_frames_contiguos(paquete.PID, paquete.paginas_codigo, paquete.paginas_stack,
-			paquete.bytes_datos, datos_programa);
+	ret = inicializar_programa(paquete.PID,paquete.paginas_codigo + paquete.paginas_stack);
+
+	// Memcpy a la memoria
+
+	copiarAMemoria(paquete.PID,paquete.bytes_datos,datos_programa);
 
 	printf("[PID %d] Codigo del Proceso:\n%.*s \n", paquete.PID, paquete.bytes_datos, (char *) datos_programa);
 
