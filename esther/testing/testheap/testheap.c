@@ -7,9 +7,9 @@
 #define MARCOS 5
 #define MARCO_SIZE 1024
 
-#define RETARDO 50
+#define RETARDO 100
 
-#define LIBERAR_SEGURO 1
+#define LIBERAR_SEGURO 0
 
 #if !LIBERAR_SEGURO
 	#define LIBERAR(x) liberar_bloque(x)
@@ -54,25 +54,25 @@ int main() {
 	t_puntero d = alocar_bloque(50);
 	imprimir_info_heap();
 
-	liberar_bloque_seguro(c);					// Liberar 3er Bloque
+	LIBERAR(c);					// Liberar 3er Bloque
 	imprimir_info_heap();
 
 	c = alocar_bloque(25);						// Vuelve a ocupar el 3er bloque
 	imprimir_info_heap();
 
-	liberar_bloque_seguro(d);					// Libero 4to bloque
+	LIBERAR(d);					// Libero 4to bloque
 	d = alocar_bloque(35);						// Tendria un bloque de 35 otro de 10
 	imprimir_info_heap();
 
 	imprimir_info_heap();
 
 	/* Libero los 3 primeros bloques, quedarian 2 bloques libres y uno ocupado */
-	liberar_bloque_seguro(a);
-	liberar_bloque_seguro(b);
-	liberar_bloque_seguro(c);
+	LIBERAR(a);
+	LIBERAR(b);
+	LIBERAR(c);
 	imprimir_info_heap();
 
-	liberar_bloque_seguro(d);					// Se libera el ultimo bloque
+	LIBERAR(d);					// Se libera el ultimo bloque
 	imprimir_info_heap();
 
 	return EXIT_SUCCESS;
