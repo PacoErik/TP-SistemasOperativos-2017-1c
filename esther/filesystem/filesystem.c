@@ -910,6 +910,7 @@ void kernel_leer(unsigned short bytes) {
 
 	if (data != NULL) {
 		send(socket_kernel, data, size, 0);
+		free(data);
 	}
 }
 
@@ -927,6 +928,7 @@ void kernel_escribir(unsigned short bytes) {
 	recv(socket_kernel, buffer, size, 0);
 
 	bool respuesta = escribir_archivo(path, offset, size, buffer);
+	free(buffer);
 	send(socket_kernel, &respuesta, sizeof respuesta, 0);
 
 	logear_info("Escribir archivo %s: %s", path, respuesta ? "OK" : "Error");
