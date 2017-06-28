@@ -28,6 +28,11 @@
 		int pag;
 	} PACKED estructura_administrativa;
 
+	typedef struct Victima {
+		int indice;
+		int lru;
+	} Victima;
+
 	extern estructura_administrativa_cache *tabla_administrativa_cache;
 	extern estructura_administrativa *tabla_administrativa;
 
@@ -61,6 +66,7 @@
 	void		inicializar_tabla_cache				();
 	void*		interaccion_memoria					(void*);
 	char*		ir_a_frame							(int);
+	char*		ir_a_frame_cache					(int);
 	void		limpiar_pantalla					();
 	void		size								();
 	int 		max_LRU								();
@@ -75,5 +81,10 @@
 	int 		memoria_liberar_pagina				(int,int);
 	int 		memoria_finalizar_programa			(int);
 	int 		memoria_handshake					(int);
+
+	int 		cache_buscar_pagina					(int,int,int);
+	int 		cache_almacenar_pagina				(int,int,int);
+	char*		cache_solicitar_bytes				(int,int,int,int,int);
+	int 		cache_almacenar_bytes				(int,int,int,int,int,void*);
 
 #endif /* MEMORIA_H_ */
