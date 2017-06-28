@@ -190,9 +190,7 @@ int main(void) {
 
     int fdmax;				// valor maximo de los FDs
 
-    if (mem_conectar() == 0) {
-    	logear_error("No se pudo conectar a la memoria.", true);
-    }
+    mem_conectar();
 
 	agregar_cliente(MEMORIA, socket_memoria);
 
@@ -1136,18 +1134,15 @@ void intentar_iniciar_proceso() {
 
 			if (list_any_satisfy(clientes, &existe_consola_asociada)) {
 				int PID = nuevo_proceso->pcb->pid;
-				int ret = mem_inicializar_programa(PID, strlen(codigo), codigo);
-				if (ret == -1) {
-					logear_error("Error de conexion con la memoria.", true);
-				}
+				int respuesta = mem_inicializar_programa(PID, strlen(codigo), codigo);
 
 				logear_info("[PID:%d] Pedido a memoria", PID);
 				free(codigo);
 
-				if (ret == 0) {
+				if (respuesta < 0) {
 					logear_error("[PID:%d] Memoria insuficiente.", false, PID);
 					nuevo_proceso->estado = EXIT;
-					nuevo_proceso->pcb->exit_code = NO_SE_PUDIERON_RESERVAR_RECURSOS;
+					nuevo_proceso->pcb->exit_code = respuesta;
 					limpiar_proceso(nuevo_proceso);
 					list_add(lista_EXIT, nuevo_proceso);
 					enviar_header(nuevo_proceso->consola, FALLO_INICIO_PROGRAMA, 0);

@@ -10,7 +10,7 @@ char IP_MEMORIA[16];
 
 int PUERTO_MEMORIA;
 
-int mem_conectar(void) {
+void mem_conectar(void) {
 	struct sockaddr_in mem_info;
 
 	mem_info.sin_family = AF_INET;
@@ -22,21 +22,15 @@ int mem_conectar(void) {
 	int ret = connect(socket_memoria, (struct sockaddr *) &mem_info, sizeof(mem_info));
 
 	if (ret != 0) {
-		close(socket_memoria);
-		return 0;
+		terminar_kernel();
 	}
 
 	handshake(socket_memoria, KERNEL);
 
 	/* Recibe tamanio de pagina enviada por la memoria */
-	ret = recv(socket_memoria, &tamanio_pagina, sizeof(int), 0);
-
-	if (ret <= 0) {
-		close(socket_memoria);
-		return 0;
+	if (recv(socket_memoria, &tamanio_pagina, sizeof(tamanio_pagina), 0) <= 0) {
+		terminar_kernel();
 	}
-
-	return 1;
 }
 
 void mem_mensaje(char *mensaje) {
@@ -48,62 +42,129 @@ void mem_mensaje(char *mensaje) {
 }
 
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
-	PedidoInicializar paquete = {
+	int paginas_codigo = DIVIDE_ROUNDUP(size, tamanio_pagina);
+
+	PedidoInicializar paquete_inicio = {
 		.operacion = MEM_INICIALIZAR_PROGRAMA,
 		.PID = PID,
-		.paginas_codigo = DIVIDE_ROUNDUP(size, tamanio_pagina),		// Pongo cantidad de paginas por el enunciado
-		.paginas_stack = STACK_SIZE,
-		.bytes_datos = size,
+		.paginas_codigo = paginas_codigo,		// Pongo cantidad de paginas por el enunciado
+		.paginas_stack = STACK_SIZE
 	};
 
-	char *buffer = malloc(sizeof paquete + size);
-	memcpy(buffer, &paquete, sizeof paquete);
-	memcpy(buffer + sizeof paquete, datos, size);
+	send(socket_memoria, &paquete_inicio, sizeof(paquete_inicio), 0);
 
-	send(socket_memoria, buffer, sizeof paquete + size, 0);
-	free(buffer);
+	int respuesta;
 
-	respuesta_op_mem respuesta;
-
-	int ret = recv(socket_memoria, &respuesta, sizeof respuesta, 0);
-
-	if (ret <= 0) {
-		return -1;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
 	}
 
-	switch (respuesta) {
-	case OK:
-		return 1;
+	if (respuesta < 0) return respuesta; //Si no se pudieron reservar la cantidad de págs. para iniciar
 
-	case ERROR:
-		return 0;
+	//Reservamos las páginas
+	mem_asignar_paginas(PID, paquete_inicio.paginas_codigo + paquete_inicio.paginas_stack);
 
-	default:
-		return -1;
+	//Vamos a escribir el código en las páginas de a pedazos
+	PedidoEscritura paquete = {
+		.operacion = MEM_ALMACENAR_BYTES,
+		.PID = PID,
+		.numero_pagina = 0,
+		.offset = 0
+	};
+
+	int bytes = size;
+
+	while (bytes > 0) {
+		paquete.size = bytes > tamanio_pagina ? tamanio_pagina : bytes;
+		//I had to do it again v:
+		bytes -= paquete.size;
+
+		respuesta = mem_escribir_bytes(paquete.PID, paquete.numero_pagina, 0, paquete.size, datos+paquete.offset);
+
+		paquete.offset += paquete.size;
+		paquete.numero_pagina++;
 	}
+
+	return respuesta;
+}
+
+char *mem_leer_bytes(int PID, int pagina, off_t offset, size_t size) {
+	PedidoLectura paquete = {
+			.operacion = MEM_SOLICITAR_BYTES,
+			.PID = PID,
+			.numero_pagina = pagina,
+			.offset = offset,
+			.size = size
+	};
+
+	send(socket_memoria, &paquete, sizeof(paquete), 0);
+
+	int respuesta;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
+	}
+
+	if (respuesta < 0) return NULL;
+
+	char *datos = malloc(size);
+
+	if (recv(socket_memoria, datos, size, 0) <= 0) {
+		terminar_kernel();
+	}
+
+	return datos;
+}
+
+int mem_escribir_bytes(int PID, int pagina, off_t offset, size_t size, void *buffer) {
+	PedidoEscritura paquete = {
+			.operacion = MEM_ALMACENAR_BYTES,
+			.PID = PID,
+			.numero_pagina = pagina,
+			.offset = offset,
+			.size = size
+	};
+
+
+	send(socket_memoria, &paquete, sizeof(paquete), 0);
+	send(socket_memoria, buffer, size, 0);
+
+	int respuesta;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
+	}
+
+	return respuesta;
 }
 
 int mem_asignar_paginas(int PID, int paginas) {
-	PedidoAsignacion paquete;
+	PedidoAsignacion paquete = {
+			.operacion = MEM_ASIGNAR_PAGINAS,
+			.PID = PID,
+			.paginas = paginas
+	};
 
-	paquete.operacion = MEM_ASIGNAR_PAGINAS;
-	paquete.PID = PID;
-	paquete.paginas = paginas;
+	send(socket_memoria, &paquete, sizeof(paquete), 0);
 
-	send(socket_memoria, &paquete, sizeof paquete, 0);
+	int respuesta;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
+	}
 
-	/* TODO: Recibir confirmacion */
-
-	return 1;
+	return respuesta;
 }
 
 int mem_finalizar_programa(int PID) {
-	PedidoFinalizacion paquete;
+	PedidoFinalizacion paquete = {
+			.operacion = MEM_FINALIZAR_PROGRAMA,
+			.PID = PID
+	};
 
-	paquete.operacion = MEM_FINALIZAR_PROGRAMA;
-	paquete.PID = PID;
+	send(socket_memoria, &paquete, sizeof(paquete), 0);
 
-	send(socket_memoria, &paquete, sizeof paquete, 0);
+	int respuesta;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
+	}
 
-	return 1;
+	return respuesta;
 }

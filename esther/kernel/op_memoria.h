@@ -26,7 +26,10 @@
 		MEM_MENSAJE,
 		MEM_INICIALIZAR_PROGRAMA,
 		MEM_ASIGNAR_PAGINAS,
-		MEM_FINALIZAR_PROGRAMA
+		MEM_FINALIZAR_PROGRAMA,
+		MEM_SOLICITAR_BYTES,
+		MEM_ALMACENAR_BYTES,
+		MEM_LIBERAR_PAGINA
 	} op_mem;
 
 	/* Mensaje de confirmacion */
@@ -41,8 +44,6 @@
 		int PID;
 		int paginas_codigo;
 		int paginas_stack;
-		size_t bytes_datos;		// Cantidad de bytes del contenido de programa
-		/* void *datos; */
 	} PACKED PedidoInicializar;
 
 	/* Pedido de asignacion de paginas */
@@ -58,13 +59,30 @@
 		int PID;
 	} PACKED PedidoFinalizacion;
 
+	typedef struct {
+		op_mem operacion;
+		int PID;
+		int numero_pagina;
+		int offset;
+		int size;
+	} PACKED PedidoLectura;
+
+	typedef struct {
+		op_mem operacion;
+		int PID;
+		int numero_pagina;
+		int offset;
+		int size;
+		void *datos;
+	} PACKED PedidoEscritura;
+
 	/**
 	 * Establecer conexion con la memoria.
 	 * Modifica las siguientes variable globales:
 	 * 	- socket_memoria
 	 * 	- tamanio_pagina
 	 */
-	int mem_conectar(void);
+	void mem_conectar(void);
 
 	/**
 	 * Enviar mensaje a la memoria.
@@ -102,7 +120,7 @@
 	 * 		[tamaño]
 	 * 		[buffer]
 	 */
-	int mem_escribir_bytes(int PID, int pagina, off_t offset, size_t size, void *bytes);
+	int mem_escribir_bytes(int PID, int pagina, off_t offset, size_t size, void *buffer);
 
 	/**
 	 * Asignar Páginas a Proceso
