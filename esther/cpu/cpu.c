@@ -272,7 +272,7 @@ int cumplir_deseos_memoria(char operacion, unsigned short bytes_payload) {
 			buffer_solicitado = malloc(bytes_payload);
 			recv(memoria.socket, buffer_solicitado, bytes_payload, 0);
 			break;
-		case ALMACENAR_BYTES:
+		case PETICION_CORRECTA:
 			//Esto es simplemente un mensaje de confirmación
 			//ya que no se dió una excepción
 			break;
