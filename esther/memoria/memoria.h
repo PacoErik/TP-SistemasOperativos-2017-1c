@@ -84,7 +84,7 @@
 
 	int 		cache_buscar_pagina					(int,int,int);
 	int 		cache_almacenar_pagina				(int,int,int);
-	char*		cache_solicitar_bytes				(int,int,int,int,int);
+	char*		cache_solicitar_bytes				(int,int,int,int);
 	int 		cache_almacenar_bytes				(int,int,int,int,int,void*);
 
 #endif /* MEMORIA_H_ */

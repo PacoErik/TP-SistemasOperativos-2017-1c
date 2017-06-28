@@ -146,7 +146,7 @@ char* memoria_solicitar_bytes(int PID, int numero_pagina, int offset, int size) 
 
 	/////////////////////
 	//Caché intensifies//
-	char *buffer = cache_solicitar_bytes(PID, numero_pagina, frame, offset, size);
+	char *buffer = cache_solicitar_bytes(PID, numero_pagina, frame, offset);
 	if (buffer != NULL) return buffer;
 	/////////////////////
 
@@ -260,7 +260,7 @@ int cache_buscar_pagina(int PID, int numero_pagina, int frame) {
 		estructura_administrativa_cache entrada = tabla_administrativa_cache[i];
 		if (entrada.pid == PID && entrada.pag == numero_pagina && entrada.contenido_pagina == frame * MARCO_SIZE) {
 			//En si no hace falta comparar el contenido de página pero bueno.. por si las dudas.
-			entrada.lru = max_LRU() + 1;
+			tabla_administrativa_cache[i].lru = max_LRU() + 1;
 			return i;
 		}
 	}
@@ -324,7 +324,7 @@ int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
 	return victima_definitiva.indice;
 }
 
-char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset, int size) {
+char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
 	int indice_entrada_cache = cache_buscar_pagina(PID, numero_pagina, frame);
 
 	if (indice_entrada_cache < 0) {
@@ -334,7 +334,7 @@ char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset, i
 
 	int offset_memoria = tabla_administrativa_cache[indice_entrada_cache].contenido_pagina;
 
-	return memoria + offset_memoria + offset;
+	return ir_a_frame_cache(indice_entrada_cache) + offset;
 }
 
 int cache_almacenar_bytes(int PID, int numero_pagina, int frame, int offset, int size, void *buffer) {
