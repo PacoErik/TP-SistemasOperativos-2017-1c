@@ -47,6 +47,8 @@ estructura_administrativa *tabla_administrativa;
 
 int socket_kernel;
 
+pthread_mutex_t mutex_cache;
+
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
 
 int main(void) {
@@ -58,6 +60,8 @@ int main(void) {
 
 	inicializar_tabla();
 	inicializar_tabla_cache();
+
+	pthread_mutex_init(&mutex_cache, NULL);
 
 	pthread_t hilo_consola;
 	pthread_create(&hilo_consola, NULL, interaccion_memoria, NULL);
@@ -269,7 +273,7 @@ int cache_buscar_pagina(int PID, int numero_pagina, int frame) {
 }
 
 int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
-	int cantidad_paginas_cache_proceso;
+	int cantidad_paginas_cache_proceso = 0;
 	int i;
 	int max_valor_LRU = max_LRU()+1;
 
@@ -325,30 +329,37 @@ int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
 }
 
 char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
+	pthread_mutex_lock(&mutex_cache);
 	int indice_entrada_cache = cache_buscar_pagina(PID, numero_pagina, frame);
 
 	if (indice_entrada_cache < 0) {
 		cache_almacenar_pagina(PID, numero_pagina, frame);
+		pthread_mutex_unlock(&mutex_cache);
 		return NULL;
 	}
 
 	int offset_memoria = tabla_administrativa_cache[indice_entrada_cache].contenido_pagina;
+	pthread_mutex_unlock(&mutex_cache);
 
 	return ir_a_frame_cache(indice_entrada_cache) + offset;
 }
 
 int cache_almacenar_bytes(int PID, int numero_pagina, int frame, int offset, int size, void *buffer) {
+	pthread_mutex_lock(&mutex_cache);
 	int indice_entrada_cache = cache_buscar_pagina(PID, numero_pagina, frame);
 
 	if (indice_entrada_cache < 0) {
 		indice_entrada_cache = cache_almacenar_pagina(PID, numero_pagina, frame);
 		memcpy(ir_a_frame_cache(indice_entrada_cache) + offset, buffer, size);
+
+		pthread_mutex_unlock(&mutex_cache);
 		return false;
 	}
 
 	memcpy(ir_a_frame(frame) + offset, buffer, size);
 	memcpy(ir_a_frame_cache(indice_entrada_cache) + offset, buffer, size);
 
+	pthread_mutex_unlock(&mutex_cache);
 	return true;
 }
 
@@ -358,6 +369,8 @@ int cache_almacenar_bytes(int PID, int numero_pagina, int frame, int offset, int
 
 void *atender_cliente(void* param) {
 	int socket_cliente = (int)*((int*)param);
+	free(param);
+
 	int tipoCliente = memoria_handshake(socket_cliente);
 	if (tipoCliente == -1) {
 
@@ -590,64 +603,77 @@ void configurar_retardo(char * retardo) {
 
 }
 void dump(char *param) {
-	string_trim(&param);
+	void _dump(int entries, int size, char * (* lookup_func) (int)) {
+		char tmp[16];
 
+		int pag_digits;			// Cantidad de digitos hexa de una pagina
+		int offset_digits;		// Cantidad de digitos hexa de un desplazamiento
 
+		snprintf(tmp, sizeof tmp - 1, "%x", entries);
+		pag_digits = strlen(tmp);
 
-	if(!strcmp(param,"estructuramemoria")){
+		snprintf(tmp, sizeof tmp - 1, "%x", size);
+		offset_digits = strlen(tmp);
 
-	char tmp[16];
+		int i_pag, i_offset;	// Indice pagina y desplazamiento
+		for (i_pag = 0; i_pag < entries; i_pag++) {
+			char *frame = lookup_func(i_pag);
 
-	int pag_digits;			// Cantidad de digitos hexa de una pagina
-	int offset_digits;		// Cantidad de digitos hexa de un desplazamiento
+			for (i_offset = 0; i_offset < size; i_offset += 16) {
+				printf("%0*X:%0*X ", pag_digits, i_pag, offset_digits,
+						i_offset);
+				fflush(stdout);
 
-	snprintf(tmp, sizeof tmp - 1, "%x", MARCOS);
-	pag_digits = strlen(tmp);
+				int max_bytes = (size - i_offset) > 16 ? 16 : (size - i_offset);
 
-	snprintf(tmp, sizeof tmp - 1, "%x", MARCO_SIZE);
-	offset_digits = strlen(tmp);
-
-	int i_pag, i_offset;	// Indice pagina y desplazamiento
-	for (i_pag = 0; i_pag < MARCOS; i_pag++) {
-
-		char *frame = ir_a_frame(i_pag);
-
-		for (i_offset = 0; i_offset < MARCO_SIZE; i_offset += 16) {
-			printf("%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
-			fflush(stdout);
-
-			int max_bytes = ((MARCO_SIZE - i_offset) > 16) ? 16 : (MARCO_SIZE - i_offset);
-
-			int i_byte;
-			for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-				printf("%02X", (unsigned char) frame[i_offset + i_byte]);
-				if (i_byte % 2 == 1) {
-					printf(" ");
+				int i_byte;
+				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
+					printf("%02X", (unsigned char) frame[i_offset + i_byte]);
+					if (i_byte % 2 == 1) {
+						printf(" ");
+					}
+					fflush(stdout);
 				}
+
+				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
+					if (iscntrl(frame[i_offset + i_byte])) {
+						printf(".");
+					}
+					else {
+						printf("%c", frame[i_offset + i_byte]);
+					}
+					fflush(stdout);
+				}
+
+				printf("\n");
 				fflush(stdout);
 			}
-
-			for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-				if (iscntrl(frame[i_offset + i_byte])) {
-					printf(".");
-				}
-				else {
-					printf("%c", frame[i_offset + i_byte]);
-				}
-				fflush(stdout);
-			}
-
-			printf("\n");
-			fflush(stdout);
 		}
 	}
 
-	}else if(!strcmp(param,"contenidomemoria"))
-	{
-		// TODO
-	}else if(!strcmp(param,"cache")){
-		// TODO
-	}else{
+	string_trim(&param);
+
+	if (!strcmp(param, "memoria")) {
+		_dump(MARCOS, MARCO_SIZE, ir_a_frame);
+	}
+
+	else if (!strcmp(param, "cache")) {
+		_dump(ENTRADAS_CACHE, MARCO_SIZE, ir_a_frame_cache);
+	}
+
+	else if (!strcmp(param, "estructuras")) {
+		/*	TODO
+		int i;
+		int *pid_activos = malloc(sizeof(int));
+		*pid_activos = FRAME_LIBRE;
+
+		for (i = 0; i < MARCOS; i++) {
+			printf("")
+		}
+		*/
+	}
+
+	else {
 		logear_error("Comando invalido", false);
 	}
 
@@ -660,11 +686,10 @@ void flush() {
 	}
 }
 void *interaccion_memoria(void * _) {
-
 	struct comando {
-			char *nombre;
-			void (*funcion) (char *param);
-		};
+		char *nombre;
+		void (*funcion) (char *param);
+	};
 
 	struct comando comandos[] = {
 		{ "retardo", configurar_retardo },
@@ -839,13 +864,13 @@ void enviar_excepcion(int socket_cliente, int excepcion) {
 
 // EXTRAS
 int solo_numeros(char *str) {
-	    while (*str) {
-	        if (isdigit(*str++) == 0) {
-	        	return 0;
-	        }
-	    }
-	    return 1;
+	while (*str) {
+		if (isdigit(*str++) == 0) {
+			return 0;
+		}
 	}
+	return 1;
+}
 void establecer_configuracion() {
 	if (config_has_property(config, "PUERTO")) {
 		PUERTO = config_get_int_value(config, "PUERTO");
