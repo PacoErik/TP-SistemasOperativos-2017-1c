@@ -676,9 +676,14 @@ void dump(char *param) {
 }
 void flush() {
 	int i;
+	pthread_mutex_lock(&mutex_cache);
+	memset(memoria_cache, 0, ENTRADAS_CACHE * MARCO_SIZE);
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
 		tabla_administrativa_cache[i].pid = FRAME_LIBRE;
+		tabla_administrativa_cache[i].lru = 0;
 	}
+	logear_info("Contenido de la caché vaciado con éxito!");
+	pthread_mutex_unlock(&mutex_cache);
 }
 void *interaccion_memoria(void * _) {
 	struct comando {
