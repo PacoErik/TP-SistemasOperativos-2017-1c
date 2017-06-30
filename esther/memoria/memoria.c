@@ -25,6 +25,12 @@
 #define FRAME_ADMIN -1
 #define FRAME_LIBRE -2
 
+#define DUMP_PRINT(file, format, ...) {			\
+	printf(format, ##__VA_ARGS__);				\
+	if (file != NULL)							\
+		fprintf(file, format, ##__VA_ARGS__);	\
+}
+
 /*-----VARIABLES GLOBALES-----*/
 
 /* Configs */
@@ -578,18 +584,20 @@ int traducir_a_frame(int pagina, int pid) {
 
 // INTERFAZ DE USUARIO
 
-void configurar_retardo(char * retardo) {
-
+void configurar_retardo(char *retardo) {
 	string_trim(&retardo);
 
 	if (strlen(retardo) == 0) {
-				logear_error("El comando \"retardo\" recibe un parametro [RETARDO]", false);
-				free(retardo);
-				return;
-			}
+		logear_error("El comando \"retardo\" recibe un parametro [RETARDO]", false);
+
+		free(retardo);
+		return;
+	}
 
 	if (solo_numeros(retardo) == 0) {
-		printf("Debe ingresar un valor numerico");
+		logear_error("Debe ingresar un valor numerico.", false);
+
+		free(retardo);
 		return;
 	}
 
@@ -597,6 +605,8 @@ void configurar_retardo(char * retardo) {
 
 	exRETARDO = RETARDO;
 	RETARDO = atoi(retardo);
+	free(retardo);
+
 	logear_info(
 			"Comando de configuracion de retardo ejecutado. Fue cambiado de %i ms a %i ms\n",
 			exRETARDO, RETARDO);
@@ -620,32 +630,31 @@ void dump(char *param) {
 			char *frame = lookup_func(i_pag);
 
 			for (i_offset = 0; i_offset < size; i_offset += 16) {
-				printf("%0*X:%0*X ", pag_digits, i_pag, offset_digits,
-						i_offset);
+				DUMP_PRINT(NULL, "%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
 				fflush(stdout);
 
 				int max_bytes = (size - i_offset) > 16 ? 16 : (size - i_offset);
 
 				int i_byte;
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-					printf("%02X", (unsigned char) frame[i_offset + i_byte]);
+					DUMP_PRINT(NULL, "%02X", (unsigned char) frame[i_offset + i_byte]);
 					if (i_byte % 2 == 1) {
-						printf(" ");
+						DUMP_PRINT(NULL, " ");
 					}
 					fflush(stdout);
 				}
 
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
 					if (iscntrl(frame[i_offset + i_byte])) {
-						printf(".");
+						DUMP_PRINT(NULL, ".");
 					}
 					else {
-						printf("%c", frame[i_offset + i_byte]);
+						DUMP_PRINT(NULL, "%c", frame[i_offset + i_byte]);
 					}
 					fflush(stdout);
 				}
 
-				printf("\n");
+				DUMP_PRINT(NULL, "\n");
 				fflush(stdout);
 			}
 		}
@@ -662,15 +671,81 @@ void dump(char *param) {
 	}
 
 	else if (!strcmp(param, "estructuras")) {
-		/*	TODO
+		char tmp[16];
+		int frame_digits;		// Cantidad de digitos de un frame
+
+		snprintf(tmp, sizeof tmp - 1, "%d", MARCOS);
+		frame_digits = strlen(tmp);
+
+		DUMP_PRINT(NULL, "┌───────────┬───────────┬───────────┐\n");
+		DUMP_PRINT(NULL, "│   Frame   │    PID    │   Pagina  │\n");
+		DUMP_PRINT(NULL, "├───────────┼───────────┼───────────┤\n");
+
 		int i;
-		int *pid_activos = malloc(sizeof(int));
-		*pid_activos = FRAME_LIBRE;
+		t_list *pid_activos = list_create();
 
 		for (i = 0; i < MARCOS; i++) {
-			printf("")
+			DUMP_PRINT(NULL, "│%.*s", 10 - frame_digits, "          ");
+			DUMP_PRINT(NULL, "%0*d │", frame_digits, i);
+
+			switch (tabla_administrativa[i].pid) {
+			case FRAME_ADMIN:
+				DUMP_PRINT(NULL, "     ADMIN ");
+				break;
+
+			case FRAME_LIBRE:
+				DUMP_PRINT(NULL, "     LIBRE ");
+				break;
+
+			default:
+				/* Agregarlo si no esta en la lista */
+				if (!list_find(pid_activos, ({
+						bool _eq_ (void *e)
+							{ return *((int *) e) == tabla_administrativa[i].pid; }
+						_eq_;
+					}))) {
+					int *p_pid = malloc(sizeof(int));
+					*p_pid = tabla_administrativa[i].pid;
+
+					list_add(pid_activos, p_pid);
+				}
+				DUMP_PRINT(NULL, "     %5d", tabla_administrativa[i].pid);
+				break;
+			}
+
+			if (tabla_administrativa[i].pid > FRAME_ADMIN) {
+				DUMP_PRINT(NULL, " │%.*s", 10 - frame_digits, "          ");
+				DUMP_PRINT(NULL, "%*d │", frame_digits, tabla_administrativa[i].pag);
+			}
+
+			else {
+				DUMP_PRINT(NULL, "│     -     │ ");
+			}
+
+			DUMP_PRINT(NULL, "\n");
+			fflush(stdout);
 		}
-		*/
+
+		DUMP_PRINT(NULL, "└───────────┴───────────┴───────────┘ \n");
+
+		if (list_size(pid_activos) == 0) {
+			DUMP_PRINT(NULL, "No hay ningun proceso activo.\n");
+			list_destroy(pid_activos);
+		}
+
+		/* Hago un list_sort() aca o no? */
+
+		else {
+			DUMP_PRINT(NULL, "PIDs Activos:\n");
+			list_iterate(pid_activos, ({
+				void _print_(void *e) {
+					DUMP_PRINT(NULL, "PID: %d\n", *((int *)e));
+				}
+				_print_;
+			}));
+
+			list_destroy_and_destroy_elements(pid_activos, free);
+		}
 	}
 
 	else {
