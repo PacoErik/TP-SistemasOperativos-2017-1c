@@ -156,13 +156,15 @@ char* memoria_solicitar_bytes(int PID, int numero_pagina, int offset, int size) 
 
 	/////////////////////
 	//Caché intensifies//
-	char *buffer = cache_solicitar_bytes(PID, numero_pagina, frame, offset);
-	if (buffer != NULL) return buffer;
+	if (CACHE_X_PROC > 0 && ENTRADAS_CACHE > 0) {
+		char *buffer = cache_solicitar_bytes(PID, numero_pagina, frame, offset);
+		if (buffer != NULL) return buffer;
+	}
 	/////////////////////
 
 	usleep(RETARDO * 1000);
 
-	return ir_a_frame(frame)+offset;
+	return ir_a_frame_memoria(frame)+offset;
 }
 int memoria_almacenar_bytes(int PID, int numero_pagina, int offset, int size, void *buffer) {
 	int frame = traducir_a_frame(numero_pagina, PID);
@@ -171,13 +173,15 @@ int memoria_almacenar_bytes(int PID, int numero_pagina, int offset, int size, vo
 
 	/////////////////////
 	//Caché intensifies//
-	int respuesta = cache_almacenar_bytes(PID, numero_pagina, frame, offset, size, buffer);
-	if (respuesta > 0) return true;
+	if (CACHE_X_PROC > 0 && ENTRADAS_CACHE > 0) {
+		int respuesta = cache_almacenar_bytes(PID, numero_pagina, frame, offset, size, buffer);
+		if (respuesta > 0) return true;
+	}
 	/////////////////////
 
 	usleep(RETARDO * 1000);
 
-	memcpy(ir_a_frame(frame)+offset, buffer, size);
+	memcpy(ir_a_frame_memoria(frame)+offset, buffer, size);
 	return true;
 }
 int memoria_asignar_paginas(int PID, int paginas_requeridas) {
@@ -222,7 +226,7 @@ int memoria_liberar_pagina(int PID, int numero_pagina) {
 	//Borrar página de memoria
 	estructura_administrativa entrada = tabla_administrativa[frame];
 	if (entrada.pid == PID && entrada.pag == numero_pagina) {
-		entrada.pid = FRAME_LIBRE;
+		tabla_administrativa[frame].pid = FRAME_LIBRE;
 		return true;
 	}
 
@@ -264,109 +268,107 @@ int memoria_handshake(int socket) {
 
 /*----------DEFINICIÓN DE INTERFAZ DE CACHÉ-----------*/
 
-int cache_buscar_pagina(int PID, int numero_pagina, int frame) {
+int cache_almacenar_bytes(int PID, int numero_pagina, int frame, int offset, int size, void *buffer) {
+	pthread_mutex_lock(&mutex_cache);
+	int contenido = cache_buscar_pagina(PID, numero_pagina);
+
+	if (contenido < 0) {
+		contenido = cache_almacenar_pagina(PID, numero_pagina, frame);
+		memcpy(memoria_cache + contenido + offset, buffer, size);
+		pthread_mutex_unlock(&mutex_cache);
+		return false;
+	}
+
+	memcpy(ir_a_frame_memoria(frame) + offset, buffer, size);
+	memcpy(memoria_cache + contenido + offset, buffer, size);
+
+	pthread_mutex_unlock(&mutex_cache);
+	return true;
+}
+int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
+	int cantidad_paginas_cache_proceso = 0;
+	int i;
+	estructura_administrativa_cache *entrada;
+
+	Victima victima_global;
+	victima_global.lru = max_LRU()+1;;
+	Victima victima_local = victima_global;
+	Victima victima_definitiva = victima_global;
+
+	for (i = 0; i < ENTRADAS_CACHE; i++) {
+		entrada = cache_obtener_entrada(i);
+
+		//Lógica de la víctima local (propia del proceso)
+		if (entrada->pid == PID) {
+			cantidad_paginas_cache_proceso++;
+			if (entrada->lru < victima_local.lru) {
+				victima_local.indice = i;
+				victima_local.lru = entrada->lru;
+			}
+		}
+
+		//Lógica de la víctima global (de cualquier proceso)
+		if (entrada->lru < victima_global.lru) {
+			victima_global.indice = i;
+			victima_global.lru = entrada->lru;
+		}
+
+	}
+
+	if (cantidad_paginas_cache_proceso == CACHE_X_PROC) {
+		victima_definitiva.indice = victima_local.indice;
+	} else {
+		victima_definitiva.indice = victima_global.indice;
+	}
+
+	entrada = cache_obtener_entrada(victima_definitiva.indice);
+
+	if (entrada->pid == FRAME_LIBRE) {
+		logear_info("[Caché MISS - Entrada %d] Página libre reemplazada por (Pág:%d) de (PID:%d)", victima_definitiva.indice, numero_pagina, PID);
+	} else if (entrada->pid == PID) {
+		logear_info("[Caché MISS - Entrada %d] (Pág:%d) del mismo proceso (PID:%d) reemplazada por (Pág:%d)", victima_definitiva.indice, entrada->pag, PID, numero_pagina);
+	} else {
+		logear_info("[Caché MISS - Entrada %d] (Pág:%d) del proceso (PID:%d) reemplazada por (Pág:%d) de (PID:%d)", victima_definitiva.indice, entrada->pag, entrada->pid, numero_pagina, PID);
+	}
+
+
+	entrada->pid = PID;
+	entrada->lru = victima_definitiva.lru;
+	entrada->pag = numero_pagina;
+
+	memcpy(memoria_cache + entrada->contenido, ir_a_frame_memoria(frame), MARCO_SIZE);
+
+	return entrada->contenido;
+}
+int cache_buscar_pagina(int PID, int numero_pagina) {
 	int i;
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		estructura_administrativa_cache entrada = tabla_administrativa_cache[i];
-		if (entrada.pid == PID && entrada.pag == numero_pagina && entrada.contenido_pagina == frame * MARCO_SIZE) {
-			//En si no hace falta comparar el contenido de página pero bueno.. por si las dudas.
-			tabla_administrativa_cache[i].lru = max_LRU() + 1;
-			return i;
+		estructura_administrativa_cache *entrada = cache_obtener_entrada(i);
+		if (entrada->pid == PID && entrada->pag == numero_pagina) {
+			entrada->lru = max_LRU() + 1;
+			return entrada->contenido;
 		}
 	}
 
 	return -1;
 }
-
-int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
-	int cantidad_paginas_cache_proceso = 0;
-	int i;
-	int max_valor_LRU = max_LRU()+1;
-
-	Victima victima_general = {
-			.lru = max_valor_LRU
-	};
-	Victima victima_especifica = {
-			.lru = max_valor_LRU
-	};
-
-	Victima victima_definitiva;
-
-	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		estructura_administrativa_cache entrada = tabla_administrativa_cache[i];
-		if (entrada.pid == PID) {
-			cantidad_paginas_cache_proceso++;
-			if (entrada.lru < victima_especifica.lru) {
-				victima_especifica.indice = i;
-				victima_especifica.lru = entrada.lru;
-			}
-		} else {
-			if (entrada.lru < victima_general.lru) {
-				victima_general.indice = i;
-				victima_general.lru = entrada.lru;
-			}
-		}
-
-	}
-
-	victima_definitiva.lru = max_valor_LRU;
-
-	if (cantidad_paginas_cache_proceso == CACHE_X_PROC) {
-		victima_definitiva.indice = victima_especifica.indice;
-		logear_info("[Caché MISS] (Pág:%d) del mismo proceso reemplazada por (Pág:%d)", tabla_administrativa_cache[victima_definitiva.indice].pag, numero_pagina);
-	} else {
-		victima_definitiva.indice = victima_general.indice;
-		int _PID = tabla_administrativa_cache[victima_definitiva.indice].pid;
-
-		if (_PID == FRAME_LIBRE)
-			logear_info("[Caché MISS] Página libre reemplazada por (Pág:%d) de (PID:%d)", numero_pagina, PID);
-		else
-			logear_info("[Caché MISS] (Pág:%d) del proceso (PID:%d) reemplazada por (Pág:%d) de (PID:%d)", tabla_administrativa_cache[victima_definitiva.indice].pag, _PID, numero_pagina, PID);
-	}
-
-	tabla_administrativa_cache[victima_definitiva.indice].pid = PID;
-	tabla_administrativa_cache[victima_definitiva.indice].lru = victima_definitiva.lru;
-	tabla_administrativa_cache[victima_definitiva.indice].pag = numero_pagina;
-	tabla_administrativa_cache[victima_definitiva.indice].contenido_pagina = frame * MARCO_SIZE;
-
-	memcpy(ir_a_frame_cache(victima_definitiva.indice), ir_a_frame(frame), MARCO_SIZE);
-
-	return victima_definitiva.indice;
+estructura_administrativa_cache *cache_obtener_entrada(int indice) {
+	char *p = (char*)tabla_administrativa_cache;
+	return (estructura_administrativa_cache*)(p + indice * sizeof(estructura_administrativa_cache));
 }
-
 char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
 	pthread_mutex_lock(&mutex_cache);
-	int indice_entrada_cache = cache_buscar_pagina(PID, numero_pagina, frame);
+	int contenido = cache_buscar_pagina(PID, numero_pagina);
 
-	if (indice_entrada_cache < 0) {
+	if (contenido < 0) {
 		cache_almacenar_pagina(PID, numero_pagina, frame);
 		pthread_mutex_unlock(&mutex_cache);
 		return NULL;
 	}
 
-	int offset_memoria = tabla_administrativa_cache[indice_entrada_cache].contenido_pagina;
 	pthread_mutex_unlock(&mutex_cache);
 
-	return ir_a_frame_cache(indice_entrada_cache) + offset;
-}
-
-int cache_almacenar_bytes(int PID, int numero_pagina, int frame, int offset, int size, void *buffer) {
-	pthread_mutex_lock(&mutex_cache);
-	int indice_entrada_cache = cache_buscar_pagina(PID, numero_pagina, frame);
-
-	if (indice_entrada_cache < 0) {
-		indice_entrada_cache = cache_almacenar_pagina(PID, numero_pagina, frame);
-		memcpy(ir_a_frame_cache(indice_entrada_cache) + offset, buffer, size);
-
-		pthread_mutex_unlock(&mutex_cache);
-		return false;
-	}
-
-	memcpy(ir_a_frame(frame) + offset, buffer, size);
-	memcpy(ir_a_frame_cache(indice_entrada_cache) + offset, buffer, size);
-
-	pthread_mutex_unlock(&mutex_cache);
-	return true;
+	return memoria_cache + contenido + offset;
 }
 
 /*------------DEFINICION DE FUNCIONES AUXILIARES----------------*/
@@ -426,23 +428,6 @@ int max_LRU(void){
 
 	return max;
 }
-int posicion_a_reemplazar_cache(void){
-	int i, min = 1000, pos = 0;
-
-	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		if (tabla_administrativa_cache[i].pid == FRAME_LIBRE)
-			return i;
-	}
-
-	for (i = 0; i < ENTRADAS_CACHE; i++) {
-		if (tabla_administrativa_cache[i].lru < min) {
-			min = tabla_administrativa_cache[i].lru;
-			pos = i;
-		}
-	}
-
-	return pos;
-}
 void inicializar_tabla(void) {
 	// Aca no necesita ningun malloc, se guarda directamente en memoria
 	tabla_administrativa = (estructura_administrativa *) memoria;
@@ -459,79 +444,14 @@ void inicializar_tabla(void) {
 		tabla_administrativa[i].pid = FRAME_LIBRE;
 	}
 }
-
-/*
-int buscar_en_memoria_y_devolver(posicion_memoria_variable posicion, int socket) {
-
-	int pos_main_memory;
-
-	//Recorro la tabla admin de la cache para ver si esta
-	for (pos_main_memory = 0; pos_main_memory < ENTRADAS_CACHE; pos_main_memory++) {
-		if (tabla_administrativa_cache[pos_main_memory].pid == posicion.pid
-				&& tabla_administrativa_cache[pos_main_memory].pag
-						== posicion.numero_pagina) {
-
-			enviar_desde_cache(pos_main_memory, socket, posicion);
-
-			tabla_administrativa_cache[pos_main_memory].lru = max_LRU() + 1; // en la posicion i de la tabla de cache,correspondiente al pid encontrado, se le asigna al campo lru el maximo lru encontrado + 1
-
-			return 1;
-		}
-	}
-
-	usleep(RETARDO * 1000);
-
-	// Recorro la tabla admin de la memoria principal
-	for (pos_main_memory = 0; pos_main_memory < MARCOS; pos_main_memory++) {
-		if (tabla_administrativa[pos_main_memory].pid == posicion.pid
-				&& tabla_administrativa[pos_main_memory].pag
-						== posicion.numero_pagina) {
-
-			//enviarDesdeMemoria();
-
-			int pos_cache;
-			pos_cache = posicion_a_reemplazar_cache();
-
-			tabla_administrativa_cache[pos_cache].pid = posicion.pid;
-			tabla_administrativa_cache[pos_cache].pag = posicion.numero_pagina;
-			tabla_administrativa_cache[pos_cache].lru = max_LRU() + 1;
-
-			// Se copia a memoria cache
-
-			memcpy(
-					memoria_cache
-							+ tabla_administrativa_cache[pos_cache].contenido_pagina,
-					memoria + MARCO_SIZE * pos_main_memory, MARCO_SIZE);
-
-			return 1;
-
-		}
-	}
-
-	return 0;
-
-}
-*/
-
 void inicializar_tabla_cache(void) {
-
 	int i;
 
-	int frames_tabla_administrativa = DIVIDE_ROUNDUP(sizeof(estructura_administrativa[MARCOS]), MARCO_SIZE);
-	//esto corresponde a los frames de la tabla de paginación invertida
-
-	int frames_tabla_administrativa_cache = DIVIDE_ROUNDUP(sizeof(estructura_administrativa_cache[ENTRADAS_CACHE]), MARCO_SIZE);
-
-	tabla_administrativa_cache = (estructura_administrativa_cache *) (memoria + frames_tabla_administrativa * MARCO_SIZE);
-	//Básicamente estoy diciendo que la tabla administrativa de la caché empieza justo después de la otra tabla administrativa
-
-	for (i = frames_tabla_administrativa ; i < frames_tabla_administrativa + frames_tabla_administrativa_cache; i++) {
-		tabla_administrativa[i].pid = FRAME_ADMIN;
-	}
-
+	tabla_administrativa_cache = calloc(ENTRADAS_CACHE, sizeof(estructura_administrativa_cache));
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
 		tabla_administrativa_cache[i].pid = FRAME_LIBRE;
 		tabla_administrativa_cache[i].lru = 0;
+		tabla_administrativa_cache[i].contenido = i * MARCO_SIZE;
 	}
 
 }
@@ -549,7 +469,7 @@ int ultima_pagina_proceso (int pid) {
 	return ultima_pagina;
 
 }
-char *ir_a_frame(int indice) {
+char *ir_a_frame_memoria(int indice) {
 	if (indice >= MARCOS) {
 		return NULL;
 	}
@@ -663,7 +583,7 @@ void dump(char *param) {
 	string_trim(&param);
 
 	if (!strcmp(param, "memoria")) {
-		_dump(MARCOS, MARCO_SIZE, ir_a_frame);
+		_dump(MARCOS, MARCO_SIZE, ir_a_frame_memoria);
 	}
 
 	else if (!strcmp(param, "cache")) {
