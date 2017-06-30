@@ -429,7 +429,7 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 			proceso->pcb->exit_code = COMANDO_FINALIZAR_PROGRAMA;
 			finalizar_programa(PID);
 		} else {
-			logear_info("Error al intentar finalizar (PID:%d). Proceso inexistente.");
+			logear_info("Error al intentar finalizar (PID:%d). Proceso inexistente.", PID);
 		}
 		break;
 	}
@@ -817,7 +817,7 @@ void interaccion_kernel() {
 			if (proceso != NULL) {
 				logear_info("[Proceso %d - Finalizado]", PID);
 			} else {
-				logear_info("[Proceso no existe o no inició]", PID);
+				logear_info("[Proceso no existe o no inició]");
 				return;
 			}
 		}
