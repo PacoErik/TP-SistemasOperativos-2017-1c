@@ -53,6 +53,12 @@
 		int paginas;
 	} PACKED PedidoAsignacion;
 
+	typedef struct {
+		op_mem operacion;
+		int PID;
+		int numero_pagina;
+	} PACKED PedidoLiberacion;
+
 	/* Finalizacion de programa */
 	typedef struct {
 		op_mem operacion;
