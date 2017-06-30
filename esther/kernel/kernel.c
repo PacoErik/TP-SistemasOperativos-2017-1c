@@ -525,7 +525,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		} else {
 			memcpy(valor, valor_nuevo, sizeof(int));
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
-			logear_info("Se cambió el valor de la variable compartida %s a %d", nombre, *valor_nuevo);
+			logear_info("Se cambió el valor de la variable compartida !%s a %d", nombre, *valor_nuevo);
 		}
 		free(valor_nuevo);
 		free(nombre);
@@ -1539,10 +1539,11 @@ void establecer_configuracion() {
 	char **compartidas = config_get_array_value(config, "SHARED_VARS");
 
 	for (i = 0; compartidas[i] != NULL; i++) {
+
     	int *data = malloc(sizeof(int));
     	*data = 0;
 
-	    dictionary_put(variables_compartidas, compartidas[i], data);
+	    dictionary_put(variables_compartidas, compartidas[i]+1, data);
 
 	    free(compartidas[i]);
     }
@@ -1559,7 +1560,7 @@ void establecer_configuracion() {
 
     void imprimir2(char *key, void *value) {
     	int *valor = value;
-    	logear_info("[%s:%d]", key, *valor);
+    	logear_info("[!%s:%d]", key, *valor);
     }
 
     logear_info("Variables compartidas:");
