@@ -19,6 +19,17 @@
 #define RUTA_CONFIG "config.cfg"
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 #define PACKED __attribute__((packed, aligned(1)))
+#define logear_info(formato, ...) {				\
+	log_info(logger, formato, ##__VA_ARGS__);	\
+	printf(formato, ##__VA_ARGS__);				\
+	printf("\n");								\
+}
+#define logear_error(formato, terminar, ...) {	\
+	log_info(logger, formato, ##__VA_ARGS__);	\
+	printf(formato, ##__VA_ARGS__);				\
+	printf("\n");								\
+	if (terminar) exit(0);						\
+}
 
 enum CodigoDeOperacion {
 
@@ -94,8 +105,6 @@ void 	configurar(char*);
 void 	enviar_header(int, char, int);
 int 	existe_archivo(const char *);
 void 	handshake(int,char);
-void 	logear_error(char*, int,...);
-void 	logear_info(char*,...);
 int 	recibir_header(int, headerDeLosRipeados *);
 
 #endif /* QEPD_H_ */

@@ -73,27 +73,6 @@ void handshake(int socket, char operacion) {
 
 	free(respuesta);
 }
-void logear_error(char* formato, int terminar , ...) {
-	va_list args;
-	va_start(args, terminar);
-	char* mensaje = malloc(512);
-	vsnprintf(mensaje,512,formato,args);
-	log_error(logger,mensaje);
-	vprintf(formato,args);printf("\n");
-	va_end(args);
-	free(mensaje);
-	if (terminar) exit(0);
-}
-void logear_info(char* formato, ...) {
-	va_list args;
-	va_start(args, formato);
-	char* mensaje = malloc(512);
-	vsnprintf(mensaje,512,formato,args);
-	log_info(logger,mensaje);
-	vprintf(formato,args);printf("\n");
-	va_end(args);
-	free(mensaje);
-}
 int recibir_header(int socket, headerDeLosRipeados *header) {
 	int bytesARecibir = sizeof(headerDeLosRipeados);
 	int bytesRecibidos = recv(socket, header, bytesARecibir, 0);
