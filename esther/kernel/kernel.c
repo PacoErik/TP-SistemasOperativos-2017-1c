@@ -58,6 +58,10 @@ typedef struct Semaforo_QEPD {
 	int valor;
 	t_list *bloqueados;
 } Semaforo_QEPD;
+typedef struct Pagina_Heap {
+	int nro_pagina;
+	int espacio;
+} Pagina_Heap;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
@@ -95,6 +99,7 @@ global_file_table tabla_archivos_global;
 //-----PROTOTIPOS DE FUNCIONES-----//
 char*		remover_salto_linea(char*);
 
+inline int marco_size(void);
 inline void imprimir_opciones_kernel();
 inline void limpiar_buffer_entrada();
 
@@ -1632,4 +1637,32 @@ void terminar_kernel() {
 	dictionary_destroy_and_destroy_elements(variables_compartidas, free);
 	printf("Adiós!\n");
 	exit(0);
+}
+
+int marco_size(void) {
+	return tamanio_pagina;
+}
+
+int agregar_pagina_heap(int PID) {
+	t_list *paginas_heap = paginas_heap_proceso(PID);
+
+	if (proc == NULL) {
+		return -1;
+	}
+
+	Pagina_Heap *pagina = malloc(sizeof(Pagina_Heap));
+	pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + list_size(paginas_heap);
+	pagina->espacio = tamanio_pagina - sizeof(HeapMetadata);
+
+	list_add(proc->paginas_heap, pagina);
+	return pagina->nro_pagina;
+}
+
+t_list *paginas_heap_proceso(int PID) {
+	Proceso *proc = proceso_segun_pid(PID);
+	return (proc == NULL) ? NULL : proc->paginas_heap;
+}
+
+int destruir_lista_paginas_heap(int PID) {
+	Pagina_Heap *
 }
