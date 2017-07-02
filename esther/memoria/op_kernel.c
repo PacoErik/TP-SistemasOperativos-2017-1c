@@ -29,35 +29,11 @@ int kernel_procesar_operacion() {
 	case MEM_SOLICITAR_BYTES:
 		return kernel_solicitar_bytes();
 
-	case MEM_MENSAJE:
-		return kernel_mensaje();
-
 	default:
 		return -2;
 
 	}
 
-}
-
-int kernel_mensaje() {
-	int tamanio;
-	int ret = recv(socket_kernel, &tamanio, sizeof(tamanio), 0);
-
-	if (ret <= 0) {
-		return -1;
-	}
-
-	char *mensaje = malloc(tamanio);
-	ret = recv(socket_kernel, mensaje, tamanio, 0);
-
-	if (ret <= 0) {
-		return -1;
-	}
-
-	logear_info("Mensaje recibido: %s", mensaje);
-
-	free(mensaje);
-	return 1;
 }
 
 int kernel_inicializar_programa() {

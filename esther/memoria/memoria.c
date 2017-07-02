@@ -24,11 +24,9 @@
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 #define FRAME_ADMIN -1
 #define FRAME_LIBRE -2
-
-#define DUMP_PRINT(file, format, ...) {			\
+#define DUMP_PRINT(format, ...) {				\
 	printf(format, ##__VA_ARGS__);				\
-	if (file != NULL)							\
-		fprintf(file, format, ##__VA_ARGS__);	\
+	fprintf(dump_file, format, ##__VA_ARGS__);	\
 }
 
 /*-----VARIABLES GLOBALES-----*/
@@ -44,9 +42,11 @@ char				REEMPLAZO_CACHE[8]; // Useless variable is useless.
 
 t_log* logger;
 t_config* config;
+FILE* dump_file;
 
 char *memoria;
 char *memoria_cache;
+t_list **overflow;
 
 estructura_administrativa_cache *tabla_administrativa_cache;
 estructura_administrativa *tabla_administrativa;
@@ -66,6 +66,8 @@ int main(void) {
 
 	inicializar_tabla();
 	inicializar_tabla_cache();
+
+	hash_iniciar_overflow();
 
 	pthread_mutex_init(&mutex_cache, NULL);
 
@@ -371,6 +373,42 @@ char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
 	return memoria_cache + contenido + offset;
 }
 
+/*------------HASHING STUFF---------------------------*/
+
+void hash_agregar_en_overflow(int posicion, int frame) {
+	int *frame_p = malloc(sizeof(int));
+	*frame_p = frame;
+	list_add(overflow[posicion], frame_p);
+}
+void hash_borrar_de_overflow(int posicion, int frame) {
+	_Bool mismo_frame(void *otro_frame) {
+		return *(int*)otro_frame == frame;
+	}
+	list_remove_and_destroy_by_condition(overflow[posicion], &mismo_frame, free);
+}
+int hash_buscar_en_overflow(int posicion, int pid, int pagina) {
+	int i = 0;
+	for (i = 0; i < list_size(overflow[posicion]); i++) {
+		if (hash_pagina_correcta(*(int*)list_get(overflow[posicion], i), pid, pagina)) {
+			return *(int*)list_get(overflow[posicion], i);
+		}
+	}
+	return -1;
+}
+int hash_calcular_posicion(int pid, int num_pagina) {
+	return (pid * num_pagina) % MARCOS;
+}
+void hash_iniciar_overflow() {
+	overflow = malloc(sizeof(t_list*) * MARCOS);
+	int posicion;
+	for (posicion = 0; posicion < MARCOS; posicion++) {
+		overflow[posicion] = list_create();
+	}
+}
+_Bool hash_pagina_correcta(int pos_candidata, int pid, int pagina) {
+	return tabla_administrativa[pos_candidata].pid == pid && tabla_administrativa[pos_candidata].pag == pagina;
+}
+
 /*------------DEFINICION DE FUNCIONES AUXILIARES----------------*/
 
 // FUNCION DEL HILO
@@ -550,31 +588,31 @@ void dump(char *param) {
 			char *frame = lookup_func(i_pag);
 
 			for (i_offset = 0; i_offset < size; i_offset += 16) {
-				DUMP_PRINT(NULL, "%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
+				DUMP_PRINT("%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
 				fflush(stdout);
 
 				int max_bytes = (size - i_offset) > 16 ? 16 : (size - i_offset);
 
 				int i_byte;
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-					DUMP_PRINT(NULL, "%02X", (unsigned char) frame[i_offset + i_byte]);
+					DUMP_PRINT("%02X", (unsigned char) frame[i_offset + i_byte]);
 					if (i_byte % 2 == 1) {
-						DUMP_PRINT(NULL, " ");
+						DUMP_PRINT(" ");
 					}
 					fflush(stdout);
 				}
 
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
 					if (iscntrl(frame[i_offset + i_byte])) {
-						DUMP_PRINT(NULL, ".");
+						DUMP_PRINT(".");
 					}
 					else {
-						DUMP_PRINT(NULL, "%c", frame[i_offset + i_byte]);
+						DUMP_PRINT("%c", frame[i_offset + i_byte]);
 					}
 					fflush(stdout);
 				}
 
-				DUMP_PRINT(NULL, "\n");
+				DUMP_PRINT("\n");
 				fflush(stdout);
 			}
 		}
@@ -582,39 +620,45 @@ void dump(char *param) {
 
 	string_trim(&param);
 
+
 	if (!strcmp(param, "memoria")) {
+		dump_file = fopen("dump_memoria.txt", "w");
 		_dump(MARCOS, MARCO_SIZE, ir_a_frame_memoria);
+		fclose(dump_file);
 	}
 
 	else if (!strcmp(param, "cache")) {
+		dump_file = fopen("dump_cache.txt", "w");
 		_dump(ENTRADAS_CACHE, MARCO_SIZE, ir_a_frame_cache);
+		fclose(dump_file);
 	}
 
 	else if (!strcmp(param, "estructuras")) {
+		dump_file = fopen("dump_estructuras_administrativas.txt", "w");
 		char tmp[16];
 		int frame_digits;		// Cantidad de digitos de un frame
 
 		snprintf(tmp, sizeof tmp - 1, "%d", MARCOS);
 		frame_digits = strlen(tmp);
 
-		DUMP_PRINT(NULL, "┌───────────┬───────────┬───────────┐\n");
-		DUMP_PRINT(NULL, "│   Frame   │    PID    │   Pagina  │\n");
-		DUMP_PRINT(NULL, "├───────────┼───────────┼───────────┤\n");
+		DUMP_PRINT("┌───────────┬───────────┬───────────┐\n");
+		DUMP_PRINT("│   Frame   │    PID    │   Pagina  │\n");
+		DUMP_PRINT("├───────────┼───────────┼───────────┤\n");
 
 		int i;
 		t_list *pid_activos = list_create();
 
 		for (i = 0; i < MARCOS; i++) {
-			DUMP_PRINT(NULL, "│%.*s", 10 - frame_digits, "          ");
-			DUMP_PRINT(NULL, "%0*d │", frame_digits, i);
+			DUMP_PRINT("│%.*s", 10 - frame_digits, "          ");
+			DUMP_PRINT("%0*d │", frame_digits, i);
 
 			switch (tabla_administrativa[i].pid) {
 			case FRAME_ADMIN:
-				DUMP_PRINT(NULL, "     ADMIN ");
+				DUMP_PRINT("     ADMIN ");
 				break;
 
 			case FRAME_LIBRE:
-				DUMP_PRINT(NULL, "     LIBRE ");
+				DUMP_PRINT("     LIBRE ");
 				break;
 
 			default:
@@ -629,43 +673,44 @@ void dump(char *param) {
 
 					list_add(pid_activos, p_pid);
 				}
-				DUMP_PRINT(NULL, "     %5d", tabla_administrativa[i].pid);
+				DUMP_PRINT("     %5d", tabla_administrativa[i].pid);
 				break;
 			}
 
 			if (tabla_administrativa[i].pid > FRAME_ADMIN) {
-				DUMP_PRINT(NULL, " │%.*s", 10 - frame_digits, "          ");
-				DUMP_PRINT(NULL, "%*d │", frame_digits, tabla_administrativa[i].pag);
+				DUMP_PRINT(" │%.*s", 10 - frame_digits, "          ");
+				DUMP_PRINT("%*d │", frame_digits, tabla_administrativa[i].pag);
 			}
 
 			else {
-				DUMP_PRINT(NULL, "│     -     │ ");
+				DUMP_PRINT("│     -     │ ");
 			}
 
-			DUMP_PRINT(NULL, "\n");
+			DUMP_PRINT("\n");
 			fflush(stdout);
 		}
 
-		DUMP_PRINT(NULL, "└───────────┴───────────┴───────────┘ \n");
+		DUMP_PRINT("└───────────┴───────────┴───────────┘ \n");
 
 		if (list_size(pid_activos) == 0) {
-			DUMP_PRINT(NULL, "No hay ningun proceso activo.\n");
+			DUMP_PRINT("No hay ningun proceso activo.\n");
 			list_destroy(pid_activos);
 		}
 
 		/* Hago un list_sort() aca o no? */
 
 		else {
-			DUMP_PRINT(NULL, "PIDs Activos:\n");
+			DUMP_PRINT("PIDs Activos:\n");
 			list_iterate(pid_activos, ({
 				void _print_(void *e) {
-					DUMP_PRINT(NULL, "PID: %d\n", *((int *)e));
+					DUMP_PRINT("PID: %d\n", *((int *)e));
 				}
 				_print_;
 			}));
 
 			list_destroy_and_destroy_elements(pid_activos, free);
 		}
+		fclose(dump_file);
 	}
 
 	else {
@@ -747,27 +792,15 @@ void imprimir_opciones_memoria() {
 
 	printf("\n--------------------\n"
 			"BIENVENIDO A LA MEMORIA\n"
-			"\n"
 			"Lista de comandos: \n"
-			"\n"
-			"Configurar tiempo de retardo:\n"
-			"retardo [RETARDO]\n"
-			"\n"
-			"Comando Dump:\n"
-			"dump\n"
-			"\n"
-			"Flush, cambiar este mensaje:\n"
-			"flush\n"
-			"\n"
-			"Size, cambiar este mensaje:\n"
-			"size\n"
-			"\n"
-			"Limpiar mensajes:\n"
+			"retardo [Número de retardo] \t//Cambia el retardo del acceso a memoria\n"
+			"dump [memoria/cache/estructuras] \t//Genera un dump por pantalla y lo graba a un archivo\n"
+			"flush \t//Limpia las entradas y el contenido de la caché\n"
+			"size [memoria] \t//Muestra el tamaño de la memoria en frames totales/libres/ocupados\n"
+			"size [PID] [Número de PID]\n"
 			"limpiar\n"
-			"\n"
-			"Mostrar opciones nuevamente:\n"
 			"opciones\n"
-			"\n");
+			);
 }
 void limpiar_pantalla() {
 	printf("\033[H\033[J");
@@ -775,7 +808,7 @@ void limpiar_pantalla() {
 void size(char *param) {
 	string_trim(&param);
 
-	if (!strcmp(param, "memory")) {
+	if (!strcmp(param, "memoria")) {
 		printf("Cantidad de Frames de la memoria: %i\n", MARCOS);
 		int frames_libres = 0, i;
 		for (i = 0; i < MARCOS; i++) {
@@ -788,7 +821,7 @@ void size(char *param) {
 	}
 
 	else {
-		if (!strncmp(param, "pid ", 4)) {
+		if (!strncmp(param, "PID ", 4)) {
 			int pid;
 			char *pid_c = malloc(3);
 			pid_c = string_substring_from(param, 4);
@@ -806,13 +839,13 @@ void size(char *param) {
 			}
 
 			else {
-				printf("Tamanio total del proceso (PID = %i) = %i Bytes\n", pid,
-						frames_usados * MARCO_SIZE);
+				printf("Tamaño total del proceso (PID:%i) = %i Bytes, con %d página/s ocupada/s\n", pid,
+						frames_usados * MARCO_SIZE, frames_usados);
 			}
 		}
 
 		else {
-			logear_error("Comando invalido", false);
+			logear_error("Comando inválido", false);
 		}
 	}
 	free(param);
@@ -863,6 +896,7 @@ void enviar_excepcion(int socket_cliente, int excepcion) {
 }
 
 // EXTRAS
+
 int solo_numeros(char *str) {
 	while (*str) {
 		if (isdigit(*str++) == 0) {

@@ -8,7 +8,6 @@
 
 	/* Codigos de Operacion de Kernel */
 	typedef enum PACKED {
-		MEM_MENSAJE,
 		MEM_INICIALIZAR_PROGRAMA,
 		MEM_ASIGNAR_PAGINAS,
 		MEM_FINALIZAR_PROGRAMA,
@@ -70,11 +69,6 @@
 	 * y ejecuta la operacion correspondiente.
 	 */
 	int kernel_procesar_operacion();
-
-	/**
-	 * Recibir un mensaje del kernel.
-	 */
-	int kernel_mensaje();
 
 	/**
 	 * Inicializar programa
