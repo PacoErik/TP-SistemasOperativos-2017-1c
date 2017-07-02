@@ -35,7 +35,6 @@ void 			desconectar_consola();
 void 			desconectar_programa();
 void 			eliminar_proceso(int);
 void 			enviar_header(int, char, int);
-void 			enviar_mensaje(char*);
 void 			establecer_configuracion();
 pthread_t		hiloID_programa(int);
 void 			imprimir_opciones_consola();
@@ -141,31 +140,6 @@ void eliminar_proceso(int PID) {
 	free(proceso->ruta);
 	free(proceso);
 }
-void enviar_mensaje(char *param) {
-	char mensaje[512];
-	memset(mensaje, 0, sizeof mensaje);
-
-	if (strlen(param) == 0) {
-		free(param);
-		do {
-			printf("\nEscribir mensaje: ");
-			fgets(mensaje, sizeof mensaje, stdin);
-			remover_salto_linea(mensaje);
-			if (strlen(mensaje) == 0) {
-				printf("Capo, hacé bien el mensaje"); // El mensaje no puede ser vacio
-			}
-		} while (strlen(mensaje) == 0);
-	}
-	else {
-		strcpy(mensaje, param);
-		free(param);
-	}
-
-	int bytes = strlen(mensaje);
-
-	enviar_header(servidor, MENSAJE, bytes);
-	send(servidor, mensaje, bytes, 0);
-}
 void establecer_configuracion() {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
 		PUERTO_KERNEL = config_get_int_value(config, "PUERTO_KERNEL");
@@ -195,20 +169,16 @@ inline void imprimir_opciones_consola() {
 			"\n--------------------\n"
 			"BIENVENIDO A LA CONSOLA\n"
 			"Lista de comandos: \n"
-			"iniciar [RUTA] "
-				"\t/Iniciar programa AnSISOP\n"
-			"finalizar [PID] "
-				"\t//Finalizar programa AnSISOP\n"
+			"iniciar [Ruta relativa] "
+				"\t\t//Iniciar programa AnSISOP\n"
+			"finalizar [Número de PID] "
+				"\t\t//Finalizar programa AnSISOP\n"
 			"salir "
-				"\t//Desconectar consola\n"
-			"mensaje "
-				"\t//Enviar mensaje\n"
-			"mensaje [MENSAJE] "
-				"\t//Enviar mensaje\n"
+				"\t\t//Desconectar consola\n"
 			"limpiar "
-				"\t//Limpiar mensajes\n"
+				"\t\t//Limpiar mensajes\n"
 			"opciones "
-				"\t//Mostrar opciones\n"
+				"\t\t//Mostrar opciones\n"
 	);
 }
 void* iniciar_programa(void* arg) {
@@ -318,11 +288,6 @@ void interaccion_consola() {
 		desconectar_consola();
 	}
 
-	void mensaje(char *param) {
-		logear_info("Comando de envío de mensaje ejecutado");
-		enviar_mensaje(param);
-	}
-
 	void limpiar(char *param) {
 		string_trim(&param);
 		if (strlen(param) != 0) {
@@ -349,7 +314,6 @@ void interaccion_consola() {
 		{ "iniciar", iniciar },
 		{ "finalizar", finalizar },
 		{ "salir", salir },
-		{ "mensaje", mensaje },
 		{ "limpiar", limpiar },
 		{ "opciones", opciones }
 	};
@@ -413,13 +377,6 @@ void manejar_signal_apagado(int sig) {
 void procesar_operacion(char operacion, int bytes) {
 	int PID;
 	switch (operacion) {
-		case MENSAJE: ;
-			char* mensaje = malloc(bytes+1);
-			recv(servidor, mensaje, bytes, 0);
-			mensaje[bytes] = '\0';
-			logear_info("Mensaje recibido: %s", mensaje);
-			free(mensaje);
-			break;
 		case INICIAR_PROGRAMA:
 			recv(servidor, &PID, sizeof(PID), 0);
 

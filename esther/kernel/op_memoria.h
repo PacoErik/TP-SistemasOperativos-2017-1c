@@ -23,7 +23,6 @@
 
 	/* Operaciones de la memoria */
 	typedef enum PACKED {
-		MEM_MENSAJE,
 		MEM_INICIALIZAR_PROGRAMA,
 		MEM_ASIGNAR_PAGINAS,
 		MEM_FINALIZAR_PROGRAMA,
@@ -83,11 +82,6 @@
 	 * 	- tamanio_pagina
 	 */
 	void mem_conectar(void);
-
-	/**
-	 * Enviar mensaje a la memoria.
-	 */
-	void mem_mensaje(char *mensaje);
 
 	/**
 	 * Inicializar programa

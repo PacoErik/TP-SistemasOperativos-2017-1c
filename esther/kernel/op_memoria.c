@@ -33,14 +33,6 @@ void mem_conectar(void) {
 	}
 }
 
-void mem_mensaje(char *mensaje) {
-	op_mem operacion = MEM_MENSAJE;
-	int tamanio = strlen(mensaje) + 1;
-	send(socket_memoria, &operacion, sizeof operacion, 0);
-	send(socket_memoria, &tamanio, sizeof tamanio, 0);
-	send(socket_memoria, mensaje, tamanio, 0);
-}
-
 int mem_inicializar_programa(int PID, size_t size, void *datos) {
 	int paginas_codigo = DIVIDE_ROUNDUP(size, tamanio_pagina);
 

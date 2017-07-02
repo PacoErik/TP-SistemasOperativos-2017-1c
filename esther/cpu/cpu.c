@@ -201,10 +201,6 @@ int analizar_header(servidor servidor, headerDeLosRipeados header) {
 int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 	int numero_excepcion;
 	switch(operacion) {
-		case MENSAJE:
-			leer_mensaje(kernel, bytes_payload);
-			return recibir_algo_de(kernel);
-
 		case ALGORITMO_ACTUAL:
 			recv(kernel.socket, &algoritmo_actual, sizeof(algoritmo_actual), 0);
 			break;
@@ -244,18 +240,6 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 
 		case ABRIR_ARCHIVO:
 			recv(kernel.socket, &fd_solicitado, bytes_payload, 0);
-			break;
-
-		case LEER_ARCHIVO:
-			// TODO
-			break;
-
-		case ESCRIBIR_ARCHIVO:
-			// TODO
-			break;
-
-		case CERRAR_ARCHIVO:
-			// TODO
 			break;
 
 		default:
@@ -452,7 +436,7 @@ int obtener_tamanio_stack() {
 	return total;
 }
 void terminar_ejecucion(int exit_code) {
-	logear_info("Se finalizó la ejecución de (PID:%d) con el EXIT CODE (%d)", PCB_actual->pid, exit_code);
+	logear_info("[PID:%d] Programa finalizado.", PCB_actual->pid);
 	programaVivitoYColeando = false;
 	PCB_actual->exit_code = exit_code;
 	if (exit_code < 0) {

@@ -100,11 +100,9 @@ inline void limpiar_buffer_entrada();
 
 int			algoritmo_actual_es(char *);
 int 		cantidad_procesos_sistema();
-int 		enviar_mensaje_todos(int, char*);
 int 		existe_cliente(int);
 int			existe_proceso(int);
 int 		recibir_handshake(int);
-int 		recibir_mensaje(int, int);
 int			solo_numeros(char*);
 int 		tipo_cliente(int);
 
@@ -353,30 +351,6 @@ int main(void) {
 //-----DEFINICIÓN DE FUNCIONES-----//
 
 //MENSAJES
-int enviar_mensaje_todos(int socketCliente, char* mensaje) {
-	_Bool condicion(void* elemento) {
-		miCliente *cliente = (miCliente*)elemento;
-		return (cliente->identificador >= MEMORIA && cliente->identificador <= CPU);
-	}
-
-	listaCliente *clientes_filtrados = list_filter(clientes, condicion);
-
-	void enviar_mensaje(void* elemento) {
-		miCliente *cliente = (miCliente*)elemento;
-		if (cliente->identificador == MEMORIA) {
-			mem_mensaje(mensaje);
-			return;
-		}
-
-		enviar_header(cliente->socketCliente, MENSAJE, strlen(mensaje));
-		send(cliente->socketCliente, mensaje, strlen(mensaje), 0);
-
-	}
-
-	list_iterate(clientes_filtrados, enviar_mensaje);
-
-	return list_size(clientes_filtrados);
-}
 void enviar_excepcion(int socket_cliente, int excepcion) {
 	enviar_header(socket_cliente, EXCEPCION, sizeof(excepcion));
 	send(socket_cliente, &excepcion, sizeof(excepcion), 0);
@@ -401,10 +375,6 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 }
 void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes) {
 	switch (operacion) {
-
-	case MENSAJE:
-		recibir_mensaje(socket_cliente,bytes);
-		break;
 
 	case INICIAR_PROGRAMA:;
 		char* codigo = malloc(bytes+1);
@@ -709,38 +679,24 @@ int recibir_handshake(int socketCliente) {
 	}
 	return 0;
 }
-int recibir_mensaje(int socketCliente, int bytesDePayload) {
-    char* mensaje = malloc(bytesDePayload+1);
-    int bytesRecibidos = recv(socketCliente, mensaje, bytesDePayload, 0);
-    mensaje[bytesDePayload]='\0';
-    if (bytesRecibidos > 0) {
-        logear_info("Mensaje recibido: %s", mensaje);
-        int cantidad = enviar_mensaje_todos(socketCliente, mensaje);
-        logear_info("Mensaje retransmitido a %i clientes", cantidad);
-    } else {
-    	cerrar_conexion(socketCliente,"Error al recibir mensaje del socket %i");
-    }
-    free(mensaje);
-	return bytesRecibidos;
-}
 
 //INTERACCIÓN POR CONSOLA//
 inline void imprimir_opciones_kernel() {
 	printf(
 			"\n--------------------\n"
 			"BIENVENIDO AL KERNEL\n"
-			"Comandos disponibles: \n\n"
+			"Lista de comandos: \n"
 			"listado"
 				"\t//Ver procesos de todas las colas\n"
 			"listado [NEW/READY/EXEC/BLOCKED/EXIT]"
 				"\t//Ver procesos en una cola específica\n"
-			"proceso [PID]"
+			"proceso [Número de PID]"
 				"\t//Ver información del proceso PID\n"
 			"tablaglobal"
 				"\t//Ver la tabla global de archivos\n"
-			"multiprogramacion [GRADO]"
+			"multiprogramacion [Número de grado]"
 				"\t//Cambiar el grado de multiprogramación a GRADO\n"
-			"finalizar [PID]"
+			"finalizar [Número de PID]"
 				"\t//Finaliza el proceso PID\n"
 			"detener"
 				"\t//Detiene la planificación\n"
