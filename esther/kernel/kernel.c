@@ -212,6 +212,7 @@ int main(void) {
 
     FD_SET(servidor, &conectados);
     FD_SET(socket_memoria, &conectados);
+    FD_SET(socket_fs, &conectados);
     FD_SET(fileno(stdin), &conectados);
 
     imprimir_opciones_kernel();
