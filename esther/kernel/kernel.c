@@ -1663,11 +1663,17 @@ int agregar_pagina_heap(int PID) {
 //
 //	list_iterate(proc->paginas_heap, _maximo_pagina);
 
-	/* Se supone que la ultima pagina agregada tiene el indice maximo */
-	int maximo_pagina = ((Pagina_Heap *) list_get(proc->paginas_heap, 0))->nro_pagina + 1;
-
 	Pagina_Heap *pagina = malloc(sizeof(Pagina_Heap));
-	pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + maximo_pagina;
+
+	if (list_is_empty(proc->paginas_heap)) {
+		pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + 1;
+	}
+
+	/* Se supone que la ultima pagina agregada tiene el indice maximo */
+	else {
+		pagina->nro_pagina = ((Pagina_Heap *) list_get(proc->paginas_heap, 0))->nro_pagina + 1;
+	}
+
 	pagina->espacio = tamanio_pagina - sizeof(HeapMetadata);
 
 	list_add(proc->paginas_heap, pagina);
