@@ -58,10 +58,6 @@ typedef struct Semaforo_QEPD {
 	int valor;
 	t_list *bloqueados;
 } Semaforo_QEPD;
-typedef struct Pagina_Heap {
-	int nro_pagina;
-	int espacio;
-} Pagina_Heap;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
@@ -145,6 +141,9 @@ void 		procesar_operaciones_consola(int, char, int);
 void 		procesar_operaciones_CPU(int, char, int);
 void*		serializar_PCB(PCB*, int*);
 void		terminar_kernel();
+
+bool eliminar_pagina_heap(int, int);
+void destruir_lista_paginas_heap(int);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -1186,6 +1185,7 @@ void limpiar_proceso(Proceso *proceso) {
 	}
 
 	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
+	destruir_lista_paginas_heap(proceso->pcb->pid);
 
 	destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 
@@ -1644,25 +1644,70 @@ int marco_size(void) {
 }
 
 int agregar_pagina_heap(int PID) {
-	t_list *paginas_heap = paginas_heap_proceso(PID);
+	Proceso *proc = proceso_segun_pid(PID);
 
 	if (proc == NULL) {
 		return -1;
 	}
 
+	/* Nro de pagina agregada = maximo nro de pagina + 1 */
+//	int maximo_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + 1;
+//
+//	void _maximo_pagina(void *e) {
+//		int nro_pagina = ((Pagina_Heap *)e)->nro_pagina;
+//
+//		if (nro_pagina + 1 > maximo_pagina) {
+//			maximo_pagina = nro_pagina + 1;
+//		}
+//	}
+//
+//	list_iterate(proc->paginas_heap, _maximo_pagina);
+
+	/* Se supone que la ultima pagina agregada tiene el indice maximo */
+	int maximo_pagina = ((Pagina_Heap *) list_get(proc->paginas_heap, 0))->nro_pagina + 1;
+
 	Pagina_Heap *pagina = malloc(sizeof(Pagina_Heap));
-	pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + list_size(paginas_heap);
+	pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + maximo_pagina;
 	pagina->espacio = tamanio_pagina - sizeof(HeapMetadata);
 
 	list_add(proc->paginas_heap, pagina);
 	return pagina->nro_pagina;
 }
 
-t_list *paginas_heap_proceso(int PID) {
+Pagina_Heap *pagina_heap_proceso(int PID, int nro_pagina) {
+	return list_find(lista_paginas_heap_proceso(PID), ({
+		bool _buscar_pagina(void *e) {
+			return ((Pagina_Heap *)e)->nro_pagina == nro_pagina;
+		} _buscar_pagina;
+	}));
+}
+
+t_list *lista_paginas_heap_proceso(int PID) {
 	Proceso *proc = proceso_segun_pid(PID);
 	return (proc == NULL) ? NULL : proc->paginas_heap;
 }
 
-int destruir_lista_paginas_heap(int PID) {
-	Pagina_Heap *
+bool eliminar_pagina_heap(int PID, int nro_pagina) {
+	t_list *paginas_heap = lista_paginas_heap_proceso(PID);
+	Pagina_Heap *pagina = list_remove_by_condition(paginas_heap, ({
+		bool _buscar_pagina(void *e) {
+			return ((Pagina_Heap *)e)->nro_pagina == nro_pagina;
+		} _buscar_pagina;
+	}));
+
+	if (pagina == NULL) {
+		return false;
+	}
+
+	free(pagina);
+	return true;
+}
+
+void destruir_lista_paginas_heap(int PID) {
+	void _liberar(void *e) {
+		liberar_pagina_heap(PID, ((Pagina_Heap *)e)->nro_pagina);
+		free(e);
+	}
+
+	list_destroy_and_destroy_elements(lista_paginas_heap_proceso(PID), _liberar);
 }
