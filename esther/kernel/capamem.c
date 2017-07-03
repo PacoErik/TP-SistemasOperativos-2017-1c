@@ -1,56 +1,115 @@
 #include "capamem.h"
 
-bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *hm_leido);
-t_puntero alocar_bloque(int PID, int size);
-bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int old_size);
-bool liberar_bloque(int PID, t_puntero direccion);
-bool liberar_bloque_seguro(int PID, t_puntero direccion);
-void ocupar_bloque(int PID, int pagina, off_t offset);
-void defragmentar_pagina(int PID, int pagina);
-void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize);
+static bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *hm_leido);
+static bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int old_size);
 
-//void imprimir_info_heap(void);
+static bool ocupar_bloque(int PID, int pagina, off_t offset);
+static void defragmentar_pagina(int PID, int pagina);
+static void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize);
 
-int espacio_libre;		// Espacio total disponible
-
-inline t_puntero _direccion_pag_offset(int pagina, off_t offset);
+static inline t_puntero _direccion_pag_offset(int pagina, off_t offset);
 
 /*
- * TODO:
- * 	asignar_pagina_heap(): llama a mem_asignar_paginas() y modifica PCB
- * 	liberar_pagina_heap()
+ * Devuelve numero de pagina agregada.
  */
+int asignar_pagina_heap(int PID) {
+	int nro_pagina = agregar_pagina_heap(PID);
 
-t_puntero alocar_bloque(int PID, int size) {
-	if (size > espacio_libre) {
-		/* Pedir otra pagina */
+	if (nro_pagina == -1) {
+		/* Muy raro que pase eso, PID deberia estar incorrecto */
 		return -1;
 	}
 
-	int pagina; /* TODO: obtener pagina heap */
+	int ret = mem_asignar_paginas(PID, 1);
 
+	if (ret < 0) {
+		return ret;		// Devuelve error code
+	}
+
+	return nro_pagina;
+}
+
+int liberar_pagina_heap(int PID, int nro_pagina) {
+	eliminar_pagina_heap(PID, nro_pagina);
+	return mem_liberar_pagina(PID, nro_pagina);
+}
+
+/*
+ * Devuelve el offset en la pagina del bloque asignado.
+ * Devuelve -1 si no pudo asignarla.
+ * Devuelve -2 si hubo error al leer/escribir el heap metadata.
+ */
+int alocar_bloque_en_pagina(int PID, int nro_pagina, int size) {
 	int offset;
 	HeapMetadata hm_libre;
 
-	for (offset = 0; offset < MARCO_SIZE; offset += hm_libre.size + sizeof(HeapMetadata)) {
-		leer_heap_metadata(PID, pagina, offset, &hm_libre);
+	Pagina_Heap *pagina = pagina_heap_proceso(PID, nro_pagina);
+	int espacio_disponible = pagina->espacio;
+
+	for (offset = 0;
+			offset < MARCO_SIZE && espacio_disponible >= size;
+			offset += hm_libre.size + sizeof(HeapMetadata))
+	{
+		if (!leer_heap_metadata(PID, nro_pagina, offset, &hm_libre)) {
+			return -2;
+		}
+
 		if (hm_libre.isfree) {
 			// El bloque libre tiene justo el tamaño deseado
 			if (hm_libre.size == size) {
-				ocupar_bloque(PID, pagina, offset);
-				espacio_libre -= size;
+				bool ret = ocupar_bloque(PID, nro_pagina, offset);
+				pagina->espacio -= size;
+
+				return ret ? _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata))
+							: -2;
 			}
 
-			else if (hm_libre.size > size + sizeof(HeapMetadata)
-					&& !escribir_heap_metadata(PID, pagina, offset, size, hm_libre.size)) {
-				return -1;
+			if (hm_libre.size > size + sizeof(HeapMetadata)) {
+				return escribir_heap_metadata(PID, nro_pagina, offset, size, hm_libre.size)
+							? _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata))
+							: -2;
 			}
 
-			return _direccion_pag_offset(pagina, offset + sizeof(HeapMetadata));
+			/* Se le resta el tamanio del bloque libre cuando lo saltea porque ya no puede utilizarlo. */
+			espacio_disponible -= hm_libre.size;
 		}
 	}
 
-	/* Pedir otra pagina */
+	return -1;
+}
+
+t_puntero alocar_bloque(int PID, int size) {
+	bool _hay_espacio_suficiente(void *e) {
+		return e != NULL
+				? ((Pagina_Heap *)e)->espacio >= size
+				: false;
+	}
+
+	t_list *paginas_disponibles = list_filter(lista_paginas_heap_proceso(PID), _hay_espacio_suficiente);
+
+	int i;
+	for (i = 0; i < list_size(paginas_disponibles); i++) {
+		Pagina_Heap *pagina = list_get(paginas_disponibles, i);
+		int offset = alocar_bloque_en_pagina(PID, pagina->nro_pagina, size);
+
+		if (offset >= 0) {
+			return _direccion_pag_offset(pagina->nro_pagina, offset);
+		}
+
+		/* TODO: Manejar el error si offset == -2 */
+	}
+
+	int nro_pagina = asignar_pagina_heap(PID);
+	if (nro_pagina <= 0) {
+		return nro_pagina;		// En realidad es el error code.
+	}
+
+	int offset = alocar_bloque_en_pagina(PID, nro_pagina, size);
+
+	if (offset >= 0) {
+		return _direccion_pag_offset(nro_pagina, offset);
+	}
+
 	return -1;
 }
 
@@ -70,8 +129,8 @@ bool liberar_bloque(int PID, t_puntero direccion) {
 	return true;
 }
 
-
 /* Esta chequea si la posicion del puntero es el inicio de un bloque reservado */
+/*
 bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 	int pagina = direccion / MARCO_SIZE;
 	int offset = direccion % MARCO_SIZE;
@@ -91,23 +150,28 @@ bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 
 	return false;
 }
+*/
 
 /*
  * Modifica el tamanio del bloque (size = newsize).
  */
-void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize) {
+static void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize) {
 	mem_escribir_bytes(PID, pagina, offset + sizeof(bool), sizeof newsize, &newsize);
 }
 
 /*
  * Marcar el bloque como ocupado (isfree = false).
  */
-void ocupar_bloque(int PID, int pagina, off_t offset) {
+static bool ocupar_bloque(int PID, int pagina, off_t offset) {
 	bool isfree = false;
-	mem_escribir_bytes(PID, pagina, offset, sizeof isfree, &isfree);
+	return mem_escribir_bytes(PID, pagina, offset, sizeof isfree, &isfree);
 }
 
-bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *hm_leido) {
+/*
+ * Recibe el heap metadata por referencia.
+ * Devuelve true/false para indicar si pudo leer el heap metadata.
+ */
+static bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *hm_leido) {
 	void *data = mem_leer_bytes(PID, pagina, offset, sizeof(HeapMetadata));
 	if (data == NULL) {
 		return false;
@@ -123,7 +187,7 @@ bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *hm_leid
  * Partir el bloque en dos y ocupar la primera con tamaño = new_size.
  * Se pasa como parametro old_size para evitar otra lectura a memoria.
  */
-bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int old_size) {
+static bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int old_size) {
 	if (offset + new_size + sizeof(HeapMetadata[2]) > MARCO_SIZE) {
 		return false;
 	}
@@ -144,7 +208,7 @@ bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int
 
 	mem_escribir_bytes(PID, pagina, offset, sizeof(HeapMetadata), &hm_a_escribir);
 
-	espacio_libre -= new_size + sizeof(HeapMetadata);
+	pagina_heap_proceso(PID, pagina)->espacio -= new_size + sizeof(HeapMetadata);
 
 	return true;
 }
@@ -170,12 +234,12 @@ void imprimir_info_heap(void) {
 }
 */
 
-void defragmentar_pagina(int PID, int pagina) {
+static void defragmentar_pagina(int PID, int pagina) {
 	off_t i, j;
 	size_t size;			// Tamanio del ultimo hm leido
 	HeapMetadata hm, hm_j;
 
-	espacio_libre = 0;		// Recalcula el espacio disponible
+	pagina_heap_proceso(PID, pagina)->espacio = 0;		// Recalcula el espacio disponible
 
 	for (i = 0; i < MARCO_SIZE; i += hm.size + sizeof(HeapMetadata)) {
 		leer_heap_metadata(PID, pagina, i, &hm);
@@ -185,7 +249,8 @@ void defragmentar_pagina(int PID, int pagina) {
 
 			for (j = i + size + sizeof hm;
 					j < MARCO_SIZE && leer_heap_metadata(PID, pagina, j, &hm_j) && hm_j.isfree;
-					j += hm_j.size + sizeof(HeapMetadata)) {
+					j += hm_j.size + sizeof(HeapMetadata))
+			{
 				size += sizeof hm_j + hm_j.size;
 			}
 
@@ -194,8 +259,17 @@ void defragmentar_pagina(int PID, int pagina) {
 				hm.size = size;
 			}
 
-			espacio_libre += hm.size;
+			pagina_heap_proceso(PID, pagina)->espacio += hm.size;
 		}
+	}
+
+	/* Hay un unico bloque porque solo hubo una iteracion en el for grande,
+	 * el unico caso en el que deberia pasar eso es cuando queda un solo bloque
+	 * libre, ya que al tener un bloque ocupado tendria al menos 2 bloques, uno
+	 * ocupado, otro libre al final de tod o.
+	 */
+	if (i == 0) {
+		liberar_pagina_heap(PID, pagina);
 	}
 }
 

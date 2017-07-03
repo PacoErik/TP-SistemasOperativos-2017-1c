@@ -17,4 +17,14 @@
 		int size;
 	} PACKED HeapMetadata;
 
+	int asignar_pagina_heap(int PID);
+
+	int liberar_pagina_heap(int PID, int nro_pagina);
+
+	/* RESERVAR */
+	t_puntero alocar_bloque(int PID, int size);
+
+	/* LIBERAR */
+	bool liberar_bloque(int PID, t_puntero direccion);
+
 #endif /* CAPAMEM_H_ */
