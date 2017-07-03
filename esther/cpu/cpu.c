@@ -72,6 +72,7 @@ bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
 void *buffer_solicitado = NULL;
 int valor_compartida_solicitada;
 int fd_solicitado;
+t_puntero posicion_alocada;
 
 PCB *PCB_actual = NULL; // Programa corriendo
 
@@ -240,6 +241,10 @@ int cumplir_deseos_kernel(char operacion, unsigned short bytes_payload) {
 
 		case ABRIR_ARCHIVO:
 			recv(kernel.socket, &fd_solicitado, bytes_payload, 0);
+			break;
+
+		case RESERVAR:
+			recv(kernel.socket, &posicion_alocada, bytes_payload, 0);
 			break;
 
 		default:
@@ -795,12 +800,36 @@ void kernel_signal(t_nombre_semaforo identificador_semaforo) {
 		logear_info("Se libera el semáforo %s", identificador_semaforo);
 	}
 }
-t_puntero reservar(t_valor_variable espacio) { // TODO
+t_puntero reservar(t_valor_variable espacio) {
+	if (!programaVivitoYColeando) return 0;
+
 	logear_info("Reservar %d bytes", espacio);
+
+	enviar_header(kernel.socket, RESERVAR, sizeof(espacio));
+	send(kernel.socket, &espacio, sizeof(espacio), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Posicion del bloque reservado: (Pag:%d) (Offset:%d)", posicion_alocada / MARCO_SIZE, posicion_alocada % MARCO_SIZE);
+		return posicion_alocada;
+	}
+
+	logear_info("Error al solicitar un bloque de memoria.");
 	return 0;
 }
-void liberar(t_puntero puntero) { // TODO
+void liberar(t_puntero puntero) {
+	if (!programaVivitoYColeando) return;
+
 	logear_info("Liberar memoria en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
+
+	enviar_header(kernel.socket, LIBERAR, sizeof(puntero));
+	send(kernel.socket, &puntero, sizeof(puntero), 0);
+
+	if (recibir_algo_de(kernel)) {
+		logear_info("Bloque liberado exitosamente en Pag:%d Offset:%d", puntero / MARCO_SIZE, puntero % MARCO_SIZE);
+		return;
+	}
+
+	logear_info("Error al liberar un bloque de memoria.");
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
 	if (!programaVivitoYColeando) return 0;

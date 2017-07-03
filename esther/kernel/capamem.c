@@ -129,8 +129,6 @@ bool liberar_bloque(int PID, t_puntero direccion) {
 	return true;
 }
 
-/* Esta chequea si la posicion del puntero es el inicio de un bloque reservado */
-/*
 bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 	int pagina = direccion / MARCO_SIZE;
 	int offset = direccion % MARCO_SIZE;
@@ -150,7 +148,6 @@ bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 
 	return false;
 }
-*/
 
 /*
  * Modifica el tamanio del bloque (size = newsize).

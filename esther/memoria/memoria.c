@@ -196,7 +196,6 @@ int memoria_asignar_paginas(int PID, int paginas_requeridas) {
 	while (paginas_asignadas < paginas_requeridas && i < MARCOS) {
 		if (tabla_administrativa[i].pid == FRAME_LIBRE) {
 			ultima_pagina++;
-			tabla_administrativa[i].frame = i;
 			tabla_administrativa[i].pag = ultima_pagina;
 			tabla_administrativa[i].pid = PID;
 			paginas_asignadas++;

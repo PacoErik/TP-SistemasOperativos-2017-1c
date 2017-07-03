@@ -595,10 +595,13 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		void *info = fs_leer_archivo(proceso->pcb->pid, descriptor, pedido.size, &respuesta);
 		if (info != NULL) {
 			char *texto = info;
-			printf("Texto leído: %s\n", texto);
-			//Almacenar en memoria con la posicion de memoria dada
-			//TODO KEK
-			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+			logear_info("[PID:%d] Lee '%s' de %d bytes de un archivo. Almacenando en memoria...", proceso->pcb->pid, texto, pedido.size);
+			respuesta = mem_escribir_bytes(proceso->pcb->pid, pedido.numero_pagina, pedido.offset, pedido.size, info);
+			if (respuesta < 0) {
+				enviar_excepcion(socket_cliente, respuesta);
+			} else {
+				enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+			}
 			free(info);
 		} else {
 			enviar_excepcion(socket_cliente, respuesta);
@@ -654,7 +657,6 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case MOVER_CURSOR:
 		proceso->cantidad_syscalls++;
 
-
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 		t_valor_variable posicion;
 		recv(socket_cliente, &posicion, sizeof(t_valor_variable), 0);
@@ -663,6 +665,43 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
 		} else {
+			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
+		}
+
+		break;
+
+	case RESERVAR:
+		proceso->cantidad_syscalls++;
+
+		int bytes_pedidos;
+		recv(socket_cliente, &bytes_pedidos, bytes, 0);
+
+		respuesta = alocar_bloque(proceso->pcb->pid, bytes_pedidos);
+
+		if (respuesta < 0) {
+			enviar_excepcion(socket_cliente, respuesta);
+		} else {
+			proceso->cantidad_alocar++;
+			proceso->bytes_alocados = proceso->bytes_alocados + bytes_pedidos;
+			enviar_header(socket_cliente, RESERVAR, sizeof(t_puntero));
+			send(socket_cliente, &respuesta, sizeof(t_puntero), 0);
+		}
+
+		break;
+
+	case LIBERAR:
+		proceso->cantidad_syscalls++;
+
+		t_puntero puntero;
+		recv(socket_cliente, &puntero, bytes, 0);
+
+		respuesta = liberar_bloque_seguro(proceso->pcb->pid, puntero);
+
+		if (respuesta < 0) {
+			enviar_excepcion(socket_cliente, respuesta);
+		} else {
+			proceso->cantidad_liberar++;
+			proceso->bytes_liberados = proceso->bytes_liberados + respuesta;
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		}
 

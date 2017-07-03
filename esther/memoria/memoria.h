@@ -23,7 +23,6 @@
 	} PACKED estructura_administrativa_cache;
 
 	typedef struct estructuraAdministrativa {
-		int frame;
 		int pid;
 		int pag;
 	} PACKED estructura_administrativa;
