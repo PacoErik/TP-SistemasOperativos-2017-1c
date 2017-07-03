@@ -141,7 +141,7 @@ void*		serializar_PCB(PCB*, int*);
 void		terminar_kernel();
 
 bool eliminar_pagina_heap(int, int);
-void destruir_lista_paginas_heap(int);
+void destruir_lista_paginas_heap(Proceso*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
@@ -1181,7 +1181,7 @@ void limpiar_proceso(Proceso *proceso) {
 	}
 
 	list_destroy_and_destroy_elements(proceso->pcb->indice_stack, &borrar);
-	destruir_lista_paginas_heap(proceso->pcb->pid);
+	destruir_lista_paginas_heap(proceso);
 
 	destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 
@@ -1320,6 +1320,7 @@ void inicializar_proceso(int socket, char *codigo, Proceso *nuevo_proceso) {
 	nuevo_proceso->cantidad_rafagas = 0;
 	nuevo_proceso->cantidad_syscalls = 0;
 	nuevo_proceso->codigo = codigo;
+	nuevo_proceso->paginas_heap = list_create();
 
 	t_metadata_program *info = metadata_desde_literal(codigo);
 	nuevo_proceso->pcb = malloc(sizeof(PCB));
@@ -1705,11 +1706,11 @@ bool eliminar_pagina_heap(int PID, int nro_pagina) {
 	return true;
 }
 
-void destruir_lista_paginas_heap(int PID) {
+void destruir_lista_paginas_heap(Proceso *proceso) {
 	void _liberar(void *e) {
-		liberar_pagina_heap(PID, ((Pagina_Heap *)e)->nro_pagina);
+		liberar_pagina_heap(proceso->pcb->pid, ((Pagina_Heap *)e)->nro_pagina);
 		free(e);
 	}
 
-	list_destroy_and_destroy_elements(lista_paginas_heap_proceso(PID), _liberar);
+	list_destroy_and_destroy_elements(proceso->paginas_heap, &_liberar);
 }
