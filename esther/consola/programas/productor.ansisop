@@ -2,9 +2,9 @@
 begin	
 	:etiqueta
 	
-	wait SEM1
-		!Global = !Global + 1
-	signal SEM2
+	wait b
+		!colas = !colas +1
+	signal c
 	
 	#Ciclar indefinidamente
 	goto etiqueta
