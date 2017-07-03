@@ -484,7 +484,7 @@ void inicializar_tabla(void) {
 	int tamanio_total_tabla = sizeof(estructura_administrativa[MARCOS]);
 	int frames_ocupados_por_tabla = DIVIDE_ROUNDUP(tamanio_total_tabla, MARCO_SIZE);
 
-	if (frames_ocupados_por_tabla > MARCOS) {
+	if (frames_ocupados_por_tabla >= MARCOS) {
 		logear_error("[Fail] La cantidad de frames de la tabla administrativa superó la cantidad de frames de memoria, finalizando...", true);
 		//c mamó
 	} //c mamó feo
