@@ -57,6 +57,9 @@ int main() {
 	LIBERAR(c);					// Liberar 3er Bloque
 	imprimir_info_heap();
 
+	alocar_bloque(26);
+	imprimir_info_heap();
+
 	c = alocar_bloque(25);						// Vuelve a ocupar el 3er bloque
 	imprimir_info_heap();
 
@@ -115,14 +118,15 @@ t_puntero alocar_bloque(int size) {
 			if (hm_libre.size == size) {
 				ocupar_bloque(offset);
 				espacio_libre -= size;
+
+				return offset + sizeof(HeapMetadata);
 			}
 
-			else if (hm_libre.size > size + sizeof(HeapMetadata)
-					&& !escribir_heap_metadata(offset, size, hm_libre.size)) {
-				return -1;
+			if (hm_libre.size > size + sizeof(HeapMetadata)) {
+				return escribir_heap_metadata(offset, size, hm_libre.size)
+							? offset + sizeof(HeapMetadata)
+							: -1;
 			}
-
-			return offset + sizeof(HeapMetadata);
 		}
 	}
 

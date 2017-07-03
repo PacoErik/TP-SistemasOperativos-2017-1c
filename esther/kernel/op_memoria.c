@@ -145,6 +145,23 @@ int mem_asignar_paginas(int PID, int paginas) {
 	return respuesta;
 }
 
+int mem_liberar_pagina(int PID, int numero_pagina) {
+	PedidoLiberacion paquete = {
+			.operacion = MEM_LIBERAR_PAGINA,
+			.PID = PID,
+			.numero_pagina = numero_pagina
+	};
+
+	send(socket_memoria, &paquete, sizeof(paquete), 0);
+
+	int respuesta;
+	if (recv(socket_memoria, &respuesta, sizeof(respuesta), 0) <= 0) {
+		terminar_kernel();
+	}
+
+	return respuesta;
+}
+
 int mem_finalizar_programa(int PID) {
 	PedidoFinalizacion paquete = {
 			.operacion = MEM_FINALIZAR_PROGRAMA,

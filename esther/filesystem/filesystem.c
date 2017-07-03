@@ -14,7 +14,6 @@ struct {
 struct {
 	unsigned int TAMANIO_BLOQUES;
 	unsigned int CANTIDAD_BLOQUES;
-	char MAGIC_NUMBER[sizeof "SADICA"];
 } FSMetadata;
 
 comando comandos[] = {
@@ -535,6 +534,17 @@ void leer_metadata(void) {
 	free(ruta_metadata);
 	logear_info("Leyendo \"Metadata.bin\"...");
 
+	if (config_has_property(metadata_config, "MAGIC_NUMBER")) {
+		if (strcmp(config_get_string_value(metadata_config, "MAGIC_NUMBER"), "SADICA") != 0) {
+			logear_error("Error: el Magic Number debe ser \"SADICA\"!!", false);
+			goto error;
+		}
+	}
+	else {
+		logear_error("Error al leer el Magic Number!!", false);
+		goto error;
+	}
+
 	if (config_has_property(metadata_config, "TAMANIO_BLOQUES")) {
 		FSMetadata.TAMANIO_BLOQUES = config_get_int_value(metadata_config, "TAMANIO_BLOQUES");
 		logear_info("Tamaño de Bloques: %d", FSMetadata.TAMANIO_BLOQUES);
@@ -550,17 +560,6 @@ void leer_metadata(void) {
 	}
 	else {
 		logear_error("Error al leer la cantidad de bloques", false);
-		goto error;
-	}
-
-	if (config_has_property(metadata_config, "MAGIC_NUMBER")) {
-		strncpy(FSMetadata.MAGIC_NUMBER,
-				config_get_string_value(metadata_config, "MAGIC_NUMBER"),
-				sizeof FSMetadata.MAGIC_NUMBER);
-		logear_info("Magic Number: %s", FSMetadata.MAGIC_NUMBER);
-	}
-	else {
-		logear_error("Error al leer el Magic Number!!", false);
 		goto error;
 	}
 

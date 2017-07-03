@@ -4,6 +4,8 @@
 	#include "commons/collections/list.h"
 	#include "parser/metadata_program.h"
 
+	#include "capamem.h"
+
 	typedef t_list* process_file_table;
 
 	typedef struct PCB {
@@ -36,11 +38,23 @@
 		int cantidad_syscalls; //sí, me encantan los int
 		char* codigo;
 		int estado;
+		t_list *paginas_heap;
 		PCB *pcb;
 	} Proceso;
+
+	typedef struct Pagina_Heap {
+		int nro_pagina;
+		int espacio;
+	} Pagina_Heap;
 
 	typedef t_list listaProcesos;
 
 	extern listaProcesos *procesos; //Dentro van a estar los procesos en estado READY/EXEC/BLOCKED
+
+	int marco_size(void);
+	int agregar_pagina_heap(int PID);
+	t_list *lista_paginas_heap_proceso(int PID);
+	Pagina_Heap *pagina_heap_proceso(int PID, int nro_pagina);
+	bool eliminar_pagina_heap(int PID, int nro_pagina);
 
 #endif /* KERNEL_H_ */
