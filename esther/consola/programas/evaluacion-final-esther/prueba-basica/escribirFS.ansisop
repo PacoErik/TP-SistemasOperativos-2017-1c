@@ -3,7 +3,7 @@ begin
   alocar a 100
   abrir f LE /archivo.bin
   wait mutexArch
-    a*=88
+    *a=88
     escribir f a 10
   signal mutexArch
   wait b

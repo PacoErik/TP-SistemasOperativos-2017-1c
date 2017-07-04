@@ -55,6 +55,6 @@
 	int agregar_pagina_heap(int PID);
 	t_list *lista_paginas_heap_proceso(int PID);
 	Pagina_Heap *pagina_heap_proceso(int PID, int nro_pagina);
-	bool eliminar_pagina_heap(int PID, int nro_pagina);
+	bool eliminar_pagina_heap(t_list*, int nro_pagina);
 
 #endif /* KERNEL_H_ */
