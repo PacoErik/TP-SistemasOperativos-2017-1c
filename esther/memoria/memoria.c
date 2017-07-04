@@ -221,7 +221,7 @@ int memoria_asignar_paginas(int PID, int paginas_requeridas) {
 		}
 
 		hash_agregar_en_overflow(posicion, frame);
-
+		logear_info("[PID:%d] Página %d asignada al frame %d", PID, ultima_pagina + i + 1, frame);
 		tabla_administrativa[frame].pid = PID;
 		tabla_administrativa[frame].pag = ultima_pagina + i + 1;
 	}
@@ -238,7 +238,7 @@ int memoria_liberar_pagina(int PID, int numero_pagina) {
 	}
 
 	//Borrar página de memoria caché
-	int i;
+	int i = 0;
 	while (i < ENTRADAS_CACHE) {
 		if (tabla_administrativa_cache[i].pid == PID
 				&& tabla_administrativa_cache[i].pag == numero_pagina) {

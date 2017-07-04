@@ -1,0 +1,16 @@
+begin
+	variables a, b, c
+	
+	abrir a LE hola.txt
+	abrir b LEC copiahola.txt
+
+	leer a &c 4
+
+	escribir b c 4
+
+	cerrar a
+	cerrar b
+
+	prints l copia_exitosa
+end
+

@@ -125,7 +125,7 @@ int kernel_solicitar_bytes() {
 
 	send(socket_kernel, &respuesta, sizeof(respuesta), 0);
 
-	if (respuesta)
+	if (respuesta == true)
 		send(socket_kernel, datos, paquete.size, 0);
 
 	return 1;

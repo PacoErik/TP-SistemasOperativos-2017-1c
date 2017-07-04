@@ -355,7 +355,7 @@ void solicitar_instruccion() {
 		enviar_header(memoria.socket, SOLICITAR_BYTES, sizeof(posicion));
 		send(memoria.socket, &posicion, sizeof(posicion), 0);
 
-		recibir_algo_de(memoria);
+		if (!recibir_algo_de(memoria)) break;
 
 		memcpy(instruccion + offset, buffer_solicitado, posicion.size);
 		offset += posicion.size;
@@ -364,12 +364,14 @@ void solicitar_instruccion() {
 		posicion.offset = 0;
 	}
 
-	instruccion[instruction.offset - 1] = '\0';
+	if (programaVivitoYColeando) {
+		instruccion[instruction.offset - 1] = '\0';
 
-	if (quantum > 0)
-		usleep(quantum_sleep * 1000);
+		if (quantum > 0)
+			usleep(quantum_sleep * 1000);
 
-	analizadorLinea(instruccion, &funciones, &funcionesnucleo);
+		analizadorLinea(instruccion, &funciones, &funcionesnucleo);
+	}
 	free(instruccion);
 }
 void trabajar() {
