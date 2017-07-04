@@ -580,6 +580,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		recv(socket_cliente, informacion, bytes, 0);
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
+
 		if (descriptor == 1) {
 			if (!list_any_satisfy(clientes, &mismo_cliente)) {
 				logear_error("[PID:%d] Intentó enviar mensaje a una consola desconectada", false, proceso->pcb->pid);
@@ -610,6 +615,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		recv(socket_cliente, &pedido, bytes, 0);
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
+
 		void *info = fs_leer_archivo(proceso->pcb->pid, descriptor, pedido.size, &respuesta);
 		if (info != NULL) {
 			char *texto = info;
@@ -635,6 +645,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		flags_t flags;
 		recv(socket_cliente, &flags, sizeof(flags_t), 0);
 
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
+
 		respuesta = fs_abrir_archivo(proceso->pcb->pid, direccion, flags);
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
@@ -650,6 +665,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
+
 		respuesta = fs_borrar_archivo(proceso->pcb->pid, descriptor);
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
@@ -662,6 +682,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
 
 		respuesta = fs_cerrar_archivo(proceso->pcb->pid, descriptor);
 		if (respuesta < 0) {
@@ -679,6 +704,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		t_valor_variable posicion;
 		recv(socket_cliente, &posicion, sizeof(t_valor_variable), 0);
 
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
+
 		respuesta = fs_mover_cursor(proceso->pcb->pid, descriptor, posicion);
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
@@ -693,6 +723,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		int bytes_pedidos;
 		recv(socket_cliente, &bytes_pedidos, bytes, 0);
+
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
 
 		respuesta = alocar_bloque(proceso->pcb->pid, bytes_pedidos);
 
@@ -712,6 +747,11 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		t_puntero puntero;
 		recv(socket_cliente, &puntero, bytes, 0);
+
+		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
+			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
+			return;
+		}
 
 		respuesta = liberar_bloque_seguro(proceso->pcb->pid, puntero);
 
@@ -1729,5 +1769,5 @@ void destruir_lista_paginas_heap(Proceso *proceso) {
 		free(e);
 	}
 
-	list_destroy_and_destroy_elements(proceso->paginas_heap, &_liberar);
+	list_destroy_and_destroy_elements(proceso->paginas_heap, free);
 }

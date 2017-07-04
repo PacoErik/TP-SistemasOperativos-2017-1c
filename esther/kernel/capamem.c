@@ -4,8 +4,8 @@ static bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *
 static bool escribir_heap_metadata(int PID, int pagina, off_t offset, int new_size, int old_size);
 
 static int ocupar_bloque(int PID, int pagina, off_t offset);
-static void defragmentar_pagina(int PID, int pagina);
-static void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize);
+static bool defragmentar_pagina(int PID, int pagina);
+static bool modificar_size_bloque(int PID, int pagina, off_t offset, int newsize);
 
 static inline t_puntero _direccion_pag_offset(int pagina, off_t offset);
 
@@ -60,7 +60,7 @@ int alocar_bloque_en_pagina(int PID, int nro_pagina, int size) {
 				int ret = ocupar_bloque(PID, nro_pagina, offset);
 				pagina->espacio -= size;
 
-				return ret < 0 ? FALLO_DE_SEGMENTO : _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata));
+				return ret < 0 ? ret : _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata));
 			}
 
 			if (hm_libre.size >= size + sizeof(HeapMetadata)) {
@@ -115,7 +115,7 @@ t_puntero alocar_bloque(int PID, int size) {
 		return _direccion_pag_offset(nro_pagina, offset);
 	}
 
-	return -1;
+	return offset;
 }
 
 bool liberar_bloque(int PID, t_puntero direccion) {
@@ -127,9 +127,9 @@ bool liberar_bloque(int PID, t_puntero direccion) {
 	}
 
 	bool isfree = true;
-	mem_escribir_bytes(PID, pagina, offset - sizeof(HeapMetadata), sizeof isfree, &isfree);
+	if (mem_escribir_bytes(PID, pagina, offset - sizeof(HeapMetadata), sizeof isfree, &isfree) < 0) return false;
 
-	defragmentar_pagina(PID, pagina);
+	if (!defragmentar_pagina(PID, pagina)) return false;
 
 	return true;
 }
@@ -143,10 +143,11 @@ bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 	HeapMetadata hm;
 
 	for (i = 0; i <= inicio_hm && i < MARCO_SIZE; i += hm.size + sizeof(HeapMetadata)) {
-		leer_heap_metadata(PID, pagina, i, &hm);
+		if (!leer_heap_metadata(PID, pagina, i, &hm)) return false;
 
 		if (i == inicio_hm) {
-			liberar_bloque(PID, direccion);
+			if (!liberar_bloque(PID, direccion)) return false;
+
 			return true;
 		}
 	}
@@ -157,8 +158,10 @@ bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 /*
  * Modifica el tamanio del bloque (size = newsize).
  */
-static void modificar_size_bloque(int PID, int pagina, off_t offset, int newsize) {
-	mem_escribir_bytes(PID, pagina, offset + sizeof(bool), sizeof newsize, &newsize);
+static bool modificar_size_bloque(int PID, int pagina, off_t offset, int newsize) {
+	if (mem_escribir_bytes(PID, pagina, offset + sizeof(bool), sizeof newsize, &newsize) < 0) return false;
+
+	return true;
 }
 
 /*
@@ -236,7 +239,7 @@ void imprimir_info_heap(void) {
 }
 */
 
-static void defragmentar_pagina(int PID, int pagina) {
+static bool defragmentar_pagina(int PID, int pagina) {
 	off_t i, j;
 	size_t size;			// Tamanio del ultimo hm leido
 	HeapMetadata hm, hm_j;
@@ -244,20 +247,20 @@ static void defragmentar_pagina(int PID, int pagina) {
 	pagina_heap_proceso(PID, pagina)->espacio = 0;		// Recalcula el espacio disponible
 
 	for (i = 0; i < MARCO_SIZE; i += hm.size + sizeof(HeapMetadata)) {
-		leer_heap_metadata(PID, pagina, i, &hm);
+		if (!leer_heap_metadata(PID, pagina, i, &hm)) return false;
 
 		if (hm.isfree) {
 			int size = hm.size;
 
 			for (j = i + size + sizeof hm;
-					j < MARCO_SIZE && leer_heap_metadata(PID, pagina, j, &hm_j) && hm_j.isfree;
+					j <= MARCO_SIZE - sizeof hm && leer_heap_metadata(PID, pagina, j, &hm_j) && hm_j.isfree;
 					j += hm_j.size + sizeof(HeapMetadata))
 			{
 				size += sizeof hm_j + hm_j.size;
 			}
 
 			if (size != hm.size) {
-				modificar_size_bloque(PID, pagina, i, size);
+				if (!modificar_size_bloque(PID, pagina, i, size)) return false;
 				hm.size = size;
 			}
 
@@ -271,8 +274,10 @@ static void defragmentar_pagina(int PID, int pagina) {
 	 * ocupado, otro libre al final de tod o.
 	 */
 	if (i == 0) {
-		liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
+		if (liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina) < 0) return false;
 	}
+
+	return true;
 }
 
 inline t_puntero _direccion_pag_offset(int pagina, off_t offset) {
