@@ -8,7 +8,7 @@ t_bitarray*		bitmap;
 
 struct {
 	int PUERTO;
-	char PUNTO_MONTAJE[64];
+	char *PUNTO_MONTAJE;
 } FSConfig;
 
 struct {
@@ -383,7 +383,7 @@ t_bitarray *leer_bitmap(void) {
 	free(ruta_bitmap);
 
 	if (bitmap_file == NULL) {
-		logear_error("No existe el archivo \"Bitmap.bin\"", false);
+		logear_error("No existe el archivo \"Bitmap.bin\"", true);
 		return NULL;
 	}
 
@@ -395,7 +395,7 @@ t_bitarray *leer_bitmap(void) {
 	if (read_bytes != bitarray_size) {
 		fclose(bitmap_file);
 		free(bitarray);
-		logear_error("El Bitmap esta incompleto", false);
+		logear_error("El Bitmap esta incompleto", true);
 		return NULL;
 	}
 
@@ -626,7 +626,7 @@ void establecer_configuracion(void) {
 	}
 
 	if (config_has_property(config, "PUNTO_MONTAJE")) {
-		strcpy(FSConfig.PUNTO_MONTAJE, config_get_string_value(config, "PUNTO_MONTAJE"));
+		FSConfig.PUNTO_MONTAJE = strdup(config_get_string_value(config, "PUNTO_MONTAJE"));
 		logear_info("Punto de Montaje: %s", FSConfig.PUNTO_MONTAJE);
 	}
 	else {
