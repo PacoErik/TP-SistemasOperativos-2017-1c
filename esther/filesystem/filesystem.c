@@ -417,7 +417,7 @@ void destruir_bitmap(void) {
 
 FILE *archivo_bloque_r(int bloque_numero) {
 	char *ruta_bloque;
-	asprintf(&ruta_bloque, ".%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
+	asprintf(&ruta_bloque, "%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
 
 	FILE *archivo_bloque = fopen(ruta_bloque, "r");
 
@@ -428,7 +428,7 @@ FILE *archivo_bloque_r(int bloque_numero) {
 
 FILE *archivo_bloque_w(int bloque_numero) {
 	char *ruta_bloque;
-	asprintf(&ruta_bloque, ".%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
+	asprintf(&ruta_bloque, "%sBloques/%d.bin", FSConfig.PUNTO_MONTAJE, bloque_numero);
 
 	FILE *archivo_bloque = fopen(ruta_bloque, "r+");
 	if (archivo_bloque == NULL) {
@@ -772,7 +772,7 @@ void limpiar_directorio(char *ruta_dir) {
 
 char *_ruta_desde_punto_montaje(char *ruta) {
 	char *ruta_completa;
-	asprintf(&ruta_completa, ".%s%s", FSConfig.PUNTO_MONTAJE, ruta);
+	asprintf(&ruta_completa, "%s%s", FSConfig.PUNTO_MONTAJE, ruta);
 
 	return ruta_completa;
 }
