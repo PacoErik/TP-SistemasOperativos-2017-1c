@@ -19,7 +19,7 @@
 
 	int asignar_pagina_heap(int PID);
 
-	int liberar_pagina_heap(int PID, int nro_pagina);
+	int liberar_pagina_heap(t_list *paginas_heap, int PID, int nro_pagina);
 
 	/* RESERVAR */
 	t_puntero alocar_bloque(int PID, int size);
