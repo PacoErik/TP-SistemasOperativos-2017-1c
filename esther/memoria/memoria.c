@@ -94,13 +94,13 @@ int main(void) {
 		logear_error("Fallo al bindear el puerto", true);
 	}
 
-    if (listen(servidor, 10) == -1) {
+	if (listen(servidor, 10) == -1) {
 		logear_error("Fallo al escuchar", true);
-    }
+	}
 
 	logear_info("Estoy escuchando");
 
-	for(;;) {
+	for (;;) {
 		int nuevo_cliente;					// Socket del nuevo cliente conectado
 
 		struct sockaddr_in cliente_info;
@@ -153,70 +153,95 @@ int memoria_inicializar_programa(int PID, int paginas_requeridas) {
 }
 char* memoria_solicitar_bytes(int PID, int numero_pagina, int offset, int size) {
 	int frame = traducir_a_frame(numero_pagina, PID);
-	if (frame < 0) return NULL;
-	if (offset + size > MARCO_SIZE) return NULL;
+	if (frame < 0)
+		return NULL;
+	if (offset + size > MARCO_SIZE)
+		return NULL;
 
 	/////////////////////
 	//Caché intensifies//
 	if (CACHE_X_PROC > 0 && ENTRADAS_CACHE > 0) {
 		char *buffer = cache_solicitar_bytes(PID, numero_pagina, frame, offset);
-		if (buffer != NULL) return buffer;
+		if (buffer != NULL)
+			return buffer;
 	}
 	/////////////////////
 
 	usleep(RETARDO * 1000);
 
-	return ir_a_frame_memoria(frame)+offset;
+	return ir_a_frame_memoria(frame) + offset;
 }
 int memoria_almacenar_bytes(int PID, int numero_pagina, int offset, int size, void *buffer) {
 	int frame = traducir_a_frame(numero_pagina, PID);
-	if (frame < 0) return FALLO_DE_SEGMENTO;
-	if (offset + size > MARCO_SIZE) return FALLO_DE_SEGMENTO;
+	if (frame < 0)
+		return FALLO_DE_SEGMENTO;
+	if (offset + size > MARCO_SIZE)
+		return FALLO_DE_SEGMENTO;
 
 	/////////////////////
 	//Caché intensifies//
 	if (CACHE_X_PROC > 0 && ENTRADAS_CACHE > 0) {
 		int respuesta = cache_almacenar_bytes(PID, numero_pagina, frame, offset, size, buffer);
-		if (respuesta > 0) return true;
+		if (respuesta > 0)
+			return true;
 	}
 	/////////////////////
 
 	usleep(RETARDO * 1000);
 
-	memcpy(ir_a_frame_memoria(frame)+offset, buffer, size);
+	memcpy(ir_a_frame_memoria(frame) + offset, buffer, size);
 	return true;
 }
+
 int memoria_asignar_paginas(int PID, int paginas_requeridas) {
 	usleep(RETARDO * 1000);
 
-	int paginas_asignadas = 0;
-	int i = 0;
+	int i;
 	int ultima_pagina = ultima_pagina_proceso(PID);
 
-	while (paginas_asignadas < paginas_requeridas && i < MARCOS) {
-		if (tabla_administrativa[i].pid == FRAME_LIBRE) {
-			ultima_pagina++;
-			tabla_administrativa[i].pag = ultima_pagina;
-			tabla_administrativa[i].pid = PID;
-			paginas_asignadas++;
+	int posicion;
+	int frame;
+
+	for (i = 0; i < paginas_requeridas; i++) {
+		posicion = hash_calcular_posicion(PID, ultima_pagina + i + 1);
+
+		if (tabla_administrativa[posicion].pid == FRAME_LIBRE) {
+			frame = posicion;
 		}
-		i++;
+
+		/* Hubo colision */
+		else {
+			printf("Colision\n");
+
+			frame = proximo_frame_libre(posicion);
+
+			if (frame == -1) {
+				return NO_SE_PUEDEN_ASIGNAR_MAS_PAGINAS;
+			}
+		}
+
+		hash_agregar_en_overflow(posicion, frame);
+
+		tabla_administrativa[frame].pid = PID;
+		tabla_administrativa[frame].pag = ultima_pagina + i + 1;
 	}
 
-	if (paginas_asignadas == paginas_requeridas) {
-		return true;
-	}
-	return NO_SE_PUEDEN_ASIGNAR_MAS_PAGINAS;
+	return true;
 }
+
 int memoria_liberar_pagina(int PID, int numero_pagina) {
 	usleep(RETARDO * 1000);
 
 	int frame = traducir_a_frame(numero_pagina, PID);
+	if (frame == -1) {
+		return EXCEPCION_MEMORIA;
+	}
 
 	//Borrar página de memoria caché
 	int i;
 	while (i < ENTRADAS_CACHE) {
-		if (tabla_administrativa_cache[i].pid == PID && tabla_administrativa_cache[i].pag == numero_pagina) {
+		if (tabla_administrativa_cache[i].pid == PID
+				&& tabla_administrativa_cache[i].pag == numero_pagina) {
 			tabla_administrativa_cache[i].pid = FRAME_LIBRE;
 			tabla_administrativa_cache[i].lru = 0;
 			break;
@@ -225,23 +250,23 @@ int memoria_liberar_pagina(int PID, int numero_pagina) {
 	}
 
 	//Borrar página de memoria
-	estructura_administrativa entrada = tabla_administrativa[frame];
-	if (entrada.pid == PID && entrada.pag == numero_pagina) {
-		tabla_administrativa[frame].pid = FRAME_LIBRE;
-		return true;
-	}
+	tabla_administrativa[frame].pid = FRAME_LIBRE;
+	hash_borrar_de_overflow(hash_calcular_posicion(PID, numero_pagina), frame);
 
-	return EXCEPCION_MEMORIA; //Esto jamás debería pasar
+	return true;
 }
 int memoria_finalizar_programa(int PID) {
 	usleep(RETARDO * 1000);
 
 	int i;
+
 	for (i = 0; i < MARCOS; i++) {
 		if (tabla_administrativa[i].pid == PID) {
 			tabla_administrativa[i].pid = FRAME_LIBRE;
+			hash_borrar_de_overflow(hash_calcular_posicion(PID, tabla_administrativa[i].pag), i);
 		}
 	}
+
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
 		if (tabla_administrativa_cache[i].pid == PID) {
 			tabla_administrativa_cache[i].pid = FRAME_LIBRE;
@@ -292,7 +317,7 @@ int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
 	estructura_administrativa_cache *entrada;
 
 	Victima victima_global;
-	victima_global.lru = max_LRU()+1;;
+	victima_global.lru = max_LRU() + 1;
 	Victima victima_local = victima_global;
 	Victima victima_definitiva = victima_global;
 
@@ -318,20 +343,29 @@ int cache_almacenar_pagina(int PID, int numero_pagina, int frame) {
 
 	if (cantidad_paginas_cache_proceso == CACHE_X_PROC) {
 		victima_definitiva.indice = victima_local.indice;
-	} else {
+	}
+	else {
 		victima_definitiva.indice = victima_global.indice;
 	}
 
 	entrada = cache_obtener_entrada(victima_definitiva.indice);
 
 	if (entrada->pid == FRAME_LIBRE) {
-		logear_info("[Caché MISS - Entrada %d] Página libre reemplazada por (Pág:%d) de (PID:%d)", victima_definitiva.indice, numero_pagina, PID);
-	} else if (entrada->pid == PID) {
-		logear_info("[Caché MISS - Entrada %d] (Pág:%d) del mismo proceso (PID:%d) reemplazada por (Pág:%d)", victima_definitiva.indice, entrada->pag, PID, numero_pagina);
-	} else {
-		logear_info("[Caché MISS - Entrada %d] (Pág:%d) del proceso (PID:%d) reemplazada por (Pág:%d) de (PID:%d)", victima_definitiva.indice, entrada->pag, entrada->pid, numero_pagina, PID);
+		logear_info(
+				"[Caché MISS - Entrada %d] Página libre reemplazada por (Pág:%d) de (PID:%d)",
+				victima_definitiva.indice, numero_pagina, PID);
 	}
-
+	else if (entrada->pid == PID) {
+		logear_info(
+				"[Caché MISS - Entrada %d] (Pág:%d) del mismo proceso (PID:%d) reemplazada por (Pág:%d)",
+				victima_definitiva.indice, entrada->pag, PID, numero_pagina);
+	}
+	else {
+		logear_info(
+				"[Caché MISS - Entrada %d] (Pág:%d) del proceso (PID:%d) reemplazada por (Pág:%d) de (PID:%d)",
+				victima_definitiva.indice, entrada->pag, entrada->pid,
+				numero_pagina, PID);
+	}
 
 	entrada->pid = PID;
 	entrada->lru = victima_definitiva.lru;
@@ -354,8 +388,8 @@ int cache_buscar_pagina(int PID, int numero_pagina) {
 	return -1;
 }
 estructura_administrativa_cache *cache_obtener_entrada(int indice) {
-	char *p = (char*)tabla_administrativa_cache;
-	return (estructura_administrativa_cache*)(p + indice * sizeof(estructura_administrativa_cache));
+	char *p = (char*) tabla_administrativa_cache;
+	return (estructura_administrativa_cache*) (p + indice * sizeof(estructura_administrativa_cache));
 }
 char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
 	pthread_mutex_lock(&mutex_cache);
@@ -381,23 +415,32 @@ void hash_agregar_en_overflow(int posicion, int frame) {
 }
 void hash_borrar_de_overflow(int posicion, int frame) {
 	_Bool mismo_frame(void *otro_frame) {
-		return *(int*)otro_frame == frame;
+		return *(int*) otro_frame == frame;
 	}
 	list_remove_and_destroy_by_condition(overflow[posicion], &mismo_frame, free);
 }
-int hash_buscar_en_overflow(int posicion, int pid, int pagina) {
-	int i = 0;
-	for (i = 0; i < list_size(overflow[posicion]); i++) {
-		if (hash_pagina_correcta(*(int*)list_get(overflow[posicion], i), pid, pagina)) {
-			return *(int*)list_get(overflow[posicion], i);
-		}
+int hash_buscar_en_overflow(int pid, int pagina) {
+	int posicion = hash_calcular_posicion(pid, pagina);
+
+	bool _es_frame_correcto(void *frame) {
+		return hash_pagina_correcta(*((int *)frame), pid, pagina);
 	}
-	return -1;
+
+	int *frame = (int *) list_find(overflow[posicion], _es_frame_correcto);
+
+	return frame == NULL ? -1 : *frame;
 }
 int hash_calcular_posicion(int pid, int num_pagina) {
-	return (pid * num_pagina) % MARCOS;
+	int frames_ocupados_por_tabla = DIVIDE_ROUNDUP(
+			sizeof(estructura_administrativa[MARCOS]), MARCO_SIZE);
+
+	/* Saltear los primeros frames ocupados por tabla para no colisionar con ellos */
+
+	return frames_ocupados_por_tabla
+				+ (pid + (MARCOS / 10) * num_pagina + num_pagina * num_pagina)
+					% (MARCOS - frames_ocupados_por_tabla);
 }
-void hash_iniciar_overflow() {
+void hash_iniciar_overflow(void) {
 	overflow = malloc(sizeof(t_list*) * MARCOS);
 	int posicion;
 	for (posicion = 0; posicion < MARCOS; posicion++) {
@@ -405,15 +448,15 @@ void hash_iniciar_overflow() {
 	}
 }
 _Bool hash_pagina_correcta(int pos_candidata, int pid, int pagina) {
-	return tabla_administrativa[pos_candidata].pid == pid && tabla_administrativa[pos_candidata].pag == pagina;
+	return tabla_administrativa[pos_candidata].pid == pid
+				&& tabla_administrativa[pos_candidata].pag == pagina;
 }
 
 /*------------DEFINICION DE FUNCIONES AUXILIARES----------------*/
 
 // FUNCION DEL HILO
-
 void *atender_cliente(void* param) {
-	int socket_cliente = (int)*((int*)param);
+	int socket_cliente = (int) *((int*) param);
 	free(param);
 
 	int tipoCliente = memoria_handshake(socket_cliente);
@@ -456,18 +499,27 @@ int proximo_frame_libre(int indice) {
 	int tamanio_total_tabla = sizeof(estructura_administrativa[MARCOS]); //El buen copypaste
 	int frames_ocupados_por_tabla = DIVIDE_ROUNDUP(tamanio_total_tabla, MARCO_SIZE);
 
-	for (i = indice + 1; i < MARCOS; i++) if (tabla_administrativa[i].pid == FRAME_LIBRE) return i;
-	for (i = indice - 1; i >= frames_ocupados_por_tabla; i++) if (tabla_administrativa[i].pid == FRAME_LIBRE) return i;
+	for (i = indice + 1; i < MARCOS; i++) {
+		if (tabla_administrativa[i].pid == FRAME_LIBRE) {
+			return i;
+		}
+	}
+
+	for (i = indice - 1; i >= frames_ocupados_por_tabla; i++) {
+		if (tabla_administrativa[i].pid == FRAME_LIBRE) {
+			return i;
+		}
+	}
 	//pa' delante, pa' atra'
 
 	return -1;
 }
 void crear_memoria(void) {
-	memoria = calloc(MARCOS , MARCO_SIZE);
+	memoria = calloc(MARCOS, MARCO_SIZE);
 
-	memoria_cache = calloc(ENTRADAS_CACHE , MARCO_SIZE);
+	memoria_cache = calloc(ENTRADAS_CACHE, MARCO_SIZE);
 }
-int max_LRU(void){
+int max_LRU(void) {
 	int i, max = 0;
 
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
@@ -490,11 +542,11 @@ void inicializar_tabla(void) {
 	} //c mamó feo
 
 	int i;
-	for (i = 0 ; i < frames_ocupados_por_tabla; i++) {
+	for (i = 0; i < frames_ocupados_por_tabla; i++) {
 		tabla_administrativa[i].pid = FRAME_ADMIN;
 	}
 
-	for ( ; i < MARCOS; i++) {
+	for (; i < MARCOS; i++) {
 		tabla_administrativa[i].pid = FRAME_LIBRE;
 	}
 }
@@ -509,13 +561,13 @@ void inicializar_tabla_cache(void) {
 	}
 
 }
-int ultima_pagina_proceso (int pid) {
+int ultima_pagina_proceso(int pid) {
 
 	int i;
 	int ultima_pagina = -1;
-	for(i=0; i< MARCOS; i++) {
+	for (i = 0; i < MARCOS; i++) {
 		estructura_administrativa entrada = tabla_administrativa[i];
-		if(entrada.pid == pid && entrada.pag > ultima_pagina){
+		if (entrada.pid == pid && entrada.pag > ultima_pagina) {
 			ultima_pagina = entrada.pag;
 		}
 	}
@@ -527,13 +579,13 @@ char *ir_a_frame_memoria(int indice) {
 	if (indice >= MARCOS) {
 		return NULL;
 	}
-	return ((char (*) [MARCO_SIZE]) memoria) [indice];
+	return ((char (*)[MARCO_SIZE]) memoria)[indice];
 }
 char *ir_a_frame_cache(int indice) {
 	if (indice >= ENTRADAS_CACHE) {
 		return NULL;
 	}
-	return ((char (*) [MARCO_SIZE]) memoria_cache) [indice];
+	return ((char (*)[MARCO_SIZE]) memoria_cache)[indice];
 }
 void liberar_frames(int PID) {
 	int i;
@@ -543,17 +595,9 @@ void liberar_frames(int PID) {
 		}
 	}
 }
-int traducir_a_frame(int pagina, int pid) {
-	//la forma más básica de traducir a frame
-	//en realidad habría que usar la función de hashing
-	int i;
-	for (i = 0; i < MARCOS; i++) {
-		if (tabla_administrativa[i].pid == pid
-			&& tabla_administrativa[i].pag == pagina) {
-			return i;
-		}
-	}
-	return -1;
+
+int traducir_a_frame(int pagina, int PID) {
+	return hash_buscar_en_overflow(PID, pagina);
 }
 
 // INTERFAZ DE USUARIO
@@ -587,7 +631,7 @@ void configurar_retardo(char *retardo) {
 
 }
 void dump(char *param) {
-	void _dump(int entries, int size, char * (* lookup_func) (int)) {
+	void _dump(int entries, int size, char * (*lookup_func)(int)) {
 		char tmp[16];
 
 		int pag_digits;			// Cantidad de digitos hexa de una pagina
@@ -635,7 +679,6 @@ void dump(char *param) {
 	}
 
 	string_trim(&param);
-
 
 	if (!strcmp(param, "memoria")) {
 		dump_file = fopen("dump_memoria.txt", "w");
@@ -754,10 +797,10 @@ void *interaccion_memoria(void * _) {
 
 	struct comando comandos[] = {
 		{ "retardo", configurar_retardo },
-		{ "dump", dump},
+		{ "dump", dump },
 		{ "flush", flush },
-		{ "size", size},
-		{ "limpiar", limpiar_pantalla},
+		{ "size", size },
+		{ "limpiar", limpiar_pantalla },
 		{ "opciones", imprimir_opciones_memoria }
 	};
 
@@ -980,11 +1023,11 @@ void establecer_configuracion() {
 		logear_error("Error al leer el retardo de la memoria", true);
 	}
 }
-char* remover_salto_linea(char* s) { // By Beej
-    int len = strlen(s);
+char* remover_salto_linea(char *s) {
+	int len = strlen(s);
 
-    if (len > 0 && s[len-1] == '\n')  // if there's a newline
-        s[len-1] = '\0';          // truncate the string
+	if (len > 0 && s[len - 1] == '\n')
+		s[len - 1] = '\0';
 
-    return s;
+	return s;
 }

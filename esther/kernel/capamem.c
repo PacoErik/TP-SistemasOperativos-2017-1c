@@ -63,7 +63,7 @@ int alocar_bloque_en_pagina(int PID, int nro_pagina, int size) {
 				return ret < 0 ? FALLO_DE_SEGMENTO : _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata));
 			}
 
-			if (hm_libre.size > size + sizeof(HeapMetadata)) {
+			if (hm_libre.size >= size + sizeof(HeapMetadata)) {
 				return escribir_heap_metadata(PID, nro_pagina, offset, size, hm_libre.size)
 							? _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata))
 							: FALLO_DE_SEGMENTO;

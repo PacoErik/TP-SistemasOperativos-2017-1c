@@ -87,7 +87,7 @@
 
 	void 			hash_agregar_en_overflow		(int,int);
 	void 			hash_borrar_de_overflow			(int,int);
-	int 			hash_buscar_en_overflow			(int,int,int);
+	int				hash_buscar_en_overflow			(int,int);
 	int 			hash_calcular_posicion			(int,int);
 	void 			hash_iniciar_overflow			();
 	_Bool 			hash_pagina_correcta			(int,int,int);
