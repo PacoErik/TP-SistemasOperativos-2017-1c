@@ -18,6 +18,7 @@
 		_Bool mismoSocket(void* elemento) {							\
 			return SOCKET == ((miCliente *) elemento)->socketCliente;	\
 		}
+#define PUTO_INOTIFY "config/config.cfg"
 enum Estado {NEW, READY, EXEC, BLOCKED, EXIT};
 enum Algoritmo {RR, FIFO};
 
@@ -140,7 +141,7 @@ void 		procesar_operaciones_CPU(int, char, int);
 void*		serializar_PCB(PCB*, int*);
 void		terminar_kernel();
 
-bool eliminar_pagina_heap(int, int);
+bool eliminar_pagina_heap(t_list*, int);
 void destruir_lista_paginas_heap(Proceso*);
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
@@ -148,7 +149,24 @@ int main(void) {
 	semaforos = dictionary_create();
 	variables_compartidas = dictionary_create();
 
-	configurar("kernel");
+	if (existe_archivo(PUTO_INOTIFY)) {
+		config = config_create(PUTO_INOTIFY);
+		int longitud = strlen("kernel")+strlen(".log ");
+		char *ruta = malloc(longitud+1);
+		snprintf(ruta,longitud,"%s%s","kernel",".log");
+		logger = log_create(ruta, "kernel", false, LOG_LEVEL_INFO);
+		free(ruta);
+
+	}else{
+		logear_error("No existe el archivo de configuración",true);
+	}
+
+	if(config_keys_amount(config) > 0) {
+		establecer_configuracion();
+	} else {
+		logear_error("Error al leer archivo de configuración",true);
+	}
+	config_destroy(config);
 
 	clientes = list_create();
 
@@ -210,7 +228,7 @@ int main(void) {
 		logear_error("No se puede detectar los cambios en el directorio", false);
 	} else {
 		fdmax = (descriptor_cambios_archivo > servidor) ? descriptor_cambios_archivo : servidor;
-		inotify_add_watch(descriptor_cambios_archivo,"./", /*IN_MODIFY*/ IN_CLOSE_WRITE);
+		inotify_add_watch(descriptor_cambios_archivo,"config", IN_CLOSE_WRITE);
 	    FD_SET(descriptor_cambios_archivo, &conectados);
 	}
 
@@ -261,20 +279,20 @@ int main(void) {
 			}
 
 			else if (i == descriptor_cambios_archivo) {
-				int j = 0;
-				char *buffer_cambios_archivo = calloc(BUF_LEN, 1);
-				int length = read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
-				while (j < length) {
-					struct inotify_event *event = ( struct inotify_event * ) &buffer_cambios_archivo[j];
-					if (!strcmp(event->name, RUTA_CONFIG)) {
-						t_config *nueva_config = config_create(RUTA_CONFIG);
-						QUANTUM_SLEEP_VALUE = config_get_int_value(nueva_config, "QUANTUM_SLEEP");
-						printf("Nuevo QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
-						config_destroy(nueva_config);
-					}
-					j += EVENT_SIZE + event->len;
+				char buffer_cambios_archivo[BUF_LEN];
+				read(descriptor_cambios_archivo, buffer_cambios_archivo, BUF_LEN);
+				usleep(1000000);
+				//Realmente es muy raro lo que pasaba acá, parece que el INOTIFY
+				//avisaba justo cuando empezaba a guardarse el archivo,
+				//Entonces, al crear la config., el archivo todavía se estaba
+				//guardando y por eso había seg faults.
+				t_config *nueva_config = config_create(PUTO_INOTIFY);
+				int NEW_QUANTUM_SLEEP = config_get_int_value(nueva_config, "QUANTUM_SLEEP");
+				if (NEW_QUANTUM_SLEEP != QUANTUM_SLEEP_VALUE) {
+					QUANTUM_SLEEP_VALUE = NEW_QUANTUM_SLEEP;
+					printf("Nuevo QUANTUM_SLEEP: %d\n", QUANTUM_SLEEP_VALUE);
 				}
-				free(buffer_cambios_archivo);
+				config_destroy(nueva_config);
 			}
 
 			// Un cliente mando un mensaje
@@ -1663,12 +1681,12 @@ int agregar_pagina_heap(int PID) {
 	Pagina_Heap *pagina = malloc(sizeof(Pagina_Heap));
 
 	if (list_is_empty(proc->paginas_heap)) {
-		pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE + 1;
+		pagina->nro_pagina = proc->pcb->cantidad_paginas_codigo + STACK_SIZE;
 	}
 
 	/* Se supone que la ultima pagina agregada tiene el indice maximo */
 	else {
-		pagina->nro_pagina = ((Pagina_Heap *) list_get(proc->paginas_heap, 0))->nro_pagina + 1;
+		pagina->nro_pagina = ((Pagina_Heap *) list_get(proc->paginas_heap, list_size(proc->paginas_heap) - 1) )->nro_pagina + 1;
 	}
 
 	pagina->espacio = tamanio_pagina - sizeof(HeapMetadata);
@@ -1690,8 +1708,7 @@ t_list *lista_paginas_heap_proceso(int PID) {
 	return (proc == NULL) ? NULL : proc->paginas_heap;
 }
 
-bool eliminar_pagina_heap(int PID, int nro_pagina) {
-	t_list *paginas_heap = lista_paginas_heap_proceso(PID);
+bool eliminar_pagina_heap(t_list *paginas_heap, int nro_pagina) {
 	Pagina_Heap *pagina = list_remove_by_condition(paginas_heap, ({
 		bool _buscar_pagina(void *e) {
 			return ((Pagina_Heap *)e)->nro_pagina == nro_pagina;
@@ -1708,7 +1725,7 @@ bool eliminar_pagina_heap(int PID, int nro_pagina) {
 
 void destruir_lista_paginas_heap(Proceso *proceso) {
 	void _liberar(void *e) {
-		liberar_pagina_heap(proceso->pcb->pid, ((Pagina_Heap *)e)->nro_pagina);
+		liberar_pagina_heap(proceso->paginas_heap, proceso->pcb->pid, ((Pagina_Heap *)e)->nro_pagina);
 		free(e);
 	}
 
