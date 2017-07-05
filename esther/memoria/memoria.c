@@ -211,8 +211,6 @@ int memoria_asignar_paginas(int PID, int paginas_requeridas) {
 
 		/* Hubo colision */
 		else {
-			printf("Colision\n");
-
 			frame = proximo_frame_libre(posicion);
 
 			if (frame == -1) {
