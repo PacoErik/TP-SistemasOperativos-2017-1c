@@ -104,6 +104,9 @@ t_puntero alocar_bloque(int PID, int size) {
 		return nro_pagina;		// En realidad es el error code.
 	}
 
+	Proceso *proceso = (Proceso*)proceso_segun_pid(PID);
+	proceso->cantidad_paginas_heap++;
+
 	HeapMetadata inicial = {
 			.isfree = true,
 			.size = MARCO_SIZE - sizeof(inicial)
@@ -136,7 +139,7 @@ bool liberar_bloque(int PID, t_puntero direccion) {
 	return true;
 }
 
-bool liberar_bloque_seguro(int PID, t_puntero direccion) {
+int liberar_bloque_seguro(int PID, t_puntero direccion) {
 	int pagina = direccion / MARCO_SIZE;
 	int offset = direccion % MARCO_SIZE;
 
@@ -145,16 +148,16 @@ bool liberar_bloque_seguro(int PID, t_puntero direccion) {
 	HeapMetadata hm;
 
 	for (i = 0; i <= inicio_hm && i < MARCO_SIZE; i += hm.size + sizeof(HeapMetadata)) {
-		if (!leer_heap_metadata(PID, pagina, i, &hm)) return false;
+		if (!leer_heap_metadata(PID, pagina, i, &hm)) return FALLO_DE_SEGMENTO;
 
 		if (i == inicio_hm) {
-			if (!liberar_bloque(PID, direccion)) return false;
+			if (!liberar_bloque(PID, direccion)) return FALLO_DE_SEGMENTO;
 
-			return true;
+			return hm.size;
 		}
 	}
 
-	return false;
+	return PUNTERO_INVALIDO;
 }
 
 /*
