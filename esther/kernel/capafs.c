@@ -9,12 +9,12 @@ listaProcesos *procesos;
 
 static file_descriptor_t		add_archivo_global			(char *path);
 static file_descriptor_t		add_archivo_proceso			(int PID, flags_t banderas, file_descriptor_t fd_global);
-static void						cerrar_fd_global			(file_descriptor_t fd_global);
-static flags_t					get_banderas				(int PID, file_descriptor_t fd);
+static void					cerrar_fd_global				(file_descriptor_t fd_global);
+static flags_t					get_banderas					(int PID, file_descriptor_t fd);
 static info_pft *				get_fd_info					(int PID, file_descriptor_t fd);
 static char *					get_fd_path					(int PID, file_descriptor_t fd);
 static file_descriptor_t 		get_free_fd					(t_list *);
-static file_descriptor_t		get_global_fd				(char *path);
+static file_descriptor_t		get_global_fd					(char *path);
 static cursor_t					get_posicion_cursor			(int PID, file_descriptor_t fd);
 static process_file_table		get_tabla_archivos_proceso	(int PID);
 
@@ -115,10 +115,8 @@ int fs_borrar_archivo(int PID, file_descriptor_t fd) {
 			recv(socket_fs, &_respuesta, sizeof _respuesta, 0);
 
 			respuesta = _respuesta ? 1 : ARCHIVO_NO_EXISTE;
-			//Que no exista el archivo es algo muy difícil, ya que tuvo que haberse borrado manualmente
-
-			fs_cerrar_archivo(PID, fd);
-		} else {
+		}
+		else {
 			respuesta = NO_SE_PUEDE_BORRAR_ARCHIVO_ABIERTO;
 		}
 	} else {
