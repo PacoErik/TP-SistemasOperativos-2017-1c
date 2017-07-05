@@ -60,12 +60,12 @@ int alocar_bloque_en_pagina(int PID, int nro_pagina, int size) {
 				int ret = ocupar_bloque(PID, nro_pagina, offset);
 				pagina->espacio -= size;
 
-				return ret < 0 ? ret : _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata));
+				return ret < 0 ? ret : offset;
 			}
 
 			if (hm_libre.size >= size + sizeof(HeapMetadata)) {
 				return escribir_heap_metadata(PID, nro_pagina, offset, size, hm_libre.size)
-							? _direccion_pag_offset(nro_pagina, offset + sizeof(HeapMetadata))
+							? offset + sizeof(HeapMetadata)
 							: FALLO_DE_SEGMENTO;
 			}
 
@@ -87,9 +87,11 @@ t_puntero alocar_bloque(int PID, int size) {
 		if (pagina->espacio >= size && retorno == -1) {
 			int offset = alocar_bloque_en_pagina(PID, pagina->nro_pagina, size);
 
-			if (offset >= 0) retorno = _direccion_pag_offset(pagina->nro_pagina, offset);
+			if (offset >= 0)
+				retorno = _direccion_pag_offset(pagina->nro_pagina, offset);
 
-			if (offset < -1) retorno = offset;
+			if (offset < -1)
+				retorno = offset;
 		}
 	}
 
