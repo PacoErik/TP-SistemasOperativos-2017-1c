@@ -368,7 +368,7 @@ void solicitar_instruccion() {
 
 		analizadorLinea(instruccion, &funciones, &funcionesnucleo);
 	}
-	free(instruccion);
+	free(instruccion); instruccion = NULL;
 }
 void trabajar() {
 	tipo_devolucion = PCB_INCOMPLETO;
