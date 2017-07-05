@@ -505,7 +505,7 @@ int proximo_frame_libre(int indice) {
 		}
 	}
 
-	for (i = indice - 1; i >= frames_ocupados_por_tabla; i++) {
+	for (i = indice - 1; i >= frames_ocupados_por_tabla; i--) {
 		if (tabla_administrativa[i].pid == FRAME_LIBRE) {
 			return i;
 		}
