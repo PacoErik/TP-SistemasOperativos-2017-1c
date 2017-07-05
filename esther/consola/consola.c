@@ -415,6 +415,7 @@ void procesar_operacion(char operacion, int bytes) {
 			un_proceso->cantidad_impresiones++;
 
 			logear_info("[PID:%d] Imprimir: %s", PID, informacion);
+			free(informacion); //Pete del orto
 			break;
 		case FALLO_INICIO_PROGRAMA:
 			eliminar_proceso(-1);
