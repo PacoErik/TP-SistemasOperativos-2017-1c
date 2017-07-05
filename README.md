@@ -1,5 +1,5 @@
 # Trabajo práctico de Sistemas Operativos:
-=============
+
 # `El Stack The Revenge`
 
 ![QEPD](https://i.ytimg.com/vi/8TgHRoOMWMk/maxresdefault.jpg)
