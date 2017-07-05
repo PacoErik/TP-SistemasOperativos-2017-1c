@@ -69,6 +69,7 @@ servidor memoria;
 bool programaVivitoYColeando; 	// Si el programa fallecio o no
 bool signal_recibida = false; 	// Si se recibe o no una señal SIGUSR1
 
+char *instruccion = NULL;
 void *buffer_solicitado = NULL;
 int valor_compartida_solicitada;
 int fd_solicitado;
@@ -148,7 +149,6 @@ void 		destruir_actualPCB(void);
 void 		destruir_entrada_stack(void*);
 void 		devolver_PCB();
 void 		establecer_configuracion();
-void 		leer_mensaje(servidor, unsigned short);
 void 		obtener_PCB(unsigned short);
 void 		rutina_signal(int);
 void 		solicitar_instruccion();
@@ -278,19 +278,15 @@ int cumplir_deseos_memoria(char operacion, unsigned short bytes_payload) {
 
 	return 1;
 }
-void leer_mensaje(servidor servidor, unsigned short bytes_payload) {
-	char* mensaje = malloc(bytes_payload+1);
-    recv(servidor.socket, mensaje, bytes_payload, 0);
-    mensaje[bytes_payload]='\0';
-    logear_info("Mensaje recibido: %s", mensaje);
-    free(mensaje);
-}
 int recibir_algo_de(servidor servidor) {
 	headerDeLosRipeados header;
 	int bytes_recibidos = recibir_header(servidor.socket, &header);
 	if (bytes_recibidos > 0) {
 		return analizar_header(servidor, header);
 	} else {
+		if (PCB_actual != NULL) destruir_actualPCB();
+		free(buffer_solicitado);
+		free(instruccion);
 		logear_error("El servidor se desconectó. Finalizando...", true);
 	}
 	return 0;
@@ -344,7 +340,7 @@ void solicitar_instruccion() {
 	int bytes = instruction.offset;
 	posicion.offset = instruction.start % MARCO_SIZE;
 
-	char *instruccion = malloc(bytes);
+	instruccion = malloc(bytes);
 	int offset = 0;
 
 	while (bytes > 0) {
@@ -940,6 +936,7 @@ void rutina_signal(int _) {
 		signal_recibida = true;
 	} else {
 		logear_info("No estoy ejecutando nada, nos vemos!");
+		free(buffer_solicitado);
 		exit(0);
 	}
 }
