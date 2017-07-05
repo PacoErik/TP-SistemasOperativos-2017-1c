@@ -1,3 +1,5 @@
+# Escribir 50 veces hola en hola.txt
+
 begin
 	variables a, b, c, d
 	
@@ -20,8 +22,20 @@ begin
 	c = c - 1
 	d <- h *c
 	*c = d
+	
+	variables e, f
+	e = 50
+	f = 0
 
+	:escribirhola
+	
 	escribir a b 4
+	buscar a f
+	e = e - 1
+	f = f + 4
+	
+	jnz e escribirhola
+
 	cerrar a
 end
 
