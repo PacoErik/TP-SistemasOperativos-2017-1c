@@ -432,6 +432,12 @@ void* recibir_headers(void* arg) {
 		int bytesRecibidos = recibir_header(servidor, &header);
 
 		if (bytesRecibidos <= 0) {
+			void _borrar(void *p) {
+				proceso *proceso = p;
+				free(proceso->ruta);
+				free(proceso);
+			}
+			list_destroy_and_destroy_elements(procesos, &_borrar);
 			logear_error("Se desconectó el Kernel",true);
 		}
 
