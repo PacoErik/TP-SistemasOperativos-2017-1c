@@ -376,7 +376,7 @@ int main(void) {
 //MENSAJES
 void enviar_excepcion(int socket_cliente, int excepcion) {
 	enviar_header(socket_cliente, EXCEPCION, sizeof(excepcion));
-	send(socket_cliente, &excepcion, sizeof(excepcion), 0);
+	send(socket_cliente, &excepcion, sizeof(excepcion), MSG_NOSIGNAL);
 }
 void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 
@@ -737,7 +737,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			proceso->cantidad_alocar++;
 			proceso->bytes_alocados = proceso->bytes_alocados + bytes_pedidos;
 			enviar_header(socket_cliente, RESERVAR, sizeof(t_puntero));
-			send(socket_cliente, &respuesta, sizeof(t_puntero), 0);
+			send(socket_cliente, &respuesta, sizeof(t_puntero), MSG_NOSIGNAL);
 		}
 
 		break;
@@ -1139,6 +1139,21 @@ int existe_proceso(int PID) {
 void finalizar_programa(int PID) {
 	if (existe_proceso(PID)) {
 		Proceso *proceso = proceso_segun_pid(PID);
+		if (proceso->cantidad_alocar > proceso->cantidad_liberar) {
+			logear_info("[PID:%d] Mem leaks! %d bloques (%d bytes) liberados de %d bloques (%d bytes) reservados a lo largo de %d páginas de Heap",
+								PID,
+								proceso->cantidad_liberar,
+								proceso->bytes_liberados,
+								proceso->cantidad_alocar,
+								proceso->bytes_alocados,
+								proceso->cantidad_paginas_heap);
+		}
+		if (proceso->cantidad_alocar > 0 && proceso->cantidad_alocar == proceso->cantidad_liberar) {
+			logear_info("[PID:%d] Woohoo! El proceso liberó todas las estructuras (%d bloques) a lo largo de sus %d páginas de Heap",
+								PID,
+								proceso->cantidad_alocar,
+								proceso->cantidad_paginas_heap);
+		}
 		int exit_code = proceso->pcb->exit_code;
 		eliminar_proceso(PID);
 		mem_finalizar_programa(PID);

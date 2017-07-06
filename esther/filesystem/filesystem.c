@@ -527,7 +527,6 @@ void leer_metadata(void) {
 
 	if (metadata_config == NULL) {
 		free(ruta_metadata);
-		config_destroy(metadata_config);
 		logear_error("No existe el archivo \"Metadata.bin\"", true);
 	}
 

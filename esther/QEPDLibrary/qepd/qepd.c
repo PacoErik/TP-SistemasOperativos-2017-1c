@@ -41,7 +41,7 @@ void enviar_header(int socket, char operacion, int bytes) {
 	headerDeMiMensaje.codigoDeOperacion = operacion;
 	void* header = &headerDeMiMensaje;
 	int headerSize = sizeof(headerDeMiMensaje);
-	send(socket, header, headerSize, 0);
+	send(socket, header, headerSize, MSG_NOSIGNAL);
 }
 int existe_archivo(const char *ruta) {
     FILE *archivo = fopen(ruta, "r+");
