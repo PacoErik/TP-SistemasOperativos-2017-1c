@@ -456,7 +456,7 @@ int *asignar_bloques(int n, int **bloques) {
 
 	if (found_n != n) {
 		free(tmp);
-		bloques = NULL;
+		*bloques = NULL;
 		return NULL;
 	}
 
