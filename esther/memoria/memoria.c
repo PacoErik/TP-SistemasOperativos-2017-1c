@@ -651,27 +651,7 @@ void dump(char *param) {
 
 				int max_bytes = (size - i_offset) > 16 ? 16 : (size - i_offset);
 
-				int i_byte;
-				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-					DUMP_PRINT(output_file, "%02X", (unsigned char) frame[i_offset + i_byte]);
-					if (i_byte % 2 == 1) {
-						DUMP_PRINT(output_file, " ");
-					}
-					fflush(stdout);
-				}
-
-				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-					if (iscntrl(frame[i_offset + i_byte])) {
-						DUMP_PRINT(output_file, ".");
-					}
-					else {
-						DUMP_PRINT(output_file, "%c", frame[i_offset + i_byte]);
-					}
-					fflush(stdout);
-				}
-
-				DUMP_PRINT(output_file, "\n");
-				fflush(stdout);
+				hex_dump(output_file, max_bytes, &frame[i_offset]);
 			}
 		}
 	}
@@ -719,16 +699,39 @@ void dump(char *param) {
 			dump_file = fopen(dump_filename, "w");
 
 			pid = atoi(pid_c);
+
+			char tmp[16];
+			int offset_digits;		// Cantidad de digitos hexa de un desplazamiento
+
+			snprintf(tmp, sizeof tmp - 1, "%x", MARCO_SIZE);
+			offset_digits = strlen(tmp);
+
 			DUMP_PRINT(dump_file, "Contenido PID %d:\n", pid);
 
 			int i;
-			for (i = 0; i < MARCOS; i++) {
-				if (tabla_administrativa[i].pid == pid) {
+			int paginas;
 
-					/* TODO: Hacer una funcion dump especifica
-					 * para este comando. */
-					_dump(dump_file, 1, MARCO_SIZE, ir_a_frame_memoria(i));
+			for (i = 0, paginas = 0; i < MARCOS; i++) {
+				if (tabla_administrativa[i].pid == pid) {
+					DUMP_PRINT(dump_file, "\nPagina %d (Frame %d)\n\n", paginas, i);
+
+					int i_offset;
+					char *frame = ir_a_frame_memoria(i);
+
+					for (i_offset = 0; i_offset < MARCO_SIZE; i_offset += 16) {
+						DUMP_PRINT(dump_file, "%0*X: ", offset_digits, i_offset);
+						fflush(stdout);
+
+						int max_bytes = (MARCO_SIZE - i_offset) > 16 ? 16 : (MARCO_SIZE - i_offset);
+						hex_dump(dump_file, max_bytes, &frame[i_offset]);
+					}
+
+					paginas++;
 				}
+			}
+
+			if (paginas == 0) {
+				DUMP_PRINT(dump_file, "El proceso no existe.\n");
 			}
 
 			fclose(dump_file);
@@ -1109,4 +1112,27 @@ char *obtener_timestamp(void) {
 	snprintf(&time_str[14], 3, "%hu", time_n.millitm);
 
 	return time_str;
+}
+
+void hex_dump(FILE *output_file, int bytes, char *data) {
+	int i_byte;
+	for (i_byte = 0; i_byte < bytes; i_byte++) {
+		DUMP_PRINT(output_file, "%02X", (unsigned char) data[i_byte]);
+		if (i_byte % 2 == 1) {
+			DUMP_PRINT(output_file, " ");
+		}
+		fflush(stdout);
+	}
+
+	for (i_byte = 0; i_byte < bytes; i_byte++) {
+		if (iscntrl(data[i_byte])) {
+			DUMP_PRINT(output_file, ".");
+		}
+		else {
+			DUMP_PRINT(output_file, "%c", data[i_byte]);
+		}
+		fflush(stdout);
+	}
+
+	DUMP_PRINT(output_file, "\n");
 }

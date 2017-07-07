@@ -93,5 +93,6 @@
 	_Bool 			hash_pagina_correcta			(int,int,int);
 
 	char *obtener_timestamp(void);
+	void hex_dump(FILE *output_file, int bytes, char *data);
 
 #endif /* MEMORIA_H_ */
