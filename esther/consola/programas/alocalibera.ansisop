@@ -1,0 +1,7 @@
+begin
+	variables z
+	:loop
+	alocar z 100
+	liberar z
+	goto loop
+end
