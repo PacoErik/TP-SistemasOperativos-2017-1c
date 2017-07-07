@@ -1095,7 +1095,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	}
 	miCliente *cpu = list_find(clientes, &mismoCPU);
 	cpu->proceso_asociado = NULL;
-	logear_info("CPU con socket %d liberada.", cpu->socketCliente);
+	//logear_info("CPU con socket %d liberada.", cpu->socketCliente);
 
 	return pcb->pid;
 }
@@ -1194,7 +1194,7 @@ void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
 		Proceso* nuevo_proceso = queue_pop(cola_NEW);
 		if (nuevo_proceso == NULL) {
-			logear_info("No hay procesos en la cola NEW");
+			//logear_info("No hay procesos en la cola NEW");
 		}
 		else {
 			char *codigo = strdup(nuevo_proceso->codigo);
@@ -1459,10 +1459,10 @@ void planificar() {
 
 				planificar(); //Vamos a intentar vaciar la cola de READY
 			} else {
-				logear_info("No hay procesos para planificar");
+				//logear_info("No hay procesos para planificar");
 			}
 		} else {
-			logear_info("No hay CPUs disponibles");
+			//logear_info("No hay CPUs disponibles");
 		}
 	} else {
 		logear_info("La planificación está desactivada");
