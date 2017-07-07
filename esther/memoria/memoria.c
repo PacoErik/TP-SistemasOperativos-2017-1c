@@ -266,12 +266,14 @@ int memoria_finalizar_programa(int PID) {
 		}
 	}
 
+	pthread_mutex_lock(&mutex_cache);
 	for (i = 0; i < ENTRADAS_CACHE; i++) {
 		if (tabla_administrativa_cache[i].pid == PID) {
 			tabla_administrativa_cache[i].pid = FRAME_LIBRE;
 			tabla_administrativa_cache[i].lru = 0;
 		}
 	}
+	pthread_mutex_unlock(&mutex_cache);
 
 	return 1;
 }
