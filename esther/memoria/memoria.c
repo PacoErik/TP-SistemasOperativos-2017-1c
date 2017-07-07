@@ -54,6 +54,7 @@ estructura_administrativa *tabla_administrativa;
 int socket_kernel;
 
 pthread_mutex_t mutex_cache;
+pthread_mutex_t *acceso_hash;
 
 /*--------PROCEDIMIENTO PRINCIPAL----------*/
 
@@ -409,13 +410,17 @@ char *cache_solicitar_bytes(int PID, int numero_pagina, int frame, int offset) {
 void hash_agregar_en_overflow(int posicion, int frame) {
 	int *frame_p = malloc(sizeof(int));
 	*frame_p = frame;
+	pthread_mutex_lock(&acceso_hash[posicion]);
 	list_add(overflow[posicion], frame_p);
+	pthread_mutex_unlock(&acceso_hash[posicion]);
 }
 void hash_borrar_de_overflow(int posicion, int frame) {
 	_Bool mismo_frame(void *otro_frame) {
 		return *(int*) otro_frame == frame;
 	}
+	pthread_mutex_lock(&acceso_hash[posicion]);
 	list_remove_and_destroy_by_condition(overflow[posicion], &mismo_frame, free);
+	pthread_mutex_unlock(&acceso_hash[posicion]);
 }
 int hash_buscar_en_overflow(int pid, int pagina) {
 	int posicion = hash_calcular_posicion(pid, pagina);
@@ -424,7 +429,9 @@ int hash_buscar_en_overflow(int pid, int pagina) {
 		return hash_pagina_correcta(*((int *)frame), pid, pagina);
 	}
 
+	pthread_mutex_lock(&acceso_hash[posicion]);
 	int *frame = (int *) list_find(overflow[posicion], _es_frame_correcto);
+	pthread_mutex_unlock(&acceso_hash[posicion]);
 
 	return frame == NULL ? -1 : *frame;
 }
@@ -440,9 +447,12 @@ int hash_calcular_posicion(int pid, int num_pagina) {
 }
 void hash_iniciar_overflow(void) {
 	overflow = malloc(sizeof(t_list*) * MARCOS);
+	acceso_hash = malloc(MARCOS * sizeof(pthread_mutex_t));
+
 	int posicion;
 	for (posicion = 0; posicion < MARCOS; posicion++) {
 		overflow[posicion] = list_create();
+		pthread_mutex_init(&acceso_hash[posicion], NULL);
 	}
 }
 _Bool hash_pagina_correcta(int pos_candidata, int pid, int pagina) {
@@ -911,7 +921,7 @@ void imprimir_opciones_memoria() {
 			"BIENVENIDO A LA MEMORIA\n"
 			"Lista de comandos: \n"
 			"retardo [Número de retardo] \t\t//Cambiar el retardo\n"
-			"dump [memoria/cache/estructuras] \t//Generar volcado\n"
+			"dump [memoria/cache/proceso/estructuras] \t//Generar volcado\n"
 			"flush \t\t\t\t\t//Limpiar la caché\n"
 			"size [memoria] \t\t\t\t//Mostrar tamaño de memoria\n"
 			"size [PID] [Número de PID] \t\t//Mostrar tamaño de proceso\n"
