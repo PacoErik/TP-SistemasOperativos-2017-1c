@@ -91,4 +91,7 @@
 	int 			hash_calcular_posicion			(int,int);
 	void 			hash_iniciar_overflow			();
 	_Bool 			hash_pagina_correcta			(int,int,int);
+
+	char *obtener_timestamp(void);
+
 #endif /* MEMORIA_H_ */

@@ -11,9 +11,11 @@
 #include "commons/log.h"
 #include "commons/config.h"
 #include "commons/string.h"
+#include "commons/temporal.h"
 #include <stdarg.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <sys/timeb.h>
 #include "commons/collections/list.h"
 #include "memoria.h"
 #include "qepd/qepd.h"
@@ -24,9 +26,9 @@
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
 #define FRAME_ADMIN -1
 #define FRAME_LIBRE -2
-#define DUMP_PRINT(format, ...) {				\
-	printf(format, ##__VA_ARGS__);				\
-	fprintf(dump_file, format, ##__VA_ARGS__);	\
+#define DUMP_PRINT(file, format, ...) {				\
+	printf(format, ##__VA_ARGS__);					\
+	fprintf(file, format, ##__VA_ARGS__);			\
 }
 
 /*-----VARIABLES GLOBALES-----*/
@@ -42,7 +44,6 @@ char				REEMPLAZO_CACHE[8]; // Useless variable is useless.
 
 t_log* logger;
 t_config* config;
-FILE* dump_file;
 
 char *memoria;
 char *memoria_cache;
@@ -629,7 +630,7 @@ void configurar_retardo(char *retardo) {
 
 }
 void dump(char *param) {
-	void _dump(int entries, int size, char * (*lookup_func)(int)) {
+	void _dump(FILE *output_file, int entries, int size, char *buffer) {
 		char tmp[16];
 
 		int pag_digits;			// Cantidad de digitos hexa de una pagina
@@ -643,79 +644,135 @@ void dump(char *param) {
 
 		int i_pag, i_offset;	// Indice pagina y desplazamiento
 		for (i_pag = 0; i_pag < entries; i_pag++) {
-			char *frame = lookup_func(i_pag);
+			char *frame = ((char (*)[size]) buffer)[i_pag];
 
 			for (i_offset = 0; i_offset < size; i_offset += 16) {
-				DUMP_PRINT("%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
+				DUMP_PRINT(output_file, "%0*X:%0*X ", pag_digits, i_pag, offset_digits, i_offset);
 				fflush(stdout);
 
 				int max_bytes = (size - i_offset) > 16 ? 16 : (size - i_offset);
 
 				int i_byte;
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
-					DUMP_PRINT("%02X", (unsigned char) frame[i_offset + i_byte]);
+					DUMP_PRINT(output_file, "%02X", (unsigned char) frame[i_offset + i_byte]);
 					if (i_byte % 2 == 1) {
-						DUMP_PRINT(" ");
+						DUMP_PRINT(output_file, " ");
 					}
 					fflush(stdout);
 				}
 
 				for (i_byte = 0; i_byte < max_bytes; i_byte++) {
 					if (iscntrl(frame[i_offset + i_byte])) {
-						DUMP_PRINT(".");
+						DUMP_PRINT(output_file, ".");
 					}
 					else {
-						DUMP_PRINT("%c", frame[i_offset + i_byte]);
+						DUMP_PRINT(output_file, "%c", frame[i_offset + i_byte]);
 					}
 					fflush(stdout);
 				}
 
-				DUMP_PRINT("\n");
+				DUMP_PRINT(output_file, "\n");
 				fflush(stdout);
 			}
 		}
 	}
 
+	FILE *dump_file;
+	char *dump_filename = strdup("dump_");
+	char *timestamp = obtener_timestamp();
+
 	string_trim(&param);
 
 	if (!strcmp(param, "memoria")) {
-		dump_file = fopen("dump_memoria.txt", "w");
-		_dump(MARCOS, MARCO_SIZE, ir_a_frame_memoria);
+		string_append(&dump_filename, "memoria_");
+		string_append(&dump_filename, timestamp);
+		string_append(&dump_filename, ".txt");
+
+		dump_file = fopen(dump_filename, "w");
+		_dump(dump_file, MARCOS, MARCO_SIZE, memoria);
 		fclose(dump_file);
 	}
 
 	else if (!strcmp(param, "cache")) {
-		dump_file = fopen("dump_cache.txt", "w");
-		_dump(ENTRADAS_CACHE, MARCO_SIZE, ir_a_frame_cache);
+		string_append(&dump_filename, "cache_");
+		string_append(&dump_filename, timestamp);
+		string_append(&dump_filename, ".txt");
+
+		dump_file = fopen(dump_filename, "w");
+		printf("%s\n", temporal_get_string_time());
+
+		_dump(dump_file, ENTRADAS_CACHE, MARCO_SIZE, memoria_cache);
 		fclose(dump_file);
 	}
 
+	else if (!strncmp(param, "proceso ", sizeof "proceso " - 1)) {
+		int pid;
+
+		char *pid_c = string_substring_from(param, sizeof "proceso" - 1);
+		string_trim(&pid_c);
+
+		if (solo_numeros(pid_c)) {
+			string_append(&dump_filename, "proceso_");
+			string_append(&dump_filename, pid_c);
+			string_append(&dump_filename, "_");
+			string_append(&dump_filename, timestamp);
+			string_append(&dump_filename, ".txt");
+
+			dump_file = fopen(dump_filename, "w");
+
+			pid = atoi(pid_c);
+			DUMP_PRINT(dump_file, "Contenido PID %d:\n", pid);
+
+			int i;
+			for (i = 0; i < MARCOS; i++) {
+				if (tabla_administrativa[i].pid == pid) {
+
+					/* TODO: Hacer una funcion dump especifica
+					 * para este comando. */
+					_dump(dump_file, 1, MARCO_SIZE, ir_a_frame_memoria(i));
+				}
+			}
+
+			fclose(dump_file);
+		}
+
+		free(pid_c);
+	}
+
 	else if (!strcmp(param, "estructuras")) {
-		dump_file = fopen("dump_estructuras_administrativas.txt", "w");
+		string_append(&dump_filename, "estructuras_admin_");
+		string_append(&dump_filename, timestamp);
+		string_append(&dump_filename, ".txt");
+
+		dump_file = fopen(dump_filename, "w");
+
 		char tmp[16];
 		int frame_digits;		// Cantidad de digitos de un frame
 
 		snprintf(tmp, sizeof tmp - 1, "%d", MARCOS);
 		frame_digits = strlen(tmp);
 
-		DUMP_PRINT("┌───────────┬───────────┬───────────┐\n");
-		DUMP_PRINT("│   Frame   │    PID    │   Pagina  │\n");
-		DUMP_PRINT("├───────────┼───────────┼───────────┤\n");
+		DUMP_PRINT(dump_file, "┌───────────┬───────────┬───────────┐\n");
+		DUMP_PRINT(dump_file, "│   Frame   │    PID    │   Pagina  │\n");
+		DUMP_PRINT(dump_file, "├───────────┼───────────┼───────────┤\n");
 
 		int i;
 		t_list *pid_activos = list_create();
 
 		for (i = 0; i < MARCOS; i++) {
-			DUMP_PRINT("│%.*s", 10 - frame_digits, "          ");
-			DUMP_PRINT("%0*d │", frame_digits, i);
+			DUMP_PRINT(dump_file, "│%.*s", 10 - frame_digits, "          ");
+			DUMP_PRINT(dump_file, "%0*d │", frame_digits, i);
+			fflush(stdout);
 
 			switch (tabla_administrativa[i].pid) {
 			case FRAME_ADMIN:
-				DUMP_PRINT("     ADMIN ");
+				DUMP_PRINT(dump_file, "     ADMIN ");
+				fflush(stdout);
 				break;
 
 			case FRAME_LIBRE:
-				DUMP_PRINT("     LIBRE ");
+				DUMP_PRINT(dump_file, "     LIBRE ");
+				fflush(stdout);
 				break;
 
 			default:
@@ -730,37 +787,37 @@ void dump(char *param) {
 
 					list_add(pid_activos, p_pid);
 				}
-				DUMP_PRINT("     %5d", tabla_administrativa[i].pid);
+				DUMP_PRINT(dump_file, "     %5d", tabla_administrativa[i].pid);
+				fflush(stdout);
 				break;
 			}
 
 			if (tabla_administrativa[i].pid > FRAME_ADMIN) {
-				DUMP_PRINT(" │%.*s", 10 - frame_digits, "          ");
-				DUMP_PRINT("%*d │", frame_digits, tabla_administrativa[i].pag);
+				DUMP_PRINT(dump_file, " │%.*s", 10 - frame_digits, "          ");
+				DUMP_PRINT(dump_file, "%*d │", frame_digits, tabla_administrativa[i].pag);
+				fflush(stdout);
 			}
 
 			else {
-				DUMP_PRINT("│     -     │ ");
+				DUMP_PRINT(dump_file, "│     -     │ ");
+				fflush(stdout);
 			}
 
-			DUMP_PRINT("\n");
-			fflush(stdout);
+			DUMP_PRINT(dump_file, "\n");
 		}
 
-		DUMP_PRINT("└───────────┴───────────┴───────────┘ \n");
+		DUMP_PRINT(dump_file, "└───────────┴───────────┴───────────┘ \n");
 
 		if (list_size(pid_activos) == 0) {
-			DUMP_PRINT("No hay ningun proceso activo.\n");
+			DUMP_PRINT(dump_file, "No hay ningun proceso activo.\n");
 			list_destroy(pid_activos);
 		}
 
-		/* Hago un list_sort() aca o no? */
-
 		else {
-			DUMP_PRINT("PIDs Activos:\n");
+			DUMP_PRINT(dump_file, "PIDs Activos:\n");
 			list_iterate(pid_activos, ({
 				void _print_(void *e) {
-					DUMP_PRINT("PID: %d\n", *((int *)e));
+					DUMP_PRINT(dump_file, "PID: %d\n", *((int *)e));
 				}
 				_print_;
 			}));
@@ -774,6 +831,8 @@ void dump(char *param) {
 		logear_error("Comando invalido", false);
 	}
 
+	free(dump_filename);
+	free(timestamp);
 	free(param);
 }
 void flush() {
@@ -880,25 +939,34 @@ void size(char *param) {
 	else {
 		if (!strncmp(param, "PID ", 4)) {
 			int pid;
-			char *pid_c = malloc(3);
-			pid_c = string_substring_from(param, 4);
-			pid = atoi(pid_c);
+			char *pid_c = string_substring_from(param, 4);
+			string_trim(&pid_c);
 
-			int i;
-			int frames_usados = 0;
-			for (i = 0; i < MARCOS; i++) {
-				if (tabla_administrativa[i].pid == pid)
-					frames_usados++;
-			}
+			if (solo_numeros(pid_c)) {
+				pid = atoi(pid_c);
 
-			if (frames_usados == 0) {
-				printf("No existe el proceso\n");
+				int i;
+				int frames_usados = 0;
+				for (i = 0; i < MARCOS; i++) {
+					if (tabla_administrativa[i].pid == pid)
+						frames_usados++;
+				}
+
+				if (frames_usados == 0) {
+					printf("No existe el proceso\n");
+				}
+
+				else {
+					printf("Tamaño total del proceso (PID:%i) = %i Bytes, con %d página/s ocupada/s\n",
+							pid, frames_usados * MARCO_SIZE, frames_usados);
+				}
 			}
 
 			else {
-				printf("Tamaño total del proceso (PID:%i) = %i Bytes, con %d página/s ocupada/s\n", pid,
-						frames_usados * MARCO_SIZE, frames_usados);
+				logear_error("Comando inválido", false);
 			}
+
+			free(pid_c);
 		}
 
 		else {
@@ -1028,4 +1096,19 @@ char* remover_salto_linea(char *s) {
 		s[len - 1] = '\0';
 
 	return s;
+}
+
+char *obtener_timestamp(void) {
+	struct tm date_time;
+	struct timeb time_n;
+
+	char *time_str = strdup("YYYYmmddHHMMSSms");
+
+	ftime(&time_n);
+	localtime_r(&time_n.time, &date_time);
+
+	strftime(time_str, 49, "%Y%m%d%H%M%S", &date_time);
+	snprintf(&time_str[14], 3, "%hu", time_n.millitm);
+
+	return time_str;
 }
