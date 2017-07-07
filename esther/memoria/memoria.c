@@ -725,7 +725,7 @@ void dump(char *param) {
 
 			for (i = 0, paginas = 0; i < MARCOS; i++) {
 				if (tabla_administrativa[i].pid == pid) {
-					DUMP_PRINT(dump_file, "\nPagina %d (Frame %d)\n\n", paginas, i);
+					DUMP_PRINT(dump_file, "\nPagina %d (Frame %d)\n\n", tabla_administrativa[i].pag, i);
 
 					int i_offset;
 					char *frame = ir_a_frame_memoria(i);
@@ -922,13 +922,13 @@ void imprimir_opciones_memoria() {
 	printf("\n--------------------\n"
 			"BIENVENIDO A LA MEMORIA\n"
 			"Lista de comandos: \n"
-			"retardo [Número de retardo] \t\t//Cambiar el retardo\n"
+			"retardo [Número de retardo] \t\t\t//Cambiar el retardo\n"
 			"dump [memoria/cache/proceso/estructuras] \t//Generar volcado\n"
-			"flush \t\t\t\t\t//Limpiar la caché\n"
-			"size [memoria] \t\t\t\t//Mostrar tamaño de memoria\n"
-			"size [PID] [Número de PID] \t\t//Mostrar tamaño de proceso\n"
-			"limpiar \t\t\t\t//Limpiar pantalla\n"
-			"opciones \t\t\t\t//Mostrar comandos\n"
+			"flush \t\t\t\t\t\t//Limpiar la caché\n"
+			"size [memoria] \t\t\t\t\t//Mostrar tamaño de memoria\n"
+			"size [PID] [Número de PID] \t\t\t//Mostrar tamaño de proceso\n"
+			"limpiar \t\t\t\t\t//Limpiar pantalla\n"
+			"opciones \t\t\t\t\t//Mostrar comandos\n"
 			);
 }
 void limpiar_pantalla() {
