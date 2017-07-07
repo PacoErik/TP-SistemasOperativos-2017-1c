@@ -753,13 +753,12 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			return;
 		}
 
-		respuesta = liberar_bloque_seguro(proceso->pcb->pid, puntero);
+		respuesta = liberar_bloque_pro(proceso->pcb->pid, puntero);
 
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
 		} else {
 			proceso->cantidad_liberar++;
-			proceso->bytes_liberados = proceso->bytes_liberados + respuesta;
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		}
 

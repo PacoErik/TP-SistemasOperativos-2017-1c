@@ -139,6 +139,88 @@ bool liberar_bloque(int PID, t_puntero direccion) {
 	return true;
 }
 
+int liberar_bloque_pro(int PID, t_puntero direccion) {
+	int pagina = direccion / MARCO_SIZE;
+	int offset = direccion % MARCO_SIZE;
+	Proceso *proceso = (Proceso*)proceso_segun_pid(PID);
+	int offset_snd;
+
+	Pagina_Heap* pagina_heap = pagina_heap_proceso(PID, pagina);
+
+	if (pagina_heap == NULL) return PUNTERO_INVALIDO;
+
+	HeapMetadata fst_hm;
+	HeapMetadata snd_hm;
+
+	if (!leer_heap_metadata(PID, pagina, 0, &fst_hm)) return PUNTERO_INVALIDO;
+
+	offset_snd = sizeof(HeapMetadata) + fst_hm.size;
+
+	while (offset_snd + sizeof(HeapMetadata) <= offset || offset_snd - fst_hm.size == offset) {
+		if (!leer_heap_metadata(PID, pagina, offset_snd, &snd_hm)) return PUNTERO_INVALIDO;
+
+		if (offset_snd + sizeof(HeapMetadata) == offset) {
+			if (!snd_hm.isfree) {
+				if (fst_hm.isfree) {
+					pagina_heap->espacio += sizeof(HeapMetadata) + snd_hm.size;
+					proceso->bytes_liberados += snd_hm.size;
+					logear_info("1 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+					fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
+					if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
+
+					return mem_escribir_bytes(PID, pagina, offset_snd - fst_hm.size + snd_hm.size, sizeof(HeapMetadata), &fst_hm);
+				} else {
+					fst_hm = snd_hm;
+					offset_snd += sizeof(HeapMetadata) + snd_hm.size;
+
+					if (!leer_heap_metadata(PID, pagina, offset_snd, &snd_hm)) return PUNTERO_INVALIDO;
+					proceso->bytes_liberados += fst_hm.size;
+					fst_hm.isfree = true;
+					if (!snd_hm.isfree) {
+						pagina_heap->espacio += fst_hm.size;
+					} else {
+						pagina_heap->espacio += fst_hm.size + sizeof(HeapMetadata);
+						logear_info("2 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+						fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
+
+						if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
+
+						return mem_escribir_bytes(PID, pagina, offset_snd - fst_hm.size + snd_hm.size, sizeof(HeapMetadata), &fst_hm);
+					}
+					return mem_escribir_bytes(PID, pagina, offset_snd - fst_hm.size - sizeof(HeapMetadata), sizeof(HeapMetadata), &fst_hm);
+				}
+			}
+			return PUNTERO_INVALIDO;
+		}
+
+		if (offset_snd - fst_hm.size == offset) {
+			if (!fst_hm.isfree) {
+				fst_hm.isfree = true;
+				if (snd_hm.isfree) {
+					pagina_heap->espacio += fst_hm.size + sizeof(HeapMetadata);
+					proceso->bytes_liberados += fst_hm.size;
+					logear_info("3 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+					fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
+
+					if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
+
+					return mem_escribir_bytes(PID, pagina, offset_snd - fst_hm.size + snd_hm.size, sizeof(HeapMetadata), &fst_hm);
+				} else {
+					pagina_heap->espacio += fst_hm.size;
+					proceso->bytes_liberados += fst_hm.size;
+				}
+				return mem_escribir_bytes(PID, pagina, offset_snd - fst_hm.size - sizeof(HeapMetadata), sizeof(HeapMetadata), &fst_hm);
+			}
+			return PUNTERO_INVALIDO;
+		}
+
+		offset_snd += sizeof(HeapMetadata) + snd_hm.size;
+		fst_hm = snd_hm;
+	}
+
+	return PUNTERO_INVALIDO;
+}
+
 int liberar_bloque_seguro(int PID, t_puntero direccion) {
 	int pagina = direccion / MARCO_SIZE;
 	int offset = direccion % MARCO_SIZE;
@@ -189,6 +271,10 @@ static bool leer_heap_metadata(int PID, int pagina, off_t offset, HeapMetadata *
 
 	memcpy(hm_leido, data, sizeof(HeapMetadata));
 	free(data);
+
+	if (hm_leido->size > MARCO_SIZE - sizeof(HeapMetadata) || hm_leido->size < 0) { //Metadata corrupto o incorrecto
+		return false;
+	}
 
 	return true;
 }

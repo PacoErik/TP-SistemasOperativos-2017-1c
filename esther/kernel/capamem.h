@@ -27,4 +27,6 @@
 	/* LIBERAR */
 	bool liberar_bloque(int PID, t_puntero direccion);
 
+	int liberar_bloque_pro(int PID, t_puntero direccion);
+
 #endif /* CAPAMEM_H_ */
