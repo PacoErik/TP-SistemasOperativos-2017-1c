@@ -11,7 +11,6 @@
 #include "commons/log.h"
 #include "commons/config.h"
 #include "commons/string.h"
-#include "commons/temporal.h"
 #include <stdarg.h>
 #include <ctype.h>
 #include <pthread.h>
@@ -699,7 +698,6 @@ void dump(char *param) {
 		string_append(&dump_filename, ".txt");
 
 		dump_file = fopen(dump_filename, "w");
-		printf("%s\n", temporal_get_string_time());
 
 		_dump(dump_file, ENTRADAS_CACHE, MARCO_SIZE, memoria_cache);
 		fclose(dump_file);
