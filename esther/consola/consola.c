@@ -169,16 +169,16 @@ inline void imprimir_opciones_consola() {
 			"\n--------------------\n"
 			"BIENVENIDO A LA CONSOLA\n"
 			"Lista de comandos: \n"
-			"iniciar [Ruta relativa] "
-				"\t\t//Iniciar programa AnSISOP\n"
+			"iniciar [Ruta] "
+				"\t\t\t//Iniciar programa AnSISOP\n"
 			"finalizar [Número de PID] "
-				"\t\t//Finalizar programa AnSISOP\n"
+				"\t//Finalizar programa AnSISOP\n"
 			"salir "
-				"\t\t//Desconectar consola\n"
+				"\t\t\t\t//Desconectar consola\n"
 			"limpiar "
-				"\t\t//Limpiar mensajes\n"
+				"\t\t\t//Limpiar mensajes\n"
 			"opciones "
-				"\t\t//Mostrar opciones\n"
+				"\t\t\t//Mostrar comandos\n"
 	);
 }
 void* iniciar_programa(void* arg) {
