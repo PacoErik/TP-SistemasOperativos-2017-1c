@@ -753,13 +753,12 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			return;
 		}
 
-		respuesta = liberar_bloque_seguro(proceso->pcb->pid, puntero);
+		respuesta = liberar_bloque_pro(proceso->pcb->pid, puntero);
 
 		if (respuesta < 0) {
 			enviar_excepcion(socket_cliente, respuesta);
 		} else {
 			proceso->cantidad_liberar++;
-			proceso->bytes_liberados = proceso->bytes_liberados + respuesta;
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		}
 
@@ -789,23 +788,23 @@ inline void imprimir_opciones_kernel() {
 			"BIENVENIDO AL KERNEL\n"
 			"Lista de comandos: \n"
 			"listado"
-				"\t//Ver procesos de todas las colas\n"
+				"\t\t\t\t\t//Ver procesos de todas las colas\n"
 			"listado [NEW/READY/EXEC/BLOCKED/EXIT]"
 				"\t//Ver procesos en una cola específica\n"
 			"proceso [Número de PID]"
-				"\t//Ver información del proceso PID\n"
+				"\t\t\t//Ver información del proceso PID\n"
 			"tablaglobal"
-				"\t//Ver la tabla global de archivos\n"
+				"\t\t\t\t//Ver la tabla global de archivos\n"
 			"multiprogramacion [Número de grado]"
-				"\t//Cambiar el grado de multiprogramación a GRADO\n"
+				"\t//Cambiar el grado de multiprogramación\n"
 			"finalizar [Número de PID]"
-				"\t//Finaliza el proceso PID\n"
+				"\t\t//Finaliza el proceso PID\n"
 			"detener"
-				"\t//Detiene la planificación\n"
+				"\t\t\t\t\t//Detiene la planificación\n"
 			"planificar"
-				"\t//Inicia la planificación\n"
+				"\t\t\t\t//Inicia la planificación\n"
 			"opciones"
-				"\t//Mostrar opciones\n"
+				"\t\t\t\t//Mostrar opciones\n"
 	);
 }
 void interaccion_kernel() {
@@ -1096,7 +1095,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	}
 	miCliente *cpu = list_find(clientes, &mismoCPU);
 	cpu->proceso_asociado = NULL;
-	logear_info("CPU con socket %d liberada.", cpu->socketCliente);
+	//logear_info("CPU con socket %d liberada.", cpu->socketCliente);
 
 	return pcb->pid;
 }
@@ -1195,7 +1194,7 @@ void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
 		Proceso* nuevo_proceso = queue_pop(cola_NEW);
 		if (nuevo_proceso == NULL) {
-			logear_info("No hay procesos en la cola NEW");
+			//logear_info("No hay procesos en la cola NEW");
 		}
 		else {
 			char *codigo = strdup(nuevo_proceso->codigo);
@@ -1460,10 +1459,10 @@ void planificar() {
 
 				planificar(); //Vamos a intentar vaciar la cola de READY
 			} else {
-				logear_info("No hay procesos para planificar");
+				//logear_info("No hay procesos para planificar");
 			}
 		} else {
-			logear_info("No hay CPUs disponibles");
+			//logear_info("No hay CPUs disponibles");
 		}
 	} else {
 		logear_info("La planificación está desactivada");

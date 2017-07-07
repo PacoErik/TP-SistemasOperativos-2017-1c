@@ -546,14 +546,14 @@ t_puntero definir_variable(t_nombre_variable identificador_variable) {
 	int tamanio_stack = obtener_tamanio_stack();
 
 	if (tamanio_stack + 4 > STACK_SIZE * MARCO_SIZE) {
+		logear_error("[Error] Está coverflow!", false);
 		terminar_ejecucion(SOBRECARGA_STACK);
-		logear_error("Está coverflow!", false);
 		return 0;
 	}
 
 	if (existe_variable(identificador_variable)) {
+		logear_error("[Error] Redefinición de la variable %c", false, identificador_variable);
 		terminar_ejecucion(REDECLARACION_VARIABLE);
-		logear_error("Redefinición de la variable %c", false, identificador_variable);
 		return 0;
 	}
 
@@ -591,6 +591,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 	if (es_parametro(nombre)) {
 		Posicion_memoria *posicion = list_get(entrada->args, atoi(&nombre));
 		if (posicion == NULL) {
+			logear_error("[Error] Parámetro inexistente", false);
 			terminar_ejecucion(VARIABLE_SIN_DECLARAR);
 		} else {
 			return calcular_puntero(*posicion);
@@ -599,6 +600,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 		Variable *variable = list_find(entrada->vars, &mismo_identificador);
 
 		if(variable == NULL) {
+			logear_error("[Error] Variable inexistente", false);
 			terminar_ejecucion(VARIABLE_SIN_DECLARAR);
 		} else {
 			return calcular_puntero(variable->posicion);
@@ -610,7 +612,7 @@ t_puntero obtener_posicion_variable(t_nombre_variable nombre) {
 t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	if (!programaVivitoYColeando) return 0;
 
-	logear_info("Dereferenciar: %i", direccion_variable);
+	logear_info("Dereferenciar valor de (Pag:%d) (Offset:%d)", direccion_variable / MARCO_SIZE, direccion_variable % MARCO_SIZE);
 
 	posicionDeMemoriaAPedir posicion;
 	posicion.processID = PCB_actual->pid;
@@ -624,6 +626,10 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	if (recibir_algo_de(memoria)) {
 		t_valor_variable *valor = buffer_solicitado;
 		return *valor;
+	}
+
+	if (!programaVivitoYColeando) {
+		logear_error("[Error] Violación de segmento", false);
 	}
 
 	return 0;
@@ -642,7 +648,11 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	send(memoria.socket, &valor, sizeof(valor), 0);
 
 	if (recibir_algo_de(memoria)) {
-		logear_info("Se asignó una variable con el valor %i en la dirección %i.", valor, direccion_variable);
+		logear_info("Se asignó una variable con el valor %i en la posición (Pag:%d) (Offset:%d).", valor, posicion.numero_pagina, posicion.offset);
+	}
+
+	if (!programaVivitoYColeando) {
+		logear_error("[Error] Violación de segmento", false);
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
@@ -658,7 +668,7 @@ t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
 		logear_info("Valor obtenido de %s = %d", variable, valor_compartida_solicitada);
 		return valor_compartida_solicitada;
 	}
-	logear_info("No se pudo obtener el valor de %s", variable);
+	logear_error("[Error] Variable compartida inexistente", false);
 	return 0;
 }
 t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_variable valor) {
@@ -675,7 +685,7 @@ t_valor_variable asignar_valor_compartida(t_nombre_compartida variable, t_valor_
 		logear_info("Se asignó satisfactoriamente %d a la variable %s", valor, variable);
 		return valor;
 	}
-	logear_info("No se pudo asignar el valor a %s", variable);
+	logear_error("[Error] Variable compartida inexistente", false);
 	return 0;
 }
 void ir_al_label(t_nombre_etiqueta etiqueta) {
@@ -685,7 +695,7 @@ void ir_al_label(t_nombre_etiqueta etiqueta) {
 	int nuevo_program_counter = metadata_buscar_etiqueta(etiqueta,
 			PCB_actual->etiquetas, PCB_actual->etiquetas_size);
 	if (nuevo_program_counter < 0) {
-		//No existe la etiqueta
+		logear_error("[Error] Etiqueta inexistente", false);
 		terminar_ejecucion(ETIQUETA_INEXISTENTE);
 	} else {
 		PCB_actual->program_counter = nuevo_program_counter - 1;
@@ -753,10 +763,9 @@ void finalizar(void) {
 void retornar(t_valor_variable valor_retorno) {
 	if (!programaVivitoYColeando) return;
 
-	logear_info("Se retorna el valor %i.", valor_retorno);
-
 	Entrada_stack *entrada = list_remove(PCB_actual->indice_stack, PCB_actual->puntero_stack);
 
+	logear_info("Se retorna el valor %i a la posición (Pag:%d) (Offset:%d)", valor_retorno, entrada->retVar.numero_pagina, entrada->retVar.offset);
 	//No sé si está bien esto pero en mi opinión creo que sí
 	asignar(calcular_puntero(entrada->retVar), valor_retorno);
 
@@ -780,6 +789,10 @@ void kernel_wait(t_nombre_semaforo identificador_semaforo) {
 		return;
 	}
 
+	if (!programaVivitoYColeando) {
+		logear_error("[Error] Semáforo inexistente", false);
+	}
+
 	if (programaVivitoYColeando) {
 		logear_info("Se bloquea el proceso");
 		programaVivitoYColeando = false;
@@ -795,7 +808,11 @@ void kernel_signal(t_nombre_semaforo identificador_semaforo) {
 	send(kernel.socket, identificador_semaforo, longitud, 0);
 
 	if (recibir_algo_de(kernel)) {
-		logear_info("Se libera el semáforo %s", identificador_semaforo);
+		logear_info("Se liberó el semáforo %s", identificador_semaforo);
+	}
+
+	if (!programaVivitoYColeando) {
+		logear_error("[Error] Semáforo inexistente", false);
 	}
 }
 t_puntero reservar(t_valor_variable espacio) {
@@ -811,7 +828,7 @@ t_puntero reservar(t_valor_variable espacio) {
 		return posicion_alocada;
 	}
 
-	logear_info("Error al solicitar un bloque de memoria.");
+	logear_error("[Error] Fallo al solicitar un bloque de memoria", false);
 	return 0;
 }
 void liberar(t_puntero puntero) {
@@ -827,7 +844,7 @@ void liberar(t_puntero puntero) {
 		return;
 	}
 
-	logear_info("Error al liberar un bloque de memoria.");
+	logear_error("[Error] Fallo al liberar un bloque de memoria", false);
 }
 t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
 	if (!programaVivitoYColeando) return 0;
@@ -844,7 +861,7 @@ t_descriptor_archivo abrir(t_direccion_archivo direccion, t_banderas flags) {
 		return fd_solicitado;
 	}
 
-	logear_info("Error al abrir el archivo");
+	logear_error("[Error] Fallo al abrir el archivo", false);
 	return 0;
 }
 void borrar(t_descriptor_archivo descriptor_archivo) {
@@ -860,7 +877,7 @@ void borrar(t_descriptor_archivo descriptor_archivo) {
 		return;
 	}
 
-	logear_info("Error al intentar borrar archivo");
+	logear_error("[Error] Fallo al intentar borrar archivo", false);
 }
 void cerrar(t_descriptor_archivo descriptor_archivo) {
 	if (!programaVivitoYColeando) return;
@@ -875,7 +892,7 @@ void cerrar(t_descriptor_archivo descriptor_archivo) {
 		return;
 	}
 
-	logear_info("Error al intentar cerrar archivo");
+	logear_error("[Error] Fallo al intentar cerrar archivo", false);
 }
 void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posicion) {
 	if (!programaVivitoYColeando) return;
@@ -891,7 +908,7 @@ void mover_cursor(t_descriptor_archivo descriptor_archivo, t_valor_variable posi
 		return;
 	}
 
-	logear_info("Error al intentar mover el cursor del archivo");
+	logear_error("[Error] Fallo al intentar mover el cursor del archivo", false);
 }
 void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valor_variable tamanio) {
 	if (!programaVivitoYColeando) return;
@@ -906,7 +923,7 @@ void escribir(t_descriptor_archivo descriptor_archivo, void* informacion, t_valo
 		logear_info("Escritura correcta de la información!");
 		return;
 	}
-	logear_info("Error al escribir en (FD:%d)", descriptor_archivo);
+	logear_error("[Error] Fallo al escribir en (FD:%d)", false, descriptor_archivo);
 }
 void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valor_variable tamanio) {
 	if (!programaVivitoYColeando) return;
@@ -916,7 +933,7 @@ void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valo
 	peticion.offset = informacion % MARCO_SIZE;
 	peticion.size = tamanio;
 
-	logear_info("Leer %d bytes del (FD:%d) y almacenar en Pag:%d Offset:%d", tamanio, descriptor_archivo, peticion.numero_pagina, peticion.offset);
+	logear_info("Leer %d bytes del (FD:%d) y almacenar en (Pag:%d) (Offset:%d)", tamanio, descriptor_archivo, peticion.numero_pagina, peticion.offset);
 
 	enviar_header(kernel.socket, LEER_ARCHIVO, sizeof(Posicion_memoria));
 	send(kernel.socket, &peticion, sizeof(Posicion_memoria), 0);
@@ -926,7 +943,7 @@ void leer(t_descriptor_archivo descriptor_archivo, t_puntero informacion, t_valo
 		logear_info("Lectura correcta de la información!");
 		return;
 	}
-	logear_info("Error al leer de (FD:%d)", descriptor_archivo);
+	logear_error("[Error] Fallo al leer de (FD:%d)", false, descriptor_archivo);
 }
 
 //MANEJO DE SEÑALES

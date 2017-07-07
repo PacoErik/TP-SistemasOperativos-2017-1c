@@ -172,9 +172,9 @@ int kernel_liberar_pagina() {
 	respuesta = memoria_liberar_pagina(paquete.PID, paquete.numero_pagina);
 
 	if (respuesta < 0) {
-		logear_error("Error al liberar página %d de (PID:%d)", false, paquete.numero_pagina, paquete.PID);
+		logear_error("[PID:%d] Error al liberar página %d", false, paquete.PID, paquete.numero_pagina);
 	} else {
-		logear_info("Página %d de (PID:%d) liberada correctamente!", paquete.numero_pagina, paquete.PID);
+		logear_info("[PID:%d] Página %d liberada correctamente!", paquete.PID, paquete.numero_pagina);
 	}
 
 	send(socket_kernel, &respuesta, sizeof(respuesta), 0);
