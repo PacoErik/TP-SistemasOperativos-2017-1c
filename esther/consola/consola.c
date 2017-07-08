@@ -6,6 +6,7 @@
 #include "qepd/qepd.h"
 #include <string.h>
 #include <signal.h>
+#include <semaphore.h>
 
 //-----DEFINES-----//
 #define DURACION(INICIO) ((double)(clock() - INICIO) / CLOCKS_PER_SEC)
@@ -17,28 +18,35 @@ typedef struct proceso {
 	time_t inicio;
 	int cantidad_impresiones;
 	char *ruta;
-} proceso;
+	sem_t mensaje_a_procesar;
+	char operacion;
+	unsigned short bytes_a_recibir;
+	_Bool falta_de_recursos;
+} info_hilo;
 typedef t_list listaProceso;
 
 //-----VARIABLES GLOBALES-----//
 t_log* logger;
 t_config* config;
-int servidor;
+int kernel_socket;
 char IP_KERNEL[16];
 int PUERTO_KERNEL;
-listaProceso *procesos;
+listaProceso *hilos_programa;
+sem_t mensaje_resuelto;
+pthread_t hilo_receptor;
 
 //-----PROTOTIPOS DE FUNCIONES-----//
-void 			agregar_proceso(int, pthread_t, char*);
+info_hilo*		agregar_info_hilo(int, pthread_t, char*);
 void 			configurar_programa();
-void 			desconectar_consola();
+void 			desconectar_hilos();
 void 			desconectar_programa();
-void 			eliminar_proceso(int);
+void 			eliminar_info_hilo(int);
 void 			enviar_header(int, char, int);
 void 			establecer_configuracion();
 pthread_t		hiloID_programa(int);
 void 			imprimir_opciones_consola();
-void*		 	iniciar_programa(void*);
+info_hilo*		info_hilo_segun_PID(int);
+void*		 	manejar_programa(void*);
 void 			interaccion_consola();
 void 			limpiar_buffer_entrada();
 void 			limpiar_pantalla();
@@ -47,34 +55,36 @@ void 			procesar_operacion(char, int);
 void* 			recibir_headers(void*);
 char*			remover_salto_linea(char*);
 int				solo_numeros(char*);
+void			terminar_consola();
 
 //-----PROCEDIMIENTO PRINCIPAL-----//
 int main(void) {
+	sem_init(&mensaje_resuelto, 0, 0);
 
 	signal(SIGINT, manejar_signal_apagado);
 	signal(SIGTERM, manejar_signal_apagado);
 
-	procesos = list_create();
+	hilos_programa = list_create();
 	configurar("consola");
-	conectar(&servidor, IP_KERNEL, PUERTO_KERNEL);
-	handshake(servidor, CONSOLA);
+	conectar(&kernel_socket, IP_KERNEL, PUERTO_KERNEL);
+	handshake(kernel_socket, CONSOLA);
 
-	pthread_t hiloReceptor;
-	pthread_create(&hiloReceptor, NULL, &recibir_headers, NULL);
+	pthread_create(&hilo_receptor, NULL, &recibir_headers, NULL);
 
 	interaccion_consola();
 	return 0;
 }
 
 //-----DEFINICIÓN DE FUNCIONES-----
-void agregar_proceso(int PID, pthread_t hiloID, char *ruta) {
-	proceso *nuevo_proceso = malloc(sizeof(proceso));
-	nuevo_proceso->PID = PID;
-	nuevo_proceso->hiloID = hiloID;
-	nuevo_proceso->inicio = time(NULL); //tiempo actual en segundos
-	nuevo_proceso->cantidad_impresiones = 0;
-	nuevo_proceso->ruta = ruta;
-	list_add(procesos, nuevo_proceso);
+info_hilo *agregar_info_hilo(int PID, pthread_t hiloID, char *ruta) {
+	info_hilo *nueva_info_hilo = malloc(sizeof(info_hilo));
+	nueva_info_hilo->PID = PID;
+	nueva_info_hilo->hiloID = hiloID;
+	nueva_info_hilo->ruta = ruta;
+	nueva_info_hilo->falta_de_recursos = false;
+	sem_init(&nueva_info_hilo->mensaje_a_procesar, 0, 0);
+	list_add(hilos_programa, nueva_info_hilo);
+	return nueva_info_hilo;
 }
 void configurar_programa(char *ruta) {
 	pthread_attr_t attr;
@@ -82,63 +92,72 @@ void configurar_programa(char *ruta) {
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	pthread_create(&hiloPrograma, &attr, &iniciar_programa, ruta);
+	pthread_create(&hiloPrograma, &attr, &manejar_programa, ruta);
 	pthread_attr_destroy(&attr);
 }
-void desconectar_consola() {
-	logear_info("Se van a cerrar todos los procesos correspondientes a esta consola.");
-
-	void borrar_proceso(void *param) {
-		proceso *proceso = param;
-		free(proceso->ruta);
-		free(proceso);
+void desconectar_hilos() {
+	if (list_size(hilos_programa) > 0) {
+		logear_info("[Desconexión] Cerrando hilos...");
+	} else {
+		logear_info("[Desconexión] No hay hilos para cerrar!");
 	}
-	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
 
-	logear_info("Chau!");
+	enviar_header(kernel_socket, DESCONECTAR_CONSOLA, 0);
 
-	log_destroy(logger);
-
-	exit(0);
+	while (list_size(hilos_programa) > 0) {
+		info_hilo *info = list_get(hilos_programa, 0);
+		info->operacion = FINALIZAR_PROGRAMA;
+		sem_post(&info->mensaje_a_procesar);
+		sem_wait(&mensaje_resuelto);
+	}
 }
 void desconectar_programa(int PID) {
-	pthread_t TID = hiloID_programa(PID);
-	if (TID == 0) {
+	info_hilo *info = info_hilo_segun_PID(PID);
+
+	if (info == NULL || PID < 0) {
 		logear_error("No existe PID %d", false, PID);
 		return;
 	}
-	logear_info("[PID:%d] Peticion de finalizacion enviada", PID);
-	enviar_header(servidor, FINALIZAR_PROGRAMA, sizeof PID);
-	send(servidor, &PID, sizeof PID, 0);
 
-	pthread_cancel(TID);
+	logear_info("[PID:%d] Pedido de finalización enviada", PID);
+	info->operacion = FINALIZAR_PROGRAMA;
+	sem_post(&info->mensaje_a_procesar);
+	sem_wait(&mensaje_resuelto);
+
+	enviar_header(kernel_socket, FINALIZAR_PROGRAMA, sizeof PID);
+	send(kernel_socket, &PID, sizeof PID, 0);
+
 }
-void eliminar_proceso(int PID) {
+void eliminar_info_hilo(int PID) {
 	_Bool mismo_PID(void* elemento) {
-			return PID == ((proceso *) elemento)->PID;
+			return PID == ((info_hilo *) elemento)->PID;
 		}
-	proceso *proceso = list_remove_by_condition(procesos,mismo_PID);
+	info_hilo *info = list_remove_by_condition(hilos_programa,mismo_PID);
 
 	if (PID < 0) {
-		logear_info("No se pudo iniciar el programa (%s) debido a falta de recursos", proceso->ruta);
+		if (info->falta_de_recursos) {
+			logear_info("El programa (%s) finalizó debido a falta de recursos", info->ruta);
+		} else {
+			logear_info("El programa (%s) finalizó debido a desconexión de hilo", info->ruta);
+		}
 	} else {
 		//Estadística
-		time_t inicio = proceso->inicio;
+		time_t inicio = info->inicio;
 		time_t fin = time(NULL);
 		char string_tiempo[20];
 		strftime(string_tiempo, 20, "%d/%m (%H:%M)", localtime(&inicio));
-		logear_info("[PID:%d] Finalización del programa (%s)", PID, proceso->ruta);
+		logear_info("[PID:%d] Finalización del programa (%s)", PID, info->ruta);
 		logear_info("[PID:%d] Inicio: %s", PID, string_tiempo);
 		strftime(string_tiempo, 20, "%d/%m (%H:%M)", localtime(&fin));
 		logear_info("[PID:%d] Fin: %s", PID, string_tiempo);
-		logear_info("[PID:%d] Cantidad de impresiones: %d", PID, proceso->cantidad_impresiones);
+		logear_info("[PID:%d] Cantidad de impresiones: %d", PID, info->cantidad_impresiones);
 		logear_info("[PID:%d] Duración: %.fs", PID, difftime(fin,inicio));
 		//Fin estadística
 		logear_info("[PID:%d] Finalizado", PID);
 	}
-
-	free(proceso->ruta);
-	free(proceso);
+	sem_destroy(&info->mensaje_a_procesar);
+	free(info->ruta);
+	free(info);
 }
 void establecer_configuracion() {
 	if (config_has_property(config, "PUERTO_KERNEL")) {
@@ -156,9 +175,9 @@ void establecer_configuracion() {
 }
 pthread_t hiloID_programa(int PID) {
 	_Bool mismo_PID(void* elemento) {
-		return PID == ((proceso *) elemento)->PID;
+		return PID == ((info_hilo *) elemento)->PID;
 	}
-	proceso *elemento = list_find(procesos, mismo_PID);
+	info_hilo *elemento = list_find(hilos_programa, mismo_PID);
 	if (elemento == NULL) {
 		return 0;
 	}
@@ -173,66 +192,19 @@ inline void imprimir_opciones_consola() {
 				"\t\t\t//Iniciar programa AnSISOP\n"
 			"finalizar [Número de PID] "
 				"\t//Finalizar programa AnSISOP\n"
-			"salir "
-				"\t\t\t\t//Desconectar consola\n"
+			"desconectar "
+				"\t\t\t//Desconectar hilos\n"
 			"limpiar "
 				"\t\t\t//Limpiar mensajes\n"
 			"opciones "
 				"\t\t\t//Mostrar comandos\n"
 	);
 }
-void* iniciar_programa(void* arg) {
-	//Inicio del programa
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	pthread_t id_hilo = pthread_self();
-
-	//Chequeo de que el archivo del programa ingresado exista
-	char* ruta = arg;
-	logear_info("Ruta ingresada: %s",ruta);
-	if (!existe_archivo(ruta)) {
-		logear_error("No se encontró el archivo %s",false,ruta);
-		return NULL;
-	} else if (!string_ends_with(ruta,".ansisop")) {
-		logear_error("El archivo %s no es un programa válido",false,ruta);
-		return NULL;
+info_hilo *info_hilo_segun_PID(int PID) {
+	_Bool mismo_PID(void *p) {
+		return PID == ((info_hilo*)p)->PID;
 	}
-
-	//Lectura y envío del programa
-	FILE* prog = fopen(ruta,"r");
-
-	char* codigo = NULL;
-	long int bytes;
-
-	fseek(prog, 0, SEEK_END);
-	bytes = ftell(prog);
-	fseek(prog, 0, SEEK_SET);
-	codigo = malloc(bytes);
-	fread(codigo, 1, bytes, prog);
-	fclose(prog);
-
-	int PID = -1;
-
-	if (bytes > 0) {
-		enviar_header(servidor, INICIAR_PROGRAMA, bytes);
-		agregar_proceso(PID, id_hilo, ruta);
-		logear_info("[Programa] Petición de inicio de %s enviada",ruta);
-		send(servidor, codigo, bytes, 0);
-	} else if (bytes == 0) {
-		logear_error("Archivo vacio: %s", false, ruta);
-		free(arg);
-		free(codigo);
-		return NULL;
-	} else {
-		logear_error("No se pudo leer el archivo: %s", false, ruta);
-		free(arg);
-		return NULL;
-	}
-
-	free(codigo); //ya no necesitamos más el código
-
-	for(;;);
-	printf("Nunca me ejecutarán :CCC");
-	return NULL;
+	return list_find(hilos_programa, &mismo_PID);
 }
 void interaccion_consola() {
 	struct comando {
@@ -276,16 +248,16 @@ void interaccion_consola() {
 		desconectar_programa(PID);
 	}
 
-	void salir(char *param) {
-		logear_info("Comando de apagado de consola ejecutado");
+	void desconectar(char *param) {
+		logear_info("Comando de terminación de hilos ejecutado");
 		string_trim(&param);
 		if (strlen(param) != 0) {
-			logear_error("El comando \"desconectar\" no recibe ningun parametro", false);
+			logear_error("El comando \"desconectar\" no recibe ningún parámetro", false);
 			free(param);
 			return;
 		}
 		free(param);
-		desconectar_consola();
+		desconectar_hilos();
 	}
 
 	void limpiar(char *param) {
@@ -313,7 +285,7 @@ void interaccion_consola() {
 	struct comando comandos[] = {
 		{ "iniciar", iniciar },
 		{ "finalizar", finalizar },
-		{ "salir", salir },
+		{ "desconectar", desconectar },
 		{ "limpiar", limpiar },
 		{ "opciones", opciones }
 	};
@@ -371,74 +343,155 @@ inline void limpiar_buffer_entrada() {
 void limpiar_pantalla() {
 	printf("\033[H\033[J");
 }
+void* manejar_programa(void* arg) {
+	//Inicio del programa
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	pthread_t id_hilo = pthread_self();
+
+	//Chequeo de que el archivo del programa ingresado exista
+	char* ruta = arg;
+	logear_info("Ruta ingresada: %s",ruta);
+	if (!existe_archivo(ruta)) {
+		logear_error("No se encontró el archivo %s",false,ruta);
+		return NULL;
+	} else if (!string_ends_with(ruta,".ansisop")) {
+		logear_error("El archivo %s no es un programa válido",false,ruta);
+		return NULL;
+	}
+
+	//Lectura y envío del programa
+	FILE* prog = fopen(ruta,"r");
+
+	char* codigo = NULL;
+	long int bytes;
+
+	fseek(prog, 0, SEEK_END);
+	bytes = ftell(prog);
+	fseek(prog, 0, SEEK_SET);
+	codigo = malloc(bytes);
+	fread(codigo, 1, bytes, prog);
+	fclose(prog);
+
+	int PID = -1;
+
+	if (bytes > 0) {
+		enviar_header(kernel_socket, INICIAR_PROGRAMA, bytes);
+		info_hilo *info = agregar_info_hilo(PID, id_hilo, ruta);
+		logear_info("[Programa] Petición de inicio de %s enviada", ruta);
+		send(kernel_socket, codigo, bytes, 0);
+		free(codigo);
+		while (true) {
+			sem_wait(&info->mensaje_a_procesar);
+
+			switch (info->operacion) {
+
+			case INICIAR_PROGRAMA:
+				info->inicio = time(NULL);
+				info->cantidad_impresiones = 0;
+				logear_info("[PID:%d] Programa iniciado (%s)", info->PID, info->ruta);
+				break;
+
+			case FINALIZAR_PROGRAMA:
+				eliminar_info_hilo(info->PID);
+				sem_post(&mensaje_resuelto);
+				pthread_exit(NULL);
+				break;
+
+			case IMPRIMIR:;
+				char *informacion = malloc(info->bytes_a_recibir);
+				recv(kernel_socket, informacion, info->bytes_a_recibir, 0);
+
+				info->cantidad_impresiones++;
+
+				logear_info("[PID:%d] Imprimir: %s", info->PID, informacion);
+				free(informacion);
+
+				break;
+			}
+
+			sem_post(&mensaje_resuelto);
+		}
+
+	} else if (bytes == 0) {
+		logear_error("Archivo vacio: %s", false, ruta);
+		free(arg);
+		free(codigo);
+		return NULL;
+	} else {
+		logear_error("No se pudo leer el archivo: %s", false, ruta);
+		free(arg);
+		return NULL;
+	}
+}
 void manejar_signal_apagado(int sig) {
-   desconectar_consola();
+   terminar_consola();
 }
 void procesar_operacion(char operacion, int bytes) {
 	int PID;
-	switch (operacion) {
-		case INICIAR_PROGRAMA:
-			recv(servidor, &PID, sizeof(PID), 0);
 
-			_Bool esNuevo(void* elemento) {
-				return -1 == ((proceso *) elemento)->PID;
-			}
+	if (operacion == FALLO_INICIO_PROGRAMA) {
+		info_hilo *info = info_hilo_segun_PID(-1);
+		if (info == NULL) return;
 
-			//Actualizamos el PID del proceso que habíamos agregado
-			//con PID = -1;
-			proceso *procesoAux = list_find(procesos,esNuevo);
-			procesoAux->PID = PID;
+		info->operacion = FINALIZAR_PROGRAMA;
+		info->falta_de_recursos = true;
+		sem_post(&info->mensaje_a_procesar);
+		sem_wait(&mensaje_resuelto);
 
-			if (PID != -1) {
-				logear_info("[PID:%d] Programa iniciado",PID);
-			} else {
-				logear_info("No se pudo iniciar programa por falta de recursos");
-				eliminar_proceso(PID);
-			}
-			break;
-		case FINALIZAR_PROGRAMA:
-			recv(servidor, &PID, sizeof(PID), 0);
-			eliminar_proceso(PID);
-			break;
-		case IMPRIMIR:;
-			char *informacion = malloc(bytes);
-			recv(servidor, &PID, sizeof(PID), 0);
-			recv(servidor, informacion, bytes, 0);
-
-			_Bool mismo_proceso(void *param) {
-				proceso *proceso_auxiliar = param;
-				return proceso_auxiliar->PID == PID;
-			}
-
-			proceso *un_proceso = list_find(procesos, &mismo_proceso);
-
-			un_proceso->cantidad_impresiones++;
-
-			logear_info("[PID:%d] Imprimir: %s", PID, informacion);
-			free(informacion); //Pete del orto
-			break;
-		case FALLO_INICIO_PROGRAMA:
-			eliminar_proceso(-1);
-			break;
-		default:
-			logear_error("Operación inválida", false);
-			break;
+		return;
 	}
+
+	if (operacion == INICIAR_PROGRAMA) {
+		recv(kernel_socket, &PID, sizeof(PID), 0);
+
+		info_hilo *info = info_hilo_segun_PID(-1);
+		if (info == NULL) return;
+
+		info->PID = PID;
+		info->operacion = operacion;
+		sem_post(&info->mensaje_a_procesar);
+		sem_wait(&mensaje_resuelto);
+
+		return;
+	}
+
+	if (operacion == FINALIZAR_PROGRAMA || operacion == IMPRIMIR) {
+
+		recv(kernel_socket, &PID, sizeof(PID), 0);
+
+		info_hilo *info = info_hilo_segun_PID(PID);
+		if (info == NULL) return;
+
+		info->bytes_a_recibir = bytes;
+		info->operacion = operacion;
+		sem_post(&info->mensaje_a_procesar);
+		sem_wait(&mensaje_resuelto);
+
+		return;
+	}
+
+	logear_error("Operación inválida", false);
 }
 void* recibir_headers(void* arg) {
 	while (1) {
 		headerDeLosRipeados header;
 
-		int bytesRecibidos = recibir_header(servidor, &header);
+		int bytes_recibidos = recibir_header(kernel_socket, &header);
 
-		if (bytesRecibidos <= 0) {
+		if (bytes_recibidos <= 0) {
 			void _borrar(void *p) {
-				proceso *proceso = p;
-				free(proceso->ruta);
-				free(proceso);
+				info_hilo *info = p;
+				sem_destroy(&info->mensaje_a_procesar);
+				free(info->ruta);
+				pthread_cancel(info->hiloID);
+				free(info);
 			}
-			list_destroy_and_destroy_elements(procesos, &_borrar);
-			logear_error("Se desconectó el Kernel",true);
+			sem_destroy(&mensaje_resuelto);
+			list_destroy_and_destroy_elements(hilos_programa, &_borrar);
+			logear_error("Se desconectó el Kernel", false);
+			log_destroy(logger);
+			pthread_cancel(hilo_receptor);
+			exit(0);
 		}
 
 		procesar_operacion(header.codigoDeOperacion,header.bytesDePayload);
@@ -460,4 +513,13 @@ int solo_numeros(char *str) {
         }
     }
     return 1;
+}
+void terminar_consola() {
+	desconectar_hilos();
+	list_destroy(hilos_programa);
+	sem_destroy(&mensaje_resuelto);
+	logear_info("Chau!");
+	log_destroy(logger);
+	pthread_cancel(hilo_receptor);
+	exit(0);
 }
