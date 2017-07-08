@@ -352,10 +352,13 @@ void* manejar_programa(void* arg) {
 	char* ruta = arg;
 	logear_info("Ruta ingresada: %s",ruta);
 	if (!existe_archivo(ruta)) {
-		logear_error("No se encontró el archivo %s",false,ruta);
+		logear_error("No se encontró el archivo %s", false, ruta);
+		free(arg);
 		return NULL;
-	} else if (!string_ends_with(ruta,".ansisop")) {
-		logear_error("El archivo %s no es un programa válido",false,ruta);
+	}
+	else if (!string_ends_with(ruta, ".ansisop")) {
+		logear_error("El archivo %s no es un programa válido", false, ruta);
+		free(arg);
 		return NULL;
 	}
 
