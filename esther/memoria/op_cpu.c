@@ -36,7 +36,7 @@ int cpu_procesar_operacion(int socket) {
 		break;
  	case ALMACENAR_BYTES:
 		recv(socket, &posicion, header.bytesDePayload, 0);
-		logear_info("[PID:%d] CPU %d almacenando bytes...", posicion.processID,socket);
+		//logear_info("[PID:%d] CPU %d almacenando bytes...", posicion.processID,socket);
 
 		char *buffer_a_almacenar = malloc(posicion.size);
 		recv(socket, buffer_a_almacenar, posicion.size, 0);
