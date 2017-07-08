@@ -15,24 +15,32 @@ void conectar(int* servidor,char* IP,int PUERTO) {
 	logear_info("Conectado al servidor");
 }
 void configurar(char* quienSoy) {
-
 	if (existe_archivo(RUTA_CONFIG)) {
 		config = config_create(RUTA_CONFIG);
-		int longitud = strlen(quienSoy)+strlen(".log ");
-		char *ruta = malloc(longitud+1);
-		snprintf(ruta,longitud,"%s%s",quienSoy,".log");
+
+		char *ruta = strdup(quienSoy);
+		char *timestamp = obtener_timestamp();
+
+		string_append(&ruta, "_");
+		string_append(&ruta, timestamp);
+		string_append(&ruta, ".log");
+
+		free(timestamp);
+
 		logger = log_create(ruta, quienSoy, false, LOG_LEVEL_INFO);
 		free(ruta);
-
-	}else{
-		logear_error("No existe el archivo de configuración",true);
+	}
+	else {
+		logear_error("No existe el archivo de configuración", true);
 	}
 
-	if(config_keys_amount(config) > 0) {
+	if (config_keys_amount(config) > 0) {
 		establecer_configuracion();
-	} else {
-		logear_error("Error al leer archivo de configuración",true);
 	}
+	else {
+		logear_error("Error al leer archivo de configuración", true);
+	}
+
 	config_destroy(config);
 }
 void enviar_header(int socket, char operacion, int bytes) {
@@ -78,4 +86,19 @@ int recibir_header(int socket, headerDeLosRipeados *header) {
 	int bytesRecibidos = recv(socket, header, bytesARecibir, 0);
 
 	return bytesRecibidos;
+}
+
+char *obtener_timestamp(void) {
+	struct tm date_time;
+	struct timeb time_n;
+
+	char *time_str = strdup("YYYYmmddHHMMSSms");
+
+	ftime(&time_n);
+	localtime_r(&time_n.time, &date_time);
+
+	strftime(time_str, 49, "%Y%m%d%H%M%S", &date_time);
+	snprintf(&time_str[14], 3, "%hu", time_n.millitm);
+
+	return time_str;
 }

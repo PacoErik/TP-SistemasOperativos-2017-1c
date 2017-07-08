@@ -1,20 +1,17 @@
-/*
- * qepd.h
- *
- *  Created on: 15/4/2017
- *      Author: utnso
- */
-
 #ifndef QEPD_H_
 #define QEPD_H_
 
-#include "commons/log.h"
-#include "commons/config.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/timeb.h>
+
+#include "commons/log.h"
+#include "commons/config.h"
+#include "commons/string.h"
 
 #define RUTA_CONFIG "config.cfg"
 #define DIVIDE_ROUNDUP(x,y) ((x - 1) / y + 1)
@@ -104,5 +101,6 @@ void 	enviar_header(int, char, int);
 int 	existe_archivo(const char *);
 void 	handshake(int,char);
 int 	recibir_header(int, headerDeLosRipeados *);
+char *	obtener_timestamp(void);
 
 #endif /* QEPD_H_ */

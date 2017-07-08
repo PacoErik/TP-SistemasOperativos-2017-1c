@@ -151,21 +151,29 @@ int main(void) {
 
 	if (existe_archivo(PUTO_INOTIFY)) {
 		config = config_create(PUTO_INOTIFY);
-		int longitud = strlen("kernel")+strlen(".log ");
-		char *ruta = malloc(longitud+1);
-		snprintf(ruta,longitud,"%s%s","kernel",".log");
+
+		char *ruta = strdup("kernel_");
+		char *timestamp = obtener_timestamp();
+
+		string_append(&ruta, timestamp);
+		string_append(&ruta, ".log");
+
+		free(timestamp);
+
 		logger = log_create(ruta, "kernel", false, LOG_LEVEL_INFO);
 		free(ruta);
-
-	}else{
-		logear_error("No existe el archivo de configuración",true);
+	}
+	else {
+		logear_error("No existe el archivo de configuración", true);
 	}
 
-	if(config_keys_amount(config) > 0) {
+	if (config_keys_amount(config) > 0) {
 		establecer_configuracion();
-	} else {
-		logear_error("Error al leer archivo de configuración",true);
 	}
+	else {
+		logear_error("Error al leer archivo de configuración", true);
+	}
+
 	config_destroy(config);
 
 	clientes = list_create();
