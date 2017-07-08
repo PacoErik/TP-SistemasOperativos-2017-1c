@@ -659,7 +659,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		void *info = fs_leer_archivo(proceso->pcb->pid, descriptor, pedido.size, &respuesta);
 		if (info != NULL) {
 			char *texto = info;
-			logear_info("[PID:%d] Lee '%s' de %d bytes de un archivo. Almacenando en memoria...", proceso->pcb->pid, texto, pedido.size);
+			logear_info("[PID:%d] Lee '%.*s' de %d bytes de un archivo. Almacenando en memoria...", proceso->pcb->pid, pedido.size, texto, pedido.size);
 			respuesta = mem_escribir_bytes(proceso->pcb->pid, pedido.numero_pagina, pedido.offset, pedido.size, info);
 			if (respuesta < 0) {
 				enviar_excepcion(socket_cliente, respuesta);
