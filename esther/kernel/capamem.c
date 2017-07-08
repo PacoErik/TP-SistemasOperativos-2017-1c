@@ -164,7 +164,7 @@ int liberar_bloque_pro(int PID, t_puntero direccion) {
 				if (fst_hm.isfree) {
 					pagina_heap->espacio += sizeof(HeapMetadata) + snd_hm.size;
 					proceso->bytes_liberados += snd_hm.size;
-					logear_info("1 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+					//logear_info("1 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
 					fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
 					if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
 
@@ -180,7 +180,7 @@ int liberar_bloque_pro(int PID, t_puntero direccion) {
 						pagina_heap->espacio += fst_hm.size;
 					} else {
 						pagina_heap->espacio += fst_hm.size + sizeof(HeapMetadata);
-						logear_info("2 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+						//logear_info("2 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
 						fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
 
 						if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
@@ -199,7 +199,7 @@ int liberar_bloque_pro(int PID, t_puntero direccion) {
 				if (snd_hm.isfree) {
 					pagina_heap->espacio += fst_hm.size + sizeof(HeapMetadata);
 					proceso->bytes_liberados += fst_hm.size;
-					logear_info("3 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
+					//logear_info("3 - Bloque de %d compactado con bloque de %d", fst_hm.size, snd_hm.size);
 					fst_hm.size += sizeof(HeapMetadata) + snd_hm.size;
 
 					if (fst_hm.size == MARCO_SIZE - sizeof(HeapMetadata)) return liberar_pagina_heap(lista_paginas_heap_proceso(PID), PID, pagina);
