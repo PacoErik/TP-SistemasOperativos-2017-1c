@@ -259,7 +259,7 @@ int cumplir_deseos_memoria(char operacion, unsigned short bytes_payload) {
 		case SOLICITAR_BYTES:
 			free(buffer_solicitado);
 			buffer_solicitado = malloc(bytes_payload);
-			recv(memoria.socket, buffer_solicitado, bytes_payload, 0);
+			recv(memoria.socket, buffer_solicitado, bytes_payload, MSG_WAITALL);
 			break;
 		case PETICION_CORRECTA:
 			//Esto es simplemente un mensaje de confirmación
@@ -317,9 +317,10 @@ void devolver_PCB() {
 }
 void obtener_PCB(unsigned short bytes_payload) {
 	void *buffer_PCB = malloc(bytes_payload);
-	int bytes_recibidos = recv(kernel.socket, buffer_PCB, bytes_payload, 0);
+	int bytes_recibidos = recv(kernel.socket, buffer_PCB, bytes_payload, MSG_WAITALL);
 
-	if(bytes_recibidos <= 0) {
+	if(bytes_recibidos < bytes_payload) {
+		free(buffer_PCB);
 		logear_error("Kernel desconectado, finalizando CPU...", true);
 	}
 

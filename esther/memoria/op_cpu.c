@@ -39,7 +39,7 @@ int cpu_procesar_operacion(int socket) {
 		//logear_info("[PID:%d] CPU %d almacenando bytes...", posicion.processID,socket);
 
 		char *buffer_a_almacenar = malloc(posicion.size);
-		recv(socket, buffer_a_almacenar, posicion.size, 0);
+		recv(socket, buffer_a_almacenar, posicion.size, MSG_WAITALL);
 
 		int respuesta = memoria_almacenar_bytes(posicion.processID, posicion.numero_pagina, posicion.offset, posicion.size, buffer_a_almacenar);
 

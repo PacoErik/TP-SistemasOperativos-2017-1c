@@ -409,7 +409,7 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 
 	case INICIAR_PROGRAMA:;
 		char* codigo = malloc(bytes+1);
-		recv(socket_cliente, codigo, bytes, 0);
+		recv(socket_cliente, codigo, bytes, MSG_WAITALL);
 		codigo[bytes]='\0';
 
 		Proceso* nuevo_proceso = malloc(sizeof(Proceso));
@@ -532,7 +532,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		nombre = malloc(bytes);
-		recv(socket_cliente, nombre, bytes, 0);
+		recv(socket_cliente, nombre, bytes, MSG_WAITALL);
 
 		if (dictionary_has_key(variables_compartidas, nombre))
 			valor = dictionary_get(variables_compartidas, nombre);
@@ -550,7 +550,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		nombre = malloc(bytes);
-		recv(socket_cliente, nombre, bytes, 0);
+		recv(socket_cliente, nombre, bytes, MSG_WAITALL);
 		int *valor_nuevo = malloc(sizeof(int));
 		recv(socket_cliente, valor_nuevo, sizeof(int), 0);
 
@@ -572,7 +572,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		nombre = malloc(bytes);
-		recv(socket_cliente, nombre, bytes, 0);
+		recv(socket_cliente, nombre, bytes, MSG_WAITALL);
 		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
@@ -597,7 +597,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		nombre = malloc(bytes);
-		recv(socket_cliente, nombre, bytes, 0);
+		recv(socket_cliente, nombre, bytes, MSG_WAITALL);
 		semaforo = NULL;
 
 		if (dictionary_has_key(semaforos, nombre))
@@ -621,7 +621,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		void *informacion = malloc(bytes);
-		recv(socket_cliente, informacion, bytes, 0);
+		recv(socket_cliente, informacion, bytes, MSG_WAITALL);
 		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
@@ -685,7 +685,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		t_direccion_archivo direccion = malloc(bytes);
-		recv(socket_cliente, direccion, bytes, 0);
+		recv(socket_cliente, direccion, bytes, MSG_WAITALL);
 		flags_t flags;
 		recv(socket_cliente, &flags, sizeof(flags_t), 0);
 
@@ -1116,7 +1116,7 @@ void listar_procesos_en_estado(int estado) {
 //MANEJO DE PROCESOS//
 int actualizar_PCB(int socket_cliente, int bytes) {
 	void *buffer_PCB = malloc(bytes);
-	recv(socket_cliente, buffer_PCB, bytes, 0);
+	recv(socket_cliente, buffer_PCB, bytes, MSG_WAITALL);
 	PCB *pcb = deserializar_PCB(buffer_PCB);
 	int PID = pcb->pid;
 	free(buffer_PCB);

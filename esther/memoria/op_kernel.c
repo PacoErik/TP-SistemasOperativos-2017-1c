@@ -140,7 +140,7 @@ int kernel_almacenar_bytes() {
 	}
 
 	paquete.datos = malloc(paquete.size);
-	recv(socket_kernel, paquete.datos, paquete.size, 0);
+	recv(socket_kernel, paquete.datos, paquete.size, MSG_WAITALL);
 
 	//logear_info("[PID:%d] Kernel almacenando %d bytes...", paquete.PID, paquete.size);
 
