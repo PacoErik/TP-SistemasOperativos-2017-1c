@@ -1,10 +1,3 @@
-/*
- * memoria.h
- *
- *  Created on: 27/6/2017
- *      Author: utnso
- */
-
 #ifndef MEMORIA_H_
 #define MEMORIA_H_
 
@@ -92,7 +85,6 @@
 	void 			hash_iniciar_overflow			();
 	_Bool 			hash_pagina_correcta			(int,int,int);
 
-	char *obtener_timestamp(void);
 	void hex_dump(FILE *output_file, int bytes, char *data);
 
 #endif /* MEMORIA_H_ */

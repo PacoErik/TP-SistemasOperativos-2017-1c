@@ -14,7 +14,6 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <pthread.h>
-#include <sys/timeb.h>
 #include "commons/collections/list.h"
 #include "memoria.h"
 #include "qepd/qepd.h"
@@ -1109,21 +1108,6 @@ char* remover_salto_linea(char *s) {
 		s[len - 1] = '\0';
 
 	return s;
-}
-
-char *obtener_timestamp(void) {
-	struct tm date_time;
-	struct timeb time_n;
-
-	char *time_str = strdup("YYYYmmddHHMMSSms");
-
-	ftime(&time_n);
-	localtime_r(&time_n.time, &date_time);
-
-	strftime(time_str, 49, "%Y%m%d%H%M%S", &date_time);
-	snprintf(&time_str[14], 3, "%hu", time_n.millitm);
-
-	return time_str;
 }
 
 void hex_dump(FILE *output_file, int bytes, char *data) {
