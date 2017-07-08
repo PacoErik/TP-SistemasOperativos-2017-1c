@@ -287,7 +287,9 @@ int recibir_algo_de(servidor servidor) {
 		if (PCB_actual != NULL) destruir_actualPCB();
 		free(buffer_solicitado);
 		free(instruccion);
-		logear_error("El servidor se desconectó. Finalizando...", true);
+		log_destroy(logger);
+		printf("El servidor se desconectó. Finalizando...\n");
+		exit(EXIT_FAILURE);
 	}
 	return 0;
 }
@@ -953,6 +955,7 @@ void rutina_signal(int _) {
 		signal_recibida = true;
 	} else {
 		logear_info("No estoy ejecutando nada, nos vemos!");
+		log_destroy(logger);
 		free(buffer_solicitado);
 		exit(0);
 	}
