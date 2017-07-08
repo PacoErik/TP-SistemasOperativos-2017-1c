@@ -64,7 +64,7 @@ typedef struct Semaforo_QEPD {
 t_log* logger;
 t_config* config;
 listaCliente *clientes;
-t_queue* cola_NEW;
+t_list* lista_NEW;
 listaProcesos *procesos; //Dentro van a estar los procesos en estado READY/EXEC/BLOCKED
 t_list* lista_EXIT;
 
@@ -170,7 +170,7 @@ int main(void) {
 
 	clientes = list_create();
 
-	cola_NEW = queue_create();
+	lista_NEW = list_create();
 	procesos = list_create();
 	lista_EXIT = list_create();
 
@@ -407,7 +407,7 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 		Proceso* nuevo_proceso = malloc(sizeof(Proceso));
 		inicializar_proceso(socket_cliente, codigo, nuevo_proceso);
 
-		queue_push(cola_NEW,nuevo_proceso);
+		list_add(lista_NEW, nuevo_proceso);
 		logear_info("Petición de inicio de proceso [PID:%d]", PID_GLOBAL);
 		PID_GLOBAL++;
 
@@ -424,6 +424,42 @@ void procesar_operaciones_consola(int socket_cliente, char operacion, int bytes)
 		} else {
 			logear_info("Error al intentar finalizar (PID:%d). Proceso inexistente.", PID);
 		}
+		break;
+
+	case DESCONECTAR_CONSOLA:;
+		_Bool mismo_cliente(void *p) {
+			return socket_cliente == ((miCliente*)p)->socketCliente;
+		}
+		miCliente *consola = list_find(clientes, &mismo_cliente);
+		consola->va_a_desconectarse = true;
+		_Bool misma_consola(void *p) {
+			Proceso *pr = p;
+			return pr->consola == socket_cliente;
+		}
+		void destruir_entrada_stack(void *param) {
+			Entrada_stack *entrada = (Entrada_stack *) param;
+			list_destroy_and_destroy_elements(entrada->vars, free);
+			list_destroy_and_destroy_elements(entrada->args, free);
+			free(entrada);
+		}
+		while (list_any_satisfy(lista_NEW, &misma_consola)) {
+			Proceso *proceso_aux = list_remove_by_condition(lista_NEW, &misma_consola);
+			proceso_aux->pcb->exit_code = DESCONEXION_CONSOLA;
+			logear_info("[PID:%d] Finalizó con EXIT_CODE:%d", proceso_aux->pcb->pid, proceso_aux->pcb->exit_code);
+			list_destroy(proceso_aux->paginas_heap);
+			list_destroy(proceso_aux->pcb->tabla_archivos);
+			list_destroy_and_destroy_elements(proceso_aux->pcb->indice_stack, &destruir_entrada_stack);
+			free(proceso_aux->pcb->etiquetas);
+			free(proceso_aux->pcb->instrucciones_serializado);
+			list_add(lista_EXIT, proceso_aux);
+		}
+		while (list_any_satisfy(procesos, &misma_consola)) {
+			Proceso *proceso_aux = list_find(procesos, &misma_consola);
+			proceso_aux->pcb->exit_code = DESCONEXION_CONSOLA;
+			finalizar_programa(proceso_aux->pcb->pid);
+		}
+		consola->va_a_desconectarse = false;
+
 		break;
 	}
 }
@@ -595,7 +631,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			enviar_header(proceso->consola, IMPRIMIR, bytes);
 			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
 			send(proceso->consola, informacion, bytes, 0);
-			logear_info("[PID:%d] Se mandó a imprimir un texto a la consola", proceso->pcb->pid);
+			//logear_info("[PID:%d] Se mandó a imprimir un texto a la consola", proceso->pcb->pid);
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		} else {
 			respuesta = fs_escribir_archivo(proceso->pcb->pid, descriptor, informacion, bytes);
@@ -1192,7 +1228,7 @@ void intentar_desbloquear_proceso(char *nombre_semaforo) {
 }
 void intentar_iniciar_proceso() {
 	if (cantidad_procesos_sistema() < GRADO_MULTIPROG) {
-		Proceso* nuevo_proceso = queue_pop(cola_NEW);
+		Proceso* nuevo_proceso = list_remove(lista_NEW, 0);
 		if (nuevo_proceso == NULL) {
 			//logear_info("No hay procesos en la cola NEW");
 		}
@@ -1685,7 +1721,7 @@ void terminar_kernel() {
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
-	queue_destroy_and_destroy_elements(cola_NEW, &borrar_proceso);
+	list_destroy_and_destroy_elements(lista_NEW, &borrar_proceso);
 
 	void borrar_proceso_exit(void *param) {
 		Proceso *proceso = (Proceso*) param;
