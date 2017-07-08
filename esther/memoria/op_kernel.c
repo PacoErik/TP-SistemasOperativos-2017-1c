@@ -111,7 +111,7 @@ int kernel_solicitar_bytes() {
 		return -1;
 	}
 
-	logear_info("[PID:%d] Kernel solicitando %d bytes...", paquete.PID, paquete.size);
+	//logear_info("[PID:%d] Kernel solicitando %d bytes...", paquete.PID, paquete.size);
 
 	char *datos = (char*)memoria_solicitar_bytes(paquete.PID, paquete.numero_pagina, paquete.offset, paquete.size);
 
@@ -142,7 +142,7 @@ int kernel_almacenar_bytes() {
 	paquete.datos = malloc(paquete.size);
 	recv(socket_kernel, paquete.datos, paquete.size, 0);
 
-	logear_info("[PID:%d] Kernel almacenando %d bytes...", paquete.PID, paquete.size);
+	//logear_info("[PID:%d] Kernel almacenando %d bytes...", paquete.PID, paquete.size);
 
 	respuesta = memoria_almacenar_bytes(paquete.PID, paquete.numero_pagina, paquete.offset, paquete.size, paquete.datos);
 	if (respuesta < 0) {
