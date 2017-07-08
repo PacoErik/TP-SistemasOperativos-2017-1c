@@ -1118,9 +1118,10 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	void *buffer_PCB = malloc(bytes);
 	recv(socket_cliente, buffer_PCB, bytes, 0);
 	PCB *pcb = deserializar_PCB(buffer_PCB);
+	int PID = pcb->pid;
 	free(buffer_PCB);
 
-	Proceso *proceso = proceso_segun_pid(pcb->pid);
+	Proceso *proceso = proceso_segun_pid(PID);
 
 	if (proceso != NULL) {
 		int exit_code = proceso->pcb->exit_code; //Con eso manejo el caso en el que se haya finalizado por consola
@@ -1129,6 +1130,8 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 		if (proceso->estado == EXIT) {
 			proceso->pcb->exit_code = exit_code;
 		}
+	} else {
+		destruir_PCB(pcb);
 	}
 
 	//Ya que completó el proceso/la ráfaga, ponemos el CPU correspondiente
@@ -1141,7 +1144,7 @@ int actualizar_PCB(int socket_cliente, int bytes) {
 	cpu->proceso_asociado = NULL;
 	//logear_info("CPU con socket %d liberada.", cpu->socketCliente);
 
-	return pcb->pid;
+	return PID;
 }
 void agregar_proceso(Proceso *nuevo_proceso) {
 	int pid = nuevo_proceso->pcb->pid;
