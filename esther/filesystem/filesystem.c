@@ -923,7 +923,7 @@ void kernel_escribir(unsigned short bytes) {
 	recv(socket_kernel, &size, sizeof size, 0);
 
 	void *buffer = malloc(size);
-	recv(socket_kernel, buffer, size, 0);
+	recv(socket_kernel, buffer, size, MSG_WAITALL);
 
 	bool respuesta = escribir_archivo(path, offset, size, buffer);
 	free(buffer);
