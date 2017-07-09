@@ -2,9 +2,9 @@
 begin	
 	:etiqueta
 	
-	wait c
-		prints n !colas
-	signal b
+	wait b
+		!colas = !colas +1
+	signal c
 	
 	#Ciclar indefinidamente
 	goto etiqueta

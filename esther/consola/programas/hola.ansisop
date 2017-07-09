@@ -28,7 +28,6 @@ begin
 	f = 0
 
 	:escribirhola
-	
 	escribir a b 4
 	buscar a f
 	e = e - 1
