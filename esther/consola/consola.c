@@ -69,7 +69,11 @@ int main(void) {
 	conectar(&kernel_socket, IP_KERNEL, PUERTO_KERNEL);
 	handshake(kernel_socket, CONSOLA);
 
-	pthread_create(&hilo_receptor, NULL, &recibir_headers, NULL);
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	pthread_create(&hilo_receptor, &attr, &recibir_headers, NULL);
+	pthread_attr_destroy(&attr);
 
 	interaccion_consola();
 	return 0;
@@ -397,12 +401,12 @@ void* manejar_programa(void* arg) {
 			case FINALIZAR_PROGRAMA:
 				eliminar_info_hilo(info->PID);
 				sem_post(&mensaje_resuelto);
-				pthread_exit(NULL);
+				return NULL;
 				break;
 
 			case IMPRIMIR:;
 				char *informacion = malloc(info->bytes_a_recibir);
-				recv(kernel_socket, informacion, info->bytes_a_recibir, 0);
+				recv(kernel_socket, informacion, info->bytes_a_recibir, MSG_WAITALL);
 
 				info->cantidad_impresiones++;
 
@@ -519,10 +523,10 @@ int solo_numeros(char *str) {
 }
 void terminar_consola() {
 	desconectar_hilos();
+	pthread_cancel(hilo_receptor);
 	list_destroy(hilos_programa);
 	sem_destroy(&mensaje_resuelto);
 	logear_info("Chau!");
 	log_destroy(logger);
-	pthread_cancel(hilo_receptor);
 	exit(0);
 }
