@@ -1729,6 +1729,7 @@ void terminar_kernel() {
 		destroy_tabla_archivos_proceso(proceso->pcb->tabla_archivos);
 		destruir_PCB(proceso->pcb);
 		free(proceso->codigo);
+		list_destroy_and_destroy_elements(proceso->paginas_heap, free);
 		free(proceso);
 	}
 	list_destroy_and_destroy_elements(procesos, &borrar_proceso);
