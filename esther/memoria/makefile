@@ -22,5 +22,7 @@ debug: all
 
 clean:
 	rm -f memoria
+	rm -f memoria_*.log
+	rm -f dump_*.txt
 
 .PHONY: compile clean

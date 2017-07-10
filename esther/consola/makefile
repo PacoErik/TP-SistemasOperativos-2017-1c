@@ -18,6 +18,7 @@ debug: MAKE += debug
 debug: all
 
 clean:
-	rm -f consola
+	rm -f $(PROG)
+	rm -f $(PROG)_*.log
 
 .PHONY: compile clean

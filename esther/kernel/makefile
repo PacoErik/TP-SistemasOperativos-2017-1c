@@ -22,5 +22,6 @@ debug: all
 
 clean:
 	rm -f kernel
+	rm -f kernel_*.log
 
 .PHONY: compile clean
