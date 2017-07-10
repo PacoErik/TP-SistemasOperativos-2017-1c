@@ -92,13 +92,13 @@ char *obtener_timestamp(void) {
 	struct tm date_time;
 	struct timeb time_n;
 
-	char *time_str = strdup("YYYYmmddHHMMSSms");
+	char *time_str = strdup("mmddHHMMSSms");
 
 	ftime(&time_n);
 	localtime_r(&time_n.time, &date_time);
 
-	strftime(time_str, 49, "%Y%m%d%H%M%S", &date_time);
-	snprintf(&time_str[14], 3, "%hu", time_n.millitm);
+	strftime(time_str, 11, "%m%d%H%M%S", &date_time);
+	snprintf(&time_str[10], 3, "%hu", time_n.millitm);
 
 	return time_str;
 }
