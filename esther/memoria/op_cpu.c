@@ -45,7 +45,8 @@ int cpu_procesar_operacion(int socket) {
 
 		if (respuesta < 0) {
 			enviar_excepcion(socket, respuesta);
-			logear_error("[PID:%d] CPU intentó acceder a posición de memoria indebida", false, posicion.processID);
+			if (traducir_a_frame(0, posicion.processID) > 0)
+				logear_error("[PID:%d] CPU intentó acceder a posición de memoria indebida", false, posicion.processID);
 		} else {
 			enviar_header(socket, PETICION_CORRECTA, 0);
 			logear_info("[PID:%d] CPU asignó correctamente el contenido", posicion.processID);
