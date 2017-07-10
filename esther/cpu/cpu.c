@@ -632,7 +632,7 @@ t_valor_variable dereferenciar(t_puntero direccion_variable) {
 	}
 
 	if (!programaVivitoYColeando) {
-		logear_error("[Error] Violación de segmento", false);
+		//logear_error("[Error] Violación de segmento", false);
 	}
 
 	return 0;
@@ -655,7 +655,7 @@ void asignar(t_puntero direccion_variable, t_valor_variable valor) {
 	}
 
 	if (!programaVivitoYColeando) {
-		logear_error("[Error] Violación de segmento", false);
+		//logear_error("[Error] Violación de segmento", false);
 	}
 }
 t_valor_variable obtener_valor_compartida(t_nombre_compartida variable) {
