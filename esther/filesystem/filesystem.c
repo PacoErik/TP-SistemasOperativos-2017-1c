@@ -210,7 +210,7 @@ char *leer_archivo(char *ruta, off_t offset, size_t size) {
 						? size
 						: FSMetadata.TAMANIO_BLOQUES - offset_bloque;
 	bytes_leidos = 0;
-	data = calloc(size + 1, sizeof(char));
+	data = calloc(size, sizeof(char));
 
 	while (1) {
 		bytes = fread(&data[bytes_leidos], sizeof(char), bytes_a_leer, archivo_bloque);
@@ -449,7 +449,7 @@ int *asignar_bloques(int n, int **bloques) {
 	for (i = 0, found_n = 0; i < FSMetadata.CANTIDAD_BLOQUES && found_n < n; i++) {
 		/* Encuentra bloques libres */
 		if (bitarray_test_bit(bitmap, i) == 0) {
-			tmp[found_n] = i + 1;
+			tmp[found_n] = i;
 			found_n++;
 		}
 	}
@@ -472,7 +472,7 @@ void liberar_bloques(FileMetadata *file_md) {
 
 	int i;
 	for (i = 0; i < cantidad_bloques; i++) {
-		bitarray_clean_bit(bitmap, file_md->bloques[i] - 1);
+		bitarray_clean_bit(bitmap, file_md->bloques[i]);
 	}
 }
 
@@ -496,7 +496,7 @@ bool actualizar_metadata_bitmap(char *ruta, FileMetadata *file_md) {
 
 	int i;
 	for (i = 0; ; i++) {
-		bitarray_set_bit(bitmap, file_md->bloques[i] - 1); // Numero de bloques empieza desde 1
+		bitarray_set_bit(bitmap, file_md->bloques[i]);
 		fprintf(archivo, "%d", file_md->bloques[i]);
 
 		if (i == cantidad_bloques - 1) {
