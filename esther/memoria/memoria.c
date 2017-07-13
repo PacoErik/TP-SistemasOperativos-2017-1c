@@ -1029,7 +1029,7 @@ void cerrar_conexion(int socketCliente, char* motivo) {
 }
 void enviar_excepcion(int socket_cliente, int excepcion) {
 	enviar_header(socket_cliente, EXCEPCION, sizeof(excepcion));
-	send(socket_cliente, &excepcion, sizeof(excepcion), 0);
+	send(socket_cliente, &excepcion, sizeof(excepcion), MSG_NOSIGNAL);
 }
 
 // EXTRAS

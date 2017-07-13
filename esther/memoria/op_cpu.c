@@ -24,7 +24,7 @@ int cpu_procesar_operacion(int socket) {
 
 		if (buffer != NULL) {
 			enviar_header(socket, SOLICITAR_BYTES, posicion.size);
-			send(socket, buffer, posicion.size, 0);
+			send(socket, buffer, posicion.size, MSG_NOSIGNAL);
 			logear_info("[PID:%d] Se le envió correctamente el contenido a la CPU %d", posicion.processID,socket);
 		} else {
 			enviar_excepcion(socket, FALLO_DE_SEGMENTO);

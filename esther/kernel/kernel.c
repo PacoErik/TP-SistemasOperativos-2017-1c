@@ -400,7 +400,7 @@ void procesar_mensaje(int socket_cliente, char operacion, int bytes) {
 			break;
 
 		default:
-			logear_error("Operación inválida de %s", true, ID_CLIENTE(tipo));
+			logear_error("Operación inválida de %s", false, ID_CLIENTE(tipo));
 			break;
 	}
 }
@@ -541,7 +541,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			enviar_excepcion(socket_cliente, VARIABLE_COMPARTIDA_INEXISTENTE);
 		} else {
 			enviar_header(socket_cliente, OBTENER_VALOR_VARIABLE, sizeof(int));
-			send(socket_cliente, valor, sizeof(int), 0);
+			send(socket_cliente, valor, sizeof(int), MSG_NOSIGNAL);
 		}
 		free(nombre);
 		break;
@@ -552,7 +552,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		nombre = malloc(bytes);
 		recv(socket_cliente, nombre, bytes, MSG_WAITALL);
 		int *valor_nuevo = malloc(sizeof(int));
-		recv(socket_cliente, valor_nuevo, sizeof(int), 0);
+		recv(socket_cliente, valor_nuevo, sizeof(int), MSG_WAITALL);
 
 		if (dictionary_has_key(variables_compartidas, nombre))
 			valor = dictionary_get(variables_compartidas, nombre);
@@ -622,7 +622,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 
 		void *informacion = malloc(bytes);
 		recv(socket_cliente, informacion, bytes, MSG_WAITALL);
-		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -637,8 +637,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			}
 
 			enviar_header(proceso->consola, IMPRIMIR, bytes);
-			send(proceso->consola, &proceso->pcb->pid, sizeof(int), 0);
-			send(proceso->consola, informacion, bytes, 0);
+			send(proceso->consola, &proceso->pcb->pid, sizeof(int), MSG_NOSIGNAL);
+			send(proceso->consola, informacion, bytes, MSG_NOSIGNAL);
 			//logear_info("[PID:%d] Se mandó a imprimir un texto a la consola", proceso->pcb->pid);
 			enviar_header(socket_cliente, PETICION_CORRECTA, 0);
 		} else {
@@ -656,8 +656,8 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		Posicion_memoria pedido;
-		recv(socket_cliente, &pedido, bytes, 0);
-		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &pedido, bytes, MSG_WAITALL);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -687,7 +687,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		t_direccion_archivo direccion = malloc(bytes);
 		recv(socket_cliente, direccion, bytes, MSG_WAITALL);
 		flags_t flags;
-		recv(socket_cliente, &flags, sizeof(flags_t), 0);
+		recv(socket_cliente, &flags, sizeof(flags_t), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -699,7 +699,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 			enviar_excepcion(socket_cliente, respuesta);
 		} else {
 			enviar_header(socket_cliente, ABRIR_ARCHIVO, sizeof(int));
-			send(socket_cliente, &respuesta, sizeof(int), 0);
+			send(socket_cliente, &respuesta, sizeof(int), MSG_NOSIGNAL);
 		}
 		free(direccion);
 		break;
@@ -707,7 +707,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case BORRAR_ARCHIVO:
 		proceso->cantidad_syscalls++;
 
-		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -725,7 +725,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case CERRAR_ARCHIVO:
 		proceso->cantidad_syscalls++;
 
-		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -744,9 +744,9 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 	case MOVER_CURSOR:
 		proceso->cantidad_syscalls++;
 
-		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), 0);
+		recv(socket_cliente, &descriptor, sizeof(t_descriptor_archivo), MSG_WAITALL);
 		t_valor_variable posicion;
-		recv(socket_cliente, &posicion, sizeof(t_valor_variable), 0);
+		recv(socket_cliente, &posicion, sizeof(t_valor_variable), MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -766,7 +766,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		int bytes_pedidos;
-		recv(socket_cliente, &bytes_pedidos, bytes, 0);
+		recv(socket_cliente, &bytes_pedidos, bytes, MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -790,7 +790,7 @@ void procesar_operaciones_CPU(int socket_cliente, char operacion, int bytes) {
 		proceso->cantidad_syscalls++;
 
 		t_puntero puntero;
-		recv(socket_cliente, &puntero, bytes, 0);
+		recv(socket_cliente, &puntero, bytes, MSG_WAITALL);
 
 		if (proceso_segun_pid(proceso->pcb->pid) == NULL) {
 			enviar_excepcion(socket_cliente, EXCEPCION_KERNEL);
@@ -1116,7 +1116,10 @@ void listar_procesos_en_estado(int estado) {
 //MANEJO DE PROCESOS//
 int actualizar_PCB(int socket_cliente, int bytes) {
 	void *buffer_PCB = malloc(bytes);
-	recv(socket_cliente, buffer_PCB, bytes, MSG_WAITALL);
+	if (recv(socket_cliente, buffer_PCB, bytes, MSG_WAITALL) <= 0) {
+		free(buffer_PCB);
+		return -1;
+	}
 	PCB *pcb = deserializar_PCB(buffer_PCB);
 	int PID = pcb->pid;
 	free(buffer_PCB);
@@ -1486,7 +1489,7 @@ void planificar() {
 				//ya que este valor es variable a lo largo de la vida del sistema
 				if (algoritmo_actual_es("RR")) {
 					enviar_header(cpu->socketCliente, QUANTUM_SLEEP, sizeof(int));
-					send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), 0);
+					send(cpu->socketCliente, &QUANTUM_SLEEP_VALUE, sizeof(int), MSG_NOSIGNAL);
 				}
 
 				proceso->estado = EXEC;
@@ -1499,7 +1502,7 @@ void planificar() {
 				void *buffer = serializar_PCB(proceso->pcb, &buffersize);
 
 				enviar_header(cpu->socketCliente, PCB_INCOMPLETO, buffersize);
-				send(cpu->socketCliente, buffer, buffersize, 0);
+				send(cpu->socketCliente, buffer, buffersize, MSG_NOSIGNAL);
 				free(buffer);
 
 				list_add(procesos, proceso);
