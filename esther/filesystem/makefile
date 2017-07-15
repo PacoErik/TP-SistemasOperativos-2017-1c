@@ -22,6 +22,8 @@ debug: all
 clean:
 	rm -f $(PROG)
 	rm -f $(PROG)_*.log
+
+cleanall: clean
 	rm -rf mnt/SADICA_FS/Archivos/*
 	rm -rf mnt/SADICA_FS/Bloques/*
 	dd if=/dev/zero of="$(BITMAP)" count=1 bs=$$(stat -c%s "$(BITMAP)")
