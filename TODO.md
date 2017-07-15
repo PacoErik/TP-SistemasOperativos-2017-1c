@@ -58,7 +58,7 @@ incorporando las estructuras del FileSystem y una caché que deberá aumentar am
 
 - [x] El Kernel ya permite ejecutar varios programas en paralelo. Se debe prestar especial atención a la hora de sincronizar la aplicación para soportar las transiciones de múltiples programas.
 
-- [ ] Se amplía la capa de Memoria del Kernel, encargada de administrar las syscalls que requieren acceso a la creación de memoria dinámica del programa (malloc).
+- [X] Se amplía la capa de Memoria del Kernel, encargada de administrar las syscalls que requieren acceso a la creación de memoria dinámica del programa (malloc).
 
 - [X] Se crea la capa de FileSystem en el Kernel, encargada de manejar la tabla de archivos por proceso y tabla de archivos globales. Se implementan las syscalls de la CPU que permiten abrir y cerrar archivos, junto con los comandos de la consola del kernel que permiten manejar dichas estructuras.
 
@@ -87,4 +87,4 @@ funcionando.
 
 - [x] Sufrir una crisis existencial
 
-- [ ] Aprobar el TP xD
+- [X] Aprobar el TP xD
