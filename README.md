@@ -1,8 +1,7 @@
 # El Stack The Revenge
 Trabajo práctico de Sistemas Operativos.
 
-![QEPD](https://i.ytimg.com/vi/8TgHRoOMWMk/maxresdefault.jpg?raw=true "ｑｕｅ  ｅｎ  ｐａｚ  ｄｅｓｃａｎｓｅｍｏｓ")
-=============
+# Grupo: QEPD
 
 ## Instrucciones
 
@@ -16,10 +15,10 @@ Trabajo práctico de Sistemas Operativos.
 * Disfrute ejecutando los programitas :smile:.
 
 ## Links
-[ESTheR](http://www.utn.so/wp-content/uploads/2017/03/1C2017-ESTheRElStackTheRevengeV1.0-1.pdf) - Enunciado del trabajo práctico
+[ESTheR](http://www.utnso.com/wp-content/uploads/2017/03/1C2017-ESTheRElStackTheRevengeV1.0-1.pdf) - Enunciado del trabajo práctico
 
 [Commons Library For C](https://github.com/sisoputnfrba/so-commons-library) - Las commons libraries papá
 
 [AnSISOP Parser](https://github.com/sisoputnfrba/ansisop-parser) - AnSISOP Parser
 
-[FAQ](http://faq.utn.so/) - Varios links útiles
+[FAQ](http://faq.utnso.com/) - Varios links útiles
